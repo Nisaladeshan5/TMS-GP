@@ -10,7 +10,7 @@
             text-decoration: none !important;
         }
         button {
-            border-radius: 1.25rem !important;
+            border-radius: 0.6rem !important;
         }
     </style>
     <title>Side Navbar with Tailwind CSS</title>
