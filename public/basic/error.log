@@ -1,0 +1,25 @@
+[02-Sep-2025 09:18:35 UTC] PHP Fatal error:  Uncaught Error: mysqli_stmt object is already closed in C:\wamp64\www\TMS\public\basic\add_vehicle.php:71
+Stack trace:
+#0 C:\wamp64\www\TMS\public\basic\add_vehicle.php(71): mysqli_stmt->close()
+#1 {main}
+  thrown in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 71
+[09-Sep-2025 07:30:29 UTC] PHP Fatal error:  Uncaught mysqli_sql_exception: Unknown column 'vehicle.fuel_rate_id' in 'on clause' in C:\wamp64\www\TMS\public\basic\vehicle.php:158
+Stack trace:
+#0 C:\wamp64\www\TMS\public\basic\vehicle.php(158): mysqli->prepare('SELECT vehicle....')
+#1 {main}
+  thrown in C:\wamp64\www\TMS\public\basic\vehicle.php on line 158
+[09-Sep-2025 07:30:58 UTC] PHP Fatal error:  Uncaught mysqli_sql_exception: Unknown column 'vehicle.fuel_rate_id' in 'on clause' in C:\wamp64\www\TMS\public\basic\vehicle.php:158
+Stack trace:
+#0 C:\wamp64\www\TMS\public\basic\vehicle.php(158): mysqli->prepare('SELECT vehicle....')
+#1 {main}
+  thrown in C:\wamp64\www\TMS\public\basic\vehicle.php on line 158
+[09-Sep-2025 07:33:01 UTC] PHP Fatal error:  Uncaught mysqli_sql_exception: Unknown column 'vehicle.fuel_rate_id' in 'on clause' in C:\wamp64\www\TMS\public\basic\vehicle.php:158
+Stack trace:
+#0 C:\wamp64\www\TMS\public\basic\vehicle.php(158): mysqli->prepare('SELECT vehicle....')
+#1 {main}
+  thrown in C:\wamp64\www\TMS\public\basic\vehicle.php on line 158
+[09-Sep-2025 07:33:27 UTC] PHP Fatal error:  Uncaught mysqli_sql_exception: Unknown column 'fuel_rate_id' in 'field list' in C:\wamp64\www\TMS\public\basic\vehicle.php:136
+Stack trace:
+#0 C:\wamp64\www\TMS\public\basic\vehicle.php(136): mysqli->query('SELECT fuel_rat...')
+#1 {main}
+  thrown in C:\wamp64\www\TMS\public\basic\vehicle.php on line 136

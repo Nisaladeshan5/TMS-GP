@@ -1,3 +1,9 @@
+<?php
+include('../../../includes/db.php');
+include('../../../includes/header.php');
+include('../../../includes/navbar.php');
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,212 +19,289 @@
     </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen">
-    <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-lg">
-        <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">Transport Scan Terminal</h1>
-
-        <div class="mb-4">
-            <label for="barcodeInput" class="block text-gray-700 text-sm font-bold mb-2">Scan Route Barcode:</label>
-            <input type="text" id="barcodeInput" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Scan route barcode..." autofocus>
+    <div class="w-[85%] ml-[15%]">
+        <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-full">
+            <div class="text-lg font-semibold ml-3">Registers</div>
+            <div class="flex gap-4 pr-4">
+                <a href="" class="hover:text-yellow-600">Factory Register</a>
+                <a href="../Staff transport vehicle register.php" class="hover:text-yellow-600">Staff Register</a>
+            </div>
         </div>
+        <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-lg mt-20 mx-auto">
+            <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">Transport Scan Terminal</h1>
 
-        <div id="transportDetails" class="hidden bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-4">
-            <h2 class="text-xl font-semibold mb-2">Scan Details:</h2>
-            <p><strong>Route Name:</strong> <span id="detailRouteName" class="font-bold"></span></p>
-            <p><strong>Shift:</strong> <span id="detailShift" class="font-bold"></span></p>
-            <p><strong>Transaction Type:</strong> <span id="detailTransactionType" class="font-bold"></span></p>
-
-            <div class="mt-4">
-                <label for="editableVehicleNo" class="block text-gray-700 text-sm font-bold mb-2">Vehicle No:</label>
-                <input type="text" id="editableVehicleNo" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            <div class="mb-4">
+                <label for="barcodeInput" class="block text-gray-700 text-sm font-bold mb-2">Scan Route Barcode:</label>
+                <input type="text" id="barcodeInput" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="Scan route barcode..." autofocus>
             </div>
 
-            <div class="mt-2">
-                <label for="editableDriverCallingName" class="block text-gray-700 text-sm font-bold mb-2">Driver Calling Name:</label>
-                <input type="text" id="editableDriverCallingName" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            <div id="transportDetails" class="hidden bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-4">
+                <h2 class="text-xl flex items-center justify-center font-semibold mb-2">Scan Details</h2>
+                <p class="text-black"><strong>Route Name :</strong> <span id="detailRouteName" class="font-bold text-blue-800"></span></p>
+                <p class="text-black"><strong>Shift :</strong> <span id="detailShift" class="font-bold text-blue-800"></span></p>
+                <p class="text-black"><strong>Transaction Type :</strong> <span id="detailTransactionType" class="font-bold text-blue-800"></span></p>
+
+                <div class="mt-4 flex items-center justify-between">
+                    <label class="block text-gray-700 text-sm font-bold">Vehicle No:</label>
+                    <div class="flex items-center">
+                        <span id="displayVehicleNo" class="font-bold text-gray-800 mr-4"></span>
+                        <input type="text" id="editableVehicleNo" class="hidden shadow appearance-none border rounded-lg py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        <div class="flex items-center">
+                            <input type="checkbox" id="unknownVehicleToggle" class="h-4 w-4 text-yellow-600 focus:ring-yellow-500 border-gray-300 rounded">
+                            <label for="unknownVehicleToggle" class="ml-2 text-sm text-gray-700">Unknown</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-2 flex items-center justify-between">
+                    <label class="block text-gray-700 text-sm font-bold">Driver NIC:</label>
+                    <div class="flex items-center">
+                        <span id="displayDriverNIC" class="font-bold text-gray-800 mr-4"></span>
+                        <input type="text" id="editableDriverNIC" class="hidden shadow appearance-none border rounded-lg py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                        <div class="flex items-center">
+                            <input type="checkbox" id="unknownDriverToggle" class="h-4 w-4 text-yellow-600 focus:ring-yellow-500 border-gray-300 rounded">
+                            <label for="unknownDriverToggle" class="ml-2 text-sm text-gray-700">Unknown</label>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" id="originalRouteCode">
+                <input type="hidden" id="existingRecordId">
             </div>
 
-            <input type="hidden" id="originalRouteCode">
-            <input type="hidden" id="existingRecordId">
-        </div>
-
-        <div id="actionButtons" class="hidden flex justify-center space-x-4 mt-6">
-            <button id="submitBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
-                Confirm & Record
-            </button>
-            <button id="cancelBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
-                Cancel
-            </button>
-        </div>
+            <div id="actionButtons" class="hidden flex justify-center space-x-4 mt-6">
+                <button id="submitBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Confirm & Record
+                </button>
+                <button id="cancelBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline shadow-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    Cancel
+                </button>
+            </div>
 
         <div id="messageBox" class="mt-4 p-3 rounded-lg text-center hidden"></div>
+        </div>
     </div>
 
     <script>
-        const barcodeInput = document.getElementById('barcodeInput');
-        const transportDetailsDiv = document.getElementById('transportDetails');
-        const detailRouteName = document.getElementById('detailRouteName');
-        const detailShift = document.getElementById('detailShift');
-        const detailTransactionType = document.getElementById('detailTransactionType');
-        const editableVehicleNo = document.getElementById('editableVehicleNo');
-        const editableDriverCallingName = document.getElementById('editableDriverCallingName');
-        const originalRouteCode = document.getElementById('originalRouteCode');
-        const existingRecordId = document.getElementById('existingRecordId');
-        const actionButtonsDiv = document.getElementById('actionButtons');
-        const submitBtn = document.getElementById('submitBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const messageBox = document.getElementById('messageBox');
+    const barcodeInput = document.getElementById('barcodeInput');
+    const transportDetailsDiv = document.getElementById('transportDetails');
+    const detailRouteName = document.getElementById('detailRouteName');
+    const detailShift = document.getElementById('detailShift');
+    const detailTransactionType = document.getElementById('detailTransactionType');
 
-        let currentScanData = null; // To store fetched data temporarily
+    const displayVehicleNo = document.getElementById('displayVehicleNo');
+    const editableVehicleNo = document.getElementById('editableVehicleNo');
+    const unknownVehicleToggle = document.getElementById('unknownVehicleToggle');
 
-        // Function to show messages
-        function showMessage(message, type = 'info') {
-            messageBox.textContent = message;
-            messageBox.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800', 'bg-yellow-100', 'text-yellow-800');
-            if (type === 'success') {
-                messageBox.classList.add('bg-green-100', 'text-green-800');
-            } else if (type === 'error') {
-                messageBox.classList.add('bg-red-100', 'text-red-800');
-            } else { // info
-                messageBox.classList.add('bg-yellow-100', 'text-yellow-800');
+    const displayDriverNIC = document.getElementById('displayDriverNIC');
+    const editableDriverNIC = document.getElementById('editableDriverNIC');
+    const unknownDriverToggle = document.getElementById('unknownDriverToggle');
+
+    const originalRouteCode = document.getElementById('originalRouteCode');
+    const existingRecordId = document.getElementById('existingRecordId');
+    const actionButtonsDiv = document.getElementById('actionButtons');
+    const submitBtn = document.getElementById('submitBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const messageBox = document.getElementById('messageBox');
+
+    let currentScanData = null;
+    let scanTimeout;
+
+    function showMessage(message, type = 'info') {
+        messageBox.textContent = message;
+        messageBox.className = `mt-4 p-3 rounded-lg text-center ${
+            type === 'success' ? 'bg-green-100 text-green-800' :
+            type === 'error' ? 'bg-red-100 text-red-800' :
+            'bg-yellow-100 text-yellow-800'
+        }`;
+        messageBox.style.display = 'block';
+        setTimeout(() => {
+            messageBox.style.display = 'none';
+        }, 5000);
+    }
+
+    function getCurrentShift() {
+        const hour = new Date().getHours();
+        return (hour >= 0 && hour < 12) ? 'morning' : 'evening';
+    }
+
+    // New event listener for the 'input' event
+    barcodeInput.addEventListener('input', function(event) {
+        // Clear the previous timeout
+        clearTimeout(scanTimeout);
+
+        // Set a new timeout to process the barcode after a short delay
+        scanTimeout = setTimeout(() => {
+            const routeCode = barcodeInput.value.trim();
+            if (routeCode) {
+                fetchTransportDetails(routeCode);
+                barcodeInput.value = ''; // Clear the input field after successful scan
             }
-            messageBox.style.display = 'block'; // Ensure it's visible
-            setTimeout(() => {
-                messageBox.style.display = 'none'; // Hide after 5 seconds
-            }, 5000);
+        }, 50); // 50ms delay to ensure the full barcode is read
+    });
+
+    unknownVehicleToggle.addEventListener('change', function() {
+        if (this.checked) {
+            displayVehicleNo.classList.add('hidden');
+            editableVehicleNo.classList.remove('hidden');
+            editableVehicleNo.focus();
+        } else {
+            displayVehicleNo.classList.remove('hidden');
+            editableVehicleNo.classList.add('hidden');
+            editableVehicleNo.value = displayVehicleNo.textContent;
         }
+    });
 
-        // Helper to get current shift
-        function getCurrentShift() {
-            const hour = new Date().getHours();
-            return (hour >= 0 && hour < 12) ? 'morning' : 'evening';
+    unknownDriverToggle.addEventListener('change', function() {
+        if (this.checked) {
+            displayDriverNIC.classList.add('hidden');
+            editableDriverNIC.classList.remove('hidden');
+            editableDriverNIC.focus();
+        } else {
+            displayDriverNIC.classList.remove('hidden');
+            editableDriverNIC.classList.add('hidden');
+            editableDriverNIC.value = displayDriverNIC.textContent;
         }
+    });
 
-        // Handle barcode input (assuming scanner acts as keyboard)
-        barcodeInput.addEventListener('keypress', function(event) {
-            if (event.key === 'Enter') {
-                event.preventDefault(); // Prevent form submission
-                const routeCode = barcodeInput.value.trim();
-                if (routeCode) {
-                    fetchTransportDetails(routeCode);
-                    barcodeInput.value = ''; // Clear input after reading
-                } else {
-                    showMessage('Please scan a route barcode.', 'info');
-                }
-            }
-        });
+    function fetchTransportDetails(routeCode) {
+        resetUI();
+        showMessage('Fetching transport details...', 'info');
 
-        // Fetch transport details from PHP
-        function fetchTransportDetails(routeCode) {
-            transportDetailsDiv.classList.add('hidden');
-            actionButtonsDiv.classList.add('hidden');
-            showMessage('Fetching transport details...', 'info');
-
-            fetch(`get_transport_details.php?route_code=${encodeURIComponent(routeCode)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        currentScanData = data;
-                        // Corrected assignments to match PHP JSON keys
-                        detailRouteName.textContent = data.route_name;
-                        detailShift.textContent = getCurrentShift().charAt(0).toUpperCase() + getCurrentShift().slice(1); // Capitalize
-                        detailTransactionType.textContent = data.transaction_type.toUpperCase();
-                        editableVehicleNo.value = data.default_vehicle_no;
-                        editableDriverCallingName.value = data.default_driver_calling_name;
-                        originalRouteCode.value = routeCode; // Store original barcode
-                        existingRecordId.value = data.existing_record_id || ''; // Store ID for 'out' updates
-
-                        transportDetailsDiv.classList.remove('hidden');
-                        actionButtonsDiv.classList.remove('hidden');
-                        showMessage(data.message, 'success');
-                    } else {
-                        showMessage(data.message, 'error');
-                        currentScanData = null;
-                        resetUI(); // Clear any previous details
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('An error occurred while fetching details.', 'error');
-                    currentScanData = null;
-                    resetUI();
-                });
-        }
-
-        // Submit button click
-        submitBtn.addEventListener('click', function() {
-            if (currentScanData) {
-                const routeCode = originalRouteCode.value;
-                const vehicleNo = editableVehicleNo.value.trim();
-                const driverCallingName = editableDriverCallingName.value.trim();
-                const transactionType = currentScanData.transaction_type; // Use the type determined by PHP
-                const recordId = existingRecordId.value;
-
-                if (!vehicleNo || !driverCallingName) {
-                    showMessage('Vehicle No and Driver Calling Name cannot be empty.', 'error');
-                    return;
-                }
-
-                submitTransportTransaction(routeCode, vehicleNo, driverCallingName, transactionType, recordId);
-            } else {
-                showMessage('No scan details to submit.', 'error');
-            }
-        });
-
-        // Cancel button click
-        cancelBtn.addEventListener('click', function() {
-            resetUI();
-            showMessage('Scan cancelled. Ready for new scan.', 'info');
-        });
-
-        // Submit transaction to PHP
-        function submitTransportTransaction(routeCode, vehicleNo, driverCallingName, transactionType, recordId) {
-            showMessage('Submitting transaction...', 'info');
-
-            const formData = new FormData();
-            formData.append('route_code', routeCode);
-            formData.append('vehicle_no', vehicleNo);
-            formData.append('driver_calling_name', driverCallingName); // This matches the PHP POST expectation
-            formData.append('transaction_type', transactionType);
-            if (recordId) {
-                formData.append('existing_record_id', recordId);
-            }
-
-            fetch('submit_transport_transaction.php', {
-                method: 'POST',
-                body: formData
-            })
+        fetch(`get_transport_details.php?route_code=${encodeURIComponent(routeCode)}&shift=${encodeURIComponent(getCurrentShift())}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    currentScanData = data;
+                    detailRouteName.textContent = data.route_name;
+                    detailShift.textContent = getCurrentShift().charAt(0).toUpperCase() + getCurrentShift().slice(1);
+                    detailTransactionType.textContent = data.transaction_type.toLowerCase();
+
+                    // Set values and conditionally hide/show "Unknown" toggles
+                    if (data.transaction_type === 'out') {
+                        displayVehicleNo.textContent = data.vehicle_no; // from the `in` record
+                        displayDriverNIC.textContent = data.driver_nic;  // from the `in` record
+                        
+                        // Hide the "Unknown" toggles for 'out' transactions
+                        document.getElementById('unknownVehicleToggle').parentNode.style.display = 'none';
+                        document.getElementById('unknownDriverToggle').parentNode.style.display = 'none';
+
+                    } else { // For 'in' transactions
+                        displayVehicleNo.textContent = data.default_vehicle_no;
+                        displayDriverNIC.textContent = data.default_driver_nic;
+
+                        // Show the "Unknown" toggles for 'in' transactions
+                        document.getElementById('unknownVehicleToggle').parentNode.style.display = 'flex';
+                        document.getElementById('unknownDriverToggle').parentNode.style.display = 'flex';
+                    }
+
+                    originalRouteCode.value = routeCode;
+                    existingRecordId.value = data.existing_record_id || '';
+
+                    transportDetailsDiv.classList.remove('hidden');
+                    actionButtonsDiv.classList.remove('hidden');
                     showMessage(data.message, 'success');
-                    resetUI();
                 } else {
                     showMessage(data.message, 'error');
+                    currentScanData = null;
                 }
             })
             .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('An error occurred while submitting transaction.', 'error');
+                console.error('Error:', error);
+                showMessage('An error occurred while fetching details.', 'error');
+                currentScanData = null;
             });
+    }
+
+    submitBtn.addEventListener('click', function() {
+        if (currentScanData) {
+            const routeCode = originalRouteCode.value;
+            const transactionType = currentScanData.transaction_type;
+            const recordId = existingRecordId.value;
+            const shift = getCurrentShift();
+
+            const vehicleNo = unknownVehicleToggle.checked ? editableVehicleNo.value.trim() : displayVehicleNo.textContent;
+            const driverNIC = unknownDriverToggle.checked ? editableDriverNIC.value.trim() : displayDriverNIC.textContent;
+            
+            const vehicleStatus = unknownVehicleToggle.checked ? 0 : 1;
+            const driverStatus = unknownDriverToggle.checked ? 0 : 1;
+
+            if (!vehicleNo || !driverNIC) {
+                showMessage('Vehicle No and Driver NIC cannot be empty.', 'error');
+                return;
+            }
+
+            submitTransportTransaction(routeCode, vehicleNo, driverNIC, transactionType, recordId, shift, vehicleStatus, driverStatus);
+        } else {
+            showMessage('No scan details to submit.', 'error');
+        }
+    });
+
+    cancelBtn.addEventListener('click', function() {
+        resetUI();
+        showMessage('Scan cancelled. Ready for new scan.', 'info');
+    });
+
+    function submitTransportTransaction(routeCode, vehicleNo, driverNIC, transactionType, recordId, shift, vehicleStatus, driverStatus) {
+        showMessage('Submitting transaction...', 'info');
+
+        const formData = new FormData();
+        formData.append('route_code', routeCode);
+        formData.append('vehicle_no', vehicleNo);
+        formData.append('driver_nic', driverNIC); 
+        formData.append('transaction_type', transactionType);
+        formData.append('shift', shift);
+        formData.append('vehicle_status', vehicleStatus);
+        formData.append('driver_status', driverStatus);
+        if (recordId) {
+            formData.append('existing_record_id', recordId);
         }
 
-        // Reset UI to initial state
-        function resetUI() {
-            transportDetailsDiv.classList.add('hidden');
-            actionButtonsDiv.classList.add('hidden');
-            detailRouteName.textContent = '';
-            detailShift.textContent = '';
-            detailTransactionType.textContent = '';
-            editableVehicleNo.value = '';
-            editableDriverCallingName.value = '';
-            originalRouteCode.value = '';
-            existingRecordId.value = '';
-            currentScanData = null;
-            barcodeInput.focus(); // Keep focus on the input for next scan
-        }
+        fetch('submit_transport_transaction.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage(data.message, 'success');
+                resetUI();
+            } else {
+                showMessage(data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showMessage('An error occurred while submitting transaction.', 'error');
+        });
+    }
 
-        // Initial focus on barcode input
+    function resetUI() {
+        transportDetailsDiv.classList.add('hidden');
+        actionButtonsDiv.classList.add('hidden');
+        detailRouteName.textContent = '';
+        detailShift.textContent = '';
+        detailTransactionType.textContent = '';
+        
+        displayVehicleNo.textContent = '';
+        editableVehicleNo.value = '';
+        editableVehicleNo.classList.add('hidden');
+        displayVehicleNo.classList.remove('hidden');
+        unknownVehicleToggle.checked = false;
+
+        displayDriverNIC.textContent = '';
+        editableDriverNIC.value = '';
+        editableDriverNIC.classList.add('hidden');
+        displayDriverNIC.classList.remove('hidden');
+        unknownDriverToggle.checked = false;
+        
+        originalRouteCode.value = '';
+        existingRecordId.value = '';
+        currentScanData = null;
         barcodeInput.focus();
-    </script>
+    }
+
+    barcodeInput.focus();
+</script>
 </body>
 </html>

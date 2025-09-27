@@ -7,6 +7,4 @@ include('../includes/navbar.php'); // Include the top navbar
 
 // Fetch Running Chart details
 include('home.php');
-
-include('../includes/footer.php');
 ?>

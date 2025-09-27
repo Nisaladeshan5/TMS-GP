@@ -3,79 +3,69 @@ include('../../../includes/db.php');
 
 header('Content-Type: application/json');
 
-$route_code = $_POST['route_code'] ?? '';
-$entered_vehicle_no = $_POST['vehicle_no'] ?? '';
-$entered_driver_calling_name = $_POST['calling_name'] ?? '';
-$transaction_type = $_POST['transaction_type'] ?? 'in'; // 'in' or 'out'
-$existing_record_id = $_POST['existing_record_id'] ?? null;
+date_default_timezone_set('Asia/Colombo');
 
-if (empty($route_code) || empty($entered_vehicle_no) || empty($entered_driver_calling_name)) {
-    echo json_encode(['success' => false, 'message' => 'All fields are required.']);
-    exit();
-}
+$response = array();
 
-$current_datetime = date('Y-m-d H:i:s');
-$current_date = date('Y-m-d');
-$current_hour = date('H');
-$shift = ($current_hour >= 0 && $current_hour < 12) ? 'morning' : 'evening';
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $route_code = $_POST['route_code'];
+    $transaction_type = $_POST['transaction_type']; // 'in' or 'out'
+    $shift = $_POST['shift'];
+    $record_id = isset($_POST['existing_record_id']) ? $_POST['existing_record_id'] : null;
 
-// Get the actual route name from route_code (for consistency and safety)
-$route_name = '';
-$stmt_route = $conn->prepare("SELECT route FROM route WHERE route_code = ?");
-$stmt_route->bind_param("s", $route_code);
-$stmt_route->execute();
-$result_route = $stmt_route->get_result();
-if ($result_route->num_rows > 0) {
-    $route_name = $result_route->fetch_assoc()['route'];
-}
-$stmt_route->close();
+    $entered_vehicle_no = $_POST['vehicle_no'];
+    $entered_driver_nic = $_POST['driver_nic'];
+    $vehicle_status = $_POST['vehicle_status'];
+    $driver_status = $_POST['driver_status'];
 
-if (empty($route_name)) {
-    echo json_encode(['success' => false, 'message' => 'Invalid route code provided.']);
-    exit();
-}
+    $current_date = date('Y-m-d');
+    $current_time = date('H:i:s');
+    
+    // Fetch the assigned vehicle and driver from the route table
+    $stmt_default = $conn->prepare("SELECT r.route, r.vehicle_no, v.driver_NIC FROM route r JOIN vehicle v ON r.vehicle_no = v.vehicle_no WHERE r.route_code = ?");
+    $stmt_default->bind_param("s", $route_code);
+    $stmt_default->execute();
+    $result_default = $stmt_default->get_result();
+    $default_data = $result_default->fetch_assoc();
+    $assigned_vehicle_no = $default_data['vehicle_no'];
+    $assigned_driver_nic = $default_data['driver_NIC'];
+    $stmt_default->close();
 
-$success = false;
-$message = '';
+    // Determine the final values to store in the database
+    $actual_vehicle_no_to_store = ($vehicle_status == 0) ? $entered_vehicle_no : $assigned_vehicle_no;
+    $driver_nic_to_store = ($driver_status == 0) ? $entered_driver_nic : $assigned_driver_nic;
 
-if ($transaction_type === 'in') {
-    // Insert new 'in' record
-    $stmt = $conn->prepare("INSERT INTO staff_transport_vehicle_register (vehicle_no, date, shift, route, driver, in_time) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("ssssss", $entered_vehicle_no, $current_date, $shift, $route_name, $entered_driver_calling_name, $current_datetime);
+    if ($transaction_type === 'in') {
+        // Insert a new 'in' transaction with `time_in` only
+        $stmt = $conn->prepare("INSERT INTO staff_transport_vehicle_register (route, vehicle_no, actual_vehicle_no, vehicle_status, driver_NIC, driver_status, shift, date, in_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("sssssssss", $route_code, $assigned_vehicle_no, $actual_vehicle_no_to_store, $vehicle_status, $driver_nic_to_store, $driver_status, $shift, $current_date, $current_time);
+
+    } elseif ($transaction_type === 'out' && $record_id) {
+        // Update the existing record with `out_time` only
+        $stmt = $conn->prepare("UPDATE staff_transport_vehicle_register SET out_time = ? WHERE id = ?");
+        $stmt->bind_param("si", $current_time, $record_id);
+
+    } else {
+        $response['success'] = false;
+        $response['message'] = "Invalid transaction type or missing record ID for 'out' transaction.";
+        echo json_encode($response);
+        exit;
+    }
 
     if ($stmt->execute()) {
-        $success = true;
-        $message = 'In-time recorded successfully.';
+        $response['success'] = true;
+        $response['message'] = ucfirst($transaction_type) . " transaction recorded successfully!";
     } else {
-        // Check for duplicate entry error (e.g., if unique_in_scan constraint is violated)
-        if ($conn->errno == 1062) { // MySQL error code for duplicate entry
-            $message = 'An "in" record already exists for this vehicle, route, and shift on this date. Please record an "out" time or scan a different route.';
-        } else {
-            $message = 'Failed to record in-time: ' . $stmt->error;
-        }
+        $response['success'] = false;
+        $response['message'] = "Database error: " . $stmt->error;
     }
-    $stmt->close();
 
-} elseif ($transaction_type === 'out' && !empty($existing_record_id)) {
-    // Update existing record with 'out' time
-    $stmt = $conn->prepare("UPDATE staff_transport_vehicle_register SET out_time = ?, vehicle_no = ?, driver = ? WHERE id = ? AND out_time IS NULL");
-    $stmt->bind_param("sssi", $current_datetime, $entered_vehicle_no, $entered_driver_calling_name, $existing_record_id);
-
-    if ($stmt->execute()) {
-        if ($stmt->affected_rows > 0) {
-            $success = true;
-            $message = 'Out-time recorded successfully.';
-        } else {
-            $message = 'Failed to update out-time. Record not found or out-time already recorded.';
-        }
-    } else {
-        $message = 'Failed to record out-time: ' . $stmt->error;
-    }
     $stmt->close();
 } else {
-    $message = 'Invalid transaction type or missing record ID for out-time.';
+    $response['success'] = false;
+    $response['message'] = "Invalid request method.";
 }
 
 $conn->close();
-echo json_encode(['success' => $success, 'message' => $message]);
+echo json_encode($response);
 ?>
