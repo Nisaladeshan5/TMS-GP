@@ -1,84 +1,92 @@
 <?php
-// Include the database connection file
-include('../../includes/db.php');
+// Include necessary files
+include('../../includes/db.php'); // Assuming this includes the $conn variable for database connection
 
-// Get the parameters from the URL
+// -----------------------------------------------------------
+// 1. Setup and Input Validation
+// -----------------------------------------------------------
+
+// Get selected month and year from GET parameters
 $selected_month = isset($_GET['month']) ? $_GET['month'] : date('m');
 $selected_year = isset($_GET['year']) ? $_GET['year'] : date('Y');
 
-// Set the HTTP headers for Excel file download
-header("Content-Type: application/vnd.ms-excel; charset=utf-8");
-header("Content-Disposition: attachment; filename=Night_Emergency_Payments_{$selected_month}_{$selected_year}.xls");
-header("Pragma: no-cache");
-header("Expires: 0");
+// Basic sanitization (assuming $conn is a mysqli object and db.php connects securely)
+$selected_month = htmlspecialchars($selected_month);
+$selected_year = htmlspecialchars($selected_year);
 
-// HTML for the Excel file
-echo "<html>";
-echo "<head><meta charset='utf-8'></head>";
-echo "<body>";
-echo "<h1>Night Emergency Payments Summary - " . date('F Y', mktime(0, 0, 0, $selected_month, 1, $selected_year)) . "</h1>";
-echo "<table border='1'>";
-echo "<thead>";
-echo "<tr>";
-echo "<th>Supplier</th>";
-echo "<th>Supplier Code</th>";
-echo "<th>Worked Days</th>";
-echo "<th>Day Rate (LKR)</th>";
-echo "<th>Total Payment (LKR)</th>";
-echo "</tr>";
-echo "</thead>";
-echo "<tbody>";
+// Generate filename for the downloaded file
+$month_name = date('F', mktime(0, 0, 0, (int)$selected_month, 1));
+$filename = "Night_Emergency_Payments_{$month_name}_{$selected_year}.csv";
 
-// Fetch suppliers and their night emergency worked days and day rates
+// -----------------------------------------------------------
+// 2. Database Query
+// -----------------------------------------------------------
+
+// SQL query to fetch payment from monthly_payment_ne AND count attendance
+// This is the same query used in night_emergency_payments.php
 $sql = "SELECT
             s.supplier,
             s.supplier_code,
-            COUNT(nea.date) AS worked_days,
-            COALESCE(nedr.day_rate, 0) AS day_rate,
-            (COALESCE(nedr.day_rate, 0) * COUNT(nea.date)) AS total_payment
-        FROM night_emergency_attendance AS nea
-        JOIN supplier AS s ON nea.supplier_code = s.supplier_code
-        LEFT JOIN night_emergency_day_rate AS nedr
-            ON nedr.supplier_code = s.supplier_code
-           AND STR_TO_DATE(CONCAT(nedr.year, '-', nedr.month, '-01'), '%Y-%m-%d') = (
-                SELECT MAX(STR_TO_DATE(CONCAT(nedr2.year, '-', nedr2.month, '-01'), '%Y-%m-%d'))
-                FROM night_emergency_day_rate AS nedr2
-                WHERE nedr2.supplier_code = s.supplier_code
-                  AND STR_TO_DATE(CONCAT(nedr2.year, '-', nedr2.month, '-01'), '%Y-%m-%d')
-                      <= STR_TO_DATE(CONCAT(?, '-', ?, '-01'), '%Y-%m-%d')
-           )
-        WHERE MONTH(nea.date) = ? AND YEAR(nea.date) = ?
-        GROUP BY s.supplier, s.supplier_code, nedr.day_rate
-        ORDER BY s.supplier ASC";
+            mpn.monthly_payment AS total_payment,
+            (SELECT COUNT(nea.date)
+             FROM night_emergency_attendance AS nea
+             WHERE nea.supplier_code = s.supplier_code
+               AND MONTH(nea.date) = ?
+               AND YEAR(nea.date) = ?) AS total_worked_days
+        FROM monthly_payment_ne AS mpn
+        JOIN supplier AS s
+            ON mpn.supplier_code = s.supplier_code
+        WHERE
+            mpn.month = ?
+            AND mpn.year = ?
+        ORDER BY
+            s.supplier ASC";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("siii", $selected_year, $selected_month, $selected_month, $selected_year);
+// Bind parameters: (Month, Year) for subquery COUNT, then (Month, Year) for main query WHERE
+$stmt->bind_param("siss", $selected_month, $selected_year, $selected_month, $selected_year);
 $stmt->execute();
 $result = $stmt->get_result();
 
+// -----------------------------------------------------------
+// 3. CSV Generation and Download Headers
+// -----------------------------------------------------------
+
+// Set headers for CSV file download
+header('Content-Type: text/csv; charset=utf-8');
+header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+// Create a file pointer connected to the output stream
+$output = fopen('php://output', 'w');
+
+// Define CSV column headers (Matching night_emergency_payments.php's $table_headers, without "Actions")
+$table_headers = ["Supplier", "Supplier Code", "Total Worked Days", "Total Payment (LKR)"];
+fputcsv($output, $table_headers);
+
+// -----------------------------------------------------------
+// 4. Output Data
+// -----------------------------------------------------------
+
 if ($result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
-        $worked_days = $row['worked_days'];
-        $day_rate = $row['day_rate'];
-        $total_payment = $row['total_payment'];
-
-        echo "<tr>";
-        echo "<td>" . htmlspecialchars($row['supplier']) . "</td>";
-        echo "<td>" . htmlspecialchars($row['supplier_code']) . "</td>";
-        echo "<td>" . htmlspecialchars($worked_days) . "</td>";
-        echo "<td>" . number_format($day_rate, 2) . "</td>";
-        echo "<td>" . number_format($total_payment, 2) . "</td>";
-        echo "</tr>";
+        // Prepare data row for CSV
+        $csv_row = [
+            $row['supplier'],
+            $row['supplier_code'],
+            $row['total_worked_days'],
+            !is_null($row['total_payment']) ? number_format($row['total_payment'], 2, '.', '') : '0.00' // Format as currency, no LKR symbol
+        ];
+        
+        // Output the row to the CSV file
+        fputcsv($output, $csv_row);
     }
-} else {
-    echo "<tr><td colspan='5'>No night emergency payments found for this period.</td></tr>";
 }
 
+// Close the file pointer and database connection
+fclose($output);
 $stmt->close();
 $conn->close();
 
-echo "</tbody>";
-echo "</table>";
-echo "</body>";
-echo "</html>";
+// Terminate script execution after file output
+exit;
 ?>

@@ -1,189 +1,187 @@
 <?php
-// Ensure this file is accessible only when needed, consider adding authentication/authorization checks.
-include('../../includes/db.php');
+// Note: This script assumes the included files exist and the database connection is valid.
+include('../../includes/db.php'); // Include database connection
 
-// Get selected month and year from GET parameters
+// Get selected month and year, default to current month/year
 $selected_month = isset($_GET['month']) ? $_GET['month'] : date('m');
 $selected_year = isset($_GET['year']) ? $_GET['year'] : date('Y');
 
-// Set headers for CSV download
-header('Content-Type: text/csv');
-header('Content-Disposition: attachment; filename="route_payments_' . date('Y_m', mktime(0, 0, 0, $selected_month, 1, $selected_year)) . '.csv"');
-header('Pragma: no-cache');
-header('Expires: 0');
+$payment_data = [];
 
-// Create a file pointer connected to the output stream
-$output = fopen('php://output', 'w');
+// --- STAFF PAYMENT LOGIC (Replicated from payments_category.php) ---
 
-// Add CSV headers (matching your table columns)
-fputcsv($output, [
-    'Route',
-    'Monthly Rental (LKR)',
-    'Working Days',
-    'Total Distance (km)',
-    'Extra Distance (km)',
-    'Fuel Amount (LKR)',
-    'Other Amount (LKR)',
-    'Extra Days',
-    'Extra Days Amount (LKR)',
-    'Total Payments (LKR)'
-]);
-
-// Get current month and year for future date check
-$current_month = date('m');
-$current_year = date('Y');
-
-// Fetch all routes with purpose = 'staff' and their details from the 'route' table
-$routes_sql = "SELECT route_code, route, monthly_fixed_rental, working_days, distance FROM route WHERE purpose = 'staff' ORDER BY route ASC";
+// Fetch all routes with the staff payment type
+$routes_sql = "SELECT route_code, route, fixed_amount, fuel_amount, distance FROM route WHERE purpose = 'staff' ORDER BY route ASC";
 $routes_result = $conn->query($routes_sql);
 
 if ($routes_result && $routes_result->num_rows > 0) {
     while ($route_row = $routes_result->fetch_assoc()) {
         $route_code = $route_row['route_code'];
         $route_name = $route_row['route'];
-        $monthly_fixed_rental = $route_row['monthly_fixed_rental'];
-        $working_days_quota = $route_row['working_days'];
-        $daily_distance = $route_row['distance'];
+        $rate_per_km = $route_row['fixed_amount'] + $route_row['fuel_amount'];
+        $route_distance = $route_row['distance']; 
 
-        $total_extra_distance = 0;
-        $actual_days_worked = 0;
-        $km_per_liter = 10; // Default
-        $price_per_liter = 0; // Will be fetched later
-        
-        // Calculate Total Extra Distance
-        $extra_dist_sql = "SELECT SUM(distance) AS total_distance FROM extra_distance WHERE route_code = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-        $extra_dist_stmt = $conn->prepare($extra_dist_sql);
-        $extra_dist_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-        $extra_dist_stmt->execute();
-        $extra_dist_result = $extra_dist_stmt->get_result();
-        if ($extra_dist_row = $extra_dist_result->fetch_assoc()) {
-            $total_extra_distance = $extra_dist_row['total_distance'] ?? 0;
-        }
-        $extra_dist_stmt->close();
-        
-        // Calculate Actual Days Worked and get vehicle's details for fuel calculation
-        $register_sql = "SELECT vehicle_no FROM staff_transport_vehicle_register WHERE route = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-        $register_stmt = $conn->prepare($register_sql);
-        $register_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-        $register_stmt->execute();
-        $register_result = $register_stmt->get_result();
-        $actual_days_worked = $register_result->num_rows;
+        // 1. Find all distinct vehicles that operated on this route this month/year
+        // This is done on the ASSIGNED vehicle (vehicle_no)
+        $vehicles_sql = "
+            SELECT DISTINCT stvr.vehicle_no, v.supplier_code /* <-- FETCH supplier_code here */
+            FROM staff_transport_vehicle_register stvr
+            JOIN vehicle v ON stvr.vehicle_no = v.vehicle_no /* <-- JOIN added to get supplier code */
+            WHERE stvr.route = ? 
+              AND MONTH(stvr.date) = ? 
+              AND YEAR(stvr.date) = ?
+        ";
+        $vehicles_stmt = $conn->prepare($vehicles_sql);
+        $vehicles_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
+        $vehicles_stmt->execute();
+        $vehicles_result = $vehicles_stmt->get_result();
 
-        if ($actual_days_worked > 0) {
-            $first_entry = $register_result->fetch_assoc();
-            $first_vehicle_no = $first_entry['vehicle_no'];
+        if ($vehicles_result->num_rows > 0) {
+            
+            while ($vehicle_row = $vehicles_result->fetch_assoc()) {
+                $vehicle_no = $vehicle_row['vehicle_no'];
+                $supplier_code = $vehicle_row['supplier_code']; // <-- Supplier code fetched
+                
+                // Initialized variables (now per-vehicle)
+                $total_working_days = 0; 
+                $total_distance = 0; 
+                $monthly_payment_from_db = 0; 
+                $calculated_base_payment = 0; 
+                $other_amount = 0;
+                $total_payments = 0;
 
-            $vehicle_info_sql = "
-                SELECT 
-                    c.distance, 
-                    fr.rate 
-                FROM 
-                    vehicle v 
-                JOIN 
-                    consumption c ON v.condition_type = c.c_type 
-                JOIN 
-                    fuel_rate fr ON v.rate_id = fr.rate_id 
-                WHERE 
-                    v.vehicle_no = ? 
-                ORDER BY 
-                    fr.date DESC 
-                LIMIT 1";
-            $vehicle_info_stmt = $conn->prepare($vehicle_info_sql);
-            $vehicle_info_stmt->bind_param("s", $first_vehicle_no);
-            $vehicle_info_stmt->execute();
-            $vehicle_info_result = $vehicle_info_stmt->get_result();
+                // 2. Calculate the number of working days (Total Trip Count) FOR THIS SPECIFIC VEHICLE
+                // This correctly uses the VEHICLE number from the register table.
+                $days_sql = "
+                    SELECT 
+                        COUNT(DISTINCT stvr.date) AS total_days 
+                    FROM 
+                        staff_transport_vehicle_register stvr
+                    WHERE 
+                        stvr.route = ? 
+                        AND stvr.vehicle_no = ?
+                        AND MONTH(stvr.date) = ? 
+                        AND YEAR(stvr.date) = ?
+                ";
+                $days_stmt = $conn->prepare($days_sql);
+                $days_stmt->bind_param("ssii", $route_code, $vehicle_no, $selected_month, $selected_year); 
+                $days_stmt->execute();
+                $days_result = $days_stmt->get_result();
+                $days_row = $days_result->fetch_assoc();
+                $total_working_days = $days_row['total_days'] ?? 0;
+                $days_stmt->close();
+                
+                // --- Day Rate Calculation ---
+                $day_rate = ($rate_per_km * $route_distance) / 2; 
+                $calculated_base_payment = $day_rate * $total_working_days;
 
-            if ($vehicle_info_row = $vehicle_info_result->fetch_assoc()) {
-                $km_per_liter = $vehicle_info_row['distance'];
-                $price_per_liter = $vehicle_info_row['rate'];
+                // 3. Fetch DB Total Payment (monthly_payment) and Total Distance 
+                // --- CORRECTED QUERY: Use supplier_code instead of vehicle_no ---
+                $distance_sql = "
+                    SELECT total_distance, monthly_payment 
+                    FROM monthly_payments_sf 
+                    WHERE route_code = ? AND supplier_code = ? AND month = ? AND year = ?
+                ";
+                $distance_stmt = $conn->prepare($distance_sql);
+                // Bind route_code (s), supplier_code (s), month (i), year (i)
+                $distance_stmt->bind_param("ssii", $route_code, $supplier_code, $selected_month, $selected_year); // <-- Bind with supplier_code
+                $distance_stmt->execute();
+                $distance_result = $distance_stmt->get_result();
+                
+                if ($distance_row = $distance_result->fetch_assoc()) {
+                    $total_distance = $distance_row['total_distance'] ?? 0;
+                    $monthly_payment_from_db = $distance_row['monthly_payment'] ?? 0; 
+                } else {
+                    $total_distance = 0; 
+                }
+                $distance_stmt->close();
+                
+                
+                // 4. Calculate Total Payments (uses DB authority value) and Other Amount
+                $current_month = date('m');
+                $current_year = date('Y');
+
+                if ($selected_year > $current_year || ($selected_year == $current_year && $selected_month > $current_month)) {
+                    $total_payments = 0;
+                    $other_amount = 0;
+                } else {
+                    $total_payments = $monthly_payment_from_db;
+                    $other_amount = $total_payments - $calculated_base_payment;
+                }
+                
+                $payment_data[] = [
+                    'route_code' => $route_code, 
+                    'vehicle_no' => $vehicle_no,
+                    'supplier_code' => $supplier_code, // <-- Include supplier_code in output for debugging/reference
+                    'route_vehicle' => $route_name . " (" . $vehicle_no . ")",
+                    'day_rate' => $day_rate, 
+                    'total_working_days' => $total_working_days,
+                    'total_distance' => $total_distance,
+                    'calculated_base_payment' => $calculated_base_payment,
+                    'other_amount' => $other_amount, 
+                    'payments' => $total_payments 
+                ];
             }
-            $vehicle_info_stmt->close();
-        }
-        $register_stmt->close();
-
-        // Calculate other amount (Trip - Extra Vehicle - Petty Cash)
-        $trip_amount = 0;
-        $extra_vehicle_amount = 0;
-        $petty_cash_amount = 0;
-
-        $trip_sql = "SELECT SUM(amount) AS total_trip_amount FROM trip WHERE route_code = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-        $trip_stmt = $conn->prepare($trip_sql);
-        $trip_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-        $trip_stmt->execute();
-        $trip_result = $trip_stmt->get_result();
-        if ($trip_row = $trip_result->fetch_assoc()) {
-            $trip_amount = $trip_row['total_trip_amount'] ?? 0;
-        }
-        $trip_stmt->close();
-
-        $extra_vehicle_sql = "SELECT sum(amount) AS total_extra_vehicle FROM extra_vehicle_register WHERE route_code = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-        $extra_vehicle_stmt = $conn->prepare($extra_vehicle_sql);
-        $extra_vehicle_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-        $extra_vehicle_stmt->execute();
-        $extra_vehicle_result = $extra_vehicle_stmt->get_result();
-        if ($extra_vehicle_row = $extra_vehicle_result->fetch_assoc()) {
-            $extra_vehicle_amount = $extra_vehicle_row['total_extra_vehicle'] ?? 0;
-        }
-        $extra_vehicle_stmt->close();
-        
-        $petty_cash_sql = "SELECT SUM(amount) AS total_petty_cash FROM petty_cash WHERE route_code = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-        $petty_cash_stmt = $conn->prepare($petty_cash_sql);
-        $petty_cash_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-        $petty_cash_stmt->execute();
-        $petty_cash_result = $petty_cash_stmt->get_result();
-        if ($petty_cash_row = $petty_cash_result->fetch_assoc()) {
-            $petty_cash_amount = $petty_cash_row['total_petty_cash'] ?? 0;
-        }
-        $petty_cash_stmt->close();
-
-        $other_amount = $trip_amount - $extra_vehicle_amount - $petty_cash_amount;
-
-        // Perform main calculations
-        $working_days_limit = $working_days_quota * 2;
-        $days_for_fuel = min($actual_days_worked, $working_days_limit);
-        $total_distance_for_fuel = ($daily_distance / 2) * $days_for_fuel;
-        
-        $fuel_amount = 0;
-        if ($km_per_liter > 0 && $price_per_liter > 0) {
-            $fuel_amount = (($total_distance_for_fuel + $total_extra_distance) / $km_per_liter) * $price_per_liter;
-        }
-        
-        $extra_day_rate = 0;
-        if ($km_per_liter > 0 && $price_per_liter > 0) {
-            $extra_day_rate = ($monthly_fixed_rental / $working_days_quota) + (($daily_distance / 2 / $km_per_liter) * $price_per_liter);
-        }
-        
-        $extra_days_worked = max(0, $actual_days_worked - $working_days_limit);
-        $extra_days = $extra_days_worked / 2;
-        $extra_days_amount = $extra_days * $extra_day_rate;
-        
-        $total_payments = 0;
-
-        // Check for future months
-        if ($selected_year > $current_year || ($selected_year == $current_year && $selected_month > $current_month)) {
-            $total_payments = 0;
-        } else {
-            $total_payments = $monthly_fixed_rental + $fuel_amount + $extra_days_amount + $other_amount;
-        }
-
-        // Write the data row to the CSV
-        fputcsv($output, [
-            $route_name,
-            number_format($monthly_fixed_rental, 2, '.', ''),
-            $working_days_quota,
-            number_format($total_distance_for_fuel, 0, '.', ''),
-            number_format($total_extra_distance, 0, '.', ''),
-            number_format($fuel_amount, 2, '.', ''),
-            number_format($other_amount, 2, '.', ''),
-            $extra_days,
-            number_format($extra_days_amount, 2, '.', ''),
-            number_format($total_payments, 2, '.', '')
-        ]);
+            $vehicles_stmt->close();
+        } 
     }
 }
 
-// Close the file pointer and database connection
-fclose($output);
+// Close the database connection
 $conn->close();
-exit();
+
+// --- CSV GENERATION AND DOWNLOAD ---
+
+$month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
+$filename = "Staff_Payments_{$month_name}_{$selected_year}.csv";
+
+// Set headers for file download
+header('Content-Type: text/csv; charset=utf-8');
+header('Content-Disposition: attachment; filename="' . $filename . '"');
+header('Pragma: no-cache');
+header('Expires: 0');
+
+$output = fopen('php://output', 'w');
+
+// Define CSV Headers
+$headers = [
+    'Route Code', 
+    'Vehicle No', 
+    'Supplier Code', // <-- Updated Header
+    'Route (Vehicle)', 
+    'Day Rate (LKR)', 
+    'Total Trip Count', 
+    'Total Distance (km)', 
+    'Base Payment (LKR)', 
+    'Reduction (LKR)', 
+    'Total Payments (LKR)'
+];
+
+// Write headers to CSV
+fputcsv($output, $headers);
+
+// Write data rows
+if (!empty($payment_data)) {
+    foreach ($payment_data as $row) {
+        $csv_row = [
+            $row['route_code'],
+            $row['vehicle_no'],
+            $row['supplier_code'], // <-- Output Supplier Code
+            $row['route_vehicle'],
+            number_format($row['day_rate'], 2),
+            number_format($row['total_working_days'], 0),
+            number_format($row['total_distance'], 2),
+            number_format($row['calculated_base_payment'], 2),
+            number_format($row['other_amount'], 2),
+            number_format($row['payments'], 2)
+        ];
+        fputcsv($output, $csv_row);
+    }
+}
+
+// Close the file handle
+fclose($output);
+
+// Ensure no other output (like HTML or whitespace) follows
+exit;
 ?>

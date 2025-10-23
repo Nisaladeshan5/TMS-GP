@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !empty($_POST['month']) && !empty($_
 }
 
 // Fetch Petty Cash details based on the determined filter month and year
-$sql = "SELECT pc.id, pc.vehicle_no, pc.empNo, pc.date, pc.amount, pc.reason, r.route AS route_name
+$sql = "SELECT pc.id, pc.empNo, pc.date, pc.amount, pc.reason, r.route AS route_name
         FROM petty_cash pc
         LEFT JOIN route r ON pc.route_code = r.route_code
         WHERE MONTH(pc.date) = ? AND YEAR(pc.date) = ?";
@@ -82,7 +82,6 @@ $result = $stmt->get_result();
             <thead class="bg-blue-600 text-white">
                 <tr>
                     <th class="px-4 py-2 text-left">Date</th>
-                    <th class="px-4 py-2 text-left">Vehicle No</th>
                     <th class="px-4 py-2 text-left">Employee No</th>
                     <th class="px-4 py-2 text-left">Amount</th>
                     <th class="px-4 py-2 text-left">Reason</th>
@@ -96,7 +95,6 @@ $result = $stmt->get_result();
                     while ($row = $result->fetch_assoc()) {
                         echo "<tr id='row-{$row['id']}' class='hover:bg-gray-100'>";
                         echo "<td class='border px-4 py-2'>{$row['date']}</td>";
-                        echo "<td class='border px-4 py-2'>{$row['vehicle_no']}</td>";
                         echo "<td class='border px-4 py-2'>{$row['empNo']}</td>";
                         echo "<td class='border px-4 py-2'>{$row['amount']}</td>";
                         echo "<td class='border px-4 py-2'>{$row['reason']}</td>";

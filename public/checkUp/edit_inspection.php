@@ -128,6 +128,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['search_vehicle'])) {
                 <a href="checkUp_category.php" class="hover:text-yellow-600">Add Inspection</a>
                 <a href="" class="text-yellow-600">Edit inspection</a>
                 <a href="view_supplier.php" class="hover:text-yellow-600">View Supplier</a>
+                <a href="generate_report_checkup.php" class="hover:text-yellow-600">Report</a>
             </div>
         </div>
 

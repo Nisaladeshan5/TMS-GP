@@ -1,8 +1,3 @@
-<?php
-// Include the database connection
-include('../includes/db.php');
-?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28,6 +23,7 @@ include('../includes/db.php');
                 <a href="registers/extra_transport_vehicle_register.php" class="bg-teal-500 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Extra vehicle register</a>
                 <a href="registers/petty_cash.php" class="bg-[oklch(60.6%_0.25_292.717)] text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Petty cash ✅</a>
                 <a href="registers/non_paid_vehicle_register.php" class="bg-gray-800 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl disabled">Non Paid vehicle register</a>
+                <a href="registers/varification.php" class="bg-pink-800 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl disabled">Varification</a>
             </div>
         </div>
     </Div>

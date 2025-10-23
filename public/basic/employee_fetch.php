@@ -1,141 +1,116 @@
 <?php
+// fetch_and_store_truncate_simplified.php
 
-// fetch_and_store.php
-
-// Include the configuration file for database and API credentials
+// Include the configuration file, which also establishes the $conn variable
 include 'db.php'; 
 
-// API endpoint URL
-$apiUrl = 'https://gpgarmentsapi.peopleshr.com/api/commonapi/getinformation?id=2&date1&date2&empnumber=******'; 
+// --- Configuration ---
+$tableName = 'employee';
+$apiUrl = 'https://gpgarmentsapi.peopleshr.com/api/commonapi/getinformation?id=2&date1&date2&empnumber=******'; // ⚠️ Set your actual API endpoint
 
-// Initialize cURL session
-$ch = curl_init();
-
-// Set cURL options
-curl_setopt($ch, CURLOPT_URL, $apiUrl);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // Return the transfer as a string
-curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC); // Use Basic Authentication
-curl_setopt($ch, CURLOPT_USERPWD, "$api_username:$api_password"); // Set the username and password
-curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-// Execute cURL request
-$apiResponse = curl_exec($ch);
-
-// Check for cURL errors
-if (curl_errno($ch)) {
-    die("cURL Error: " . curl_error($ch));
+// 1. Check if $conn was successfully established in db.php
+// (The die() in db.php should handle failures, but this is a safety check)
+if (!isset($conn) || $conn->connect_error) {
+    die("FATAL ERROR: Database connection failed in db.php.");
 }
 
-// Close cURL session
+
+// --- 2. TRUNCATE the Table (Delete All Data) ---
+// This step clears all existing details.
+$sql_truncate = "TRUNCATE TABLE $tableName";
+
+if ($conn->query($sql_truncate) === TRUE) {
+    echo "✅ Success! All existing data from table '$tableName' has been deleted (Truncated).\n\n";
+} else {
+    // If truncate fails, we must stop, as the refresh logic won't work correctly.
+    $conn->close();
+    die("❌ FATAL ERROR: Could not truncate table '$tableName': " . $conn->error);
+}
+
+
+// --- 3. Fetch Data from API using cURL ---
+$ch = curl_init();
+curl_setopt_array($ch, [
+    CURLOPT_URL => $apiUrl,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+    CURLOPT_USERPWD => "$api_username:$api_password", // API creds from db.php
+    CURLOPT_SSL_VERIFYPEER => false,
+]);
+
+$apiResponse = curl_exec($ch);
+
+if (curl_errno($ch)) {
+    $curlError = curl_error($ch);
+    curl_close($ch);
+    $conn->close();
+    die("cURL Error: " . $curlError);
+}
 curl_close($ch);
 
-// Decode the JSON data
 $data = json_decode($apiResponse, true);
 
 if (json_last_error() !== JSON_ERROR_NONE) {
-    die('Error decoding JSON data.');
+    $conn->close();
+    die('Error decoding JSON data: ' . json_last_error_msg());
 }
 
-// The rest of the script is the same for database operations
-// Create database connection
-$conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
-
-// Check connection
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+if (empty($data)) {
+    echo "API returned no data. Table remains empty.\n";
+    $conn->close();
+    exit();
 }
 
-// Step 1: Get all current GP emp_ids from the database
-$existing_gp_emp_ids = [];
-$result = $conn->query("SELECT emp_id FROM employee");
-if ($result) {
-    while ($row = $result->fetch_assoc()) {
-        $existing_gp_emp_ids[] = strtoupper(trim($row['emp_id'])); // Normalize
-    }
-    $result->free();
-}
+// --- 4. Insert New/Active Employees ---
 
-$active_gp_emp_ids = [];
+$insert_count = 0;
+$error_count = 0;
 
-if (!empty($data)) {
-    $sql = "INSERT INTO employee (emp_id, calling_name, department, near_bus_stop, direct, gender, route) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE calling_name = ?";
-    $stmt_insert = $conn->prepare($sql);
-    
-    if ($stmt_insert) {
-        $stmt_insert->bind_param("ssssssss", $empId, $callingName, $department, $near_bus_stop, $direct, $gender, $route, $callingName);
+// Prepare the statement for inserting new employees
+$sql_insert = "INSERT INTO employee (emp_id, calling_name, department, near_bus_stop, direct, gender, route) 
+               VALUES (?, ?, ?, ?, ?, ?, ?)";
+            
+$stmt_insert = $conn->prepare($sql_insert);
 
-        foreach ($data as $record) {
-            if (isset($record['Active']) && strtoupper(trim($record['Active'])) === 'ACTIVE') {
-                
-                $callingName = trim($record['Alias']);
-                $department = trim($record['Cost Centre']);
-                $near_bus_stop = trim($record['Nearest Bus or Railway Stop']);
-                $direct = trim($record['Direct Status']);
-                $gender = trim($record['Gender']);
-                $route = trim($record['Commuting Route']);
-                $empId = strtoupper(trim($record['EPF No']));
+if ($stmt_insert) {
+    $stmt_insert->bind_param("sssssss", $empId, $callingName, $department, $near_bus_stop, $direct, $gender, $route);
 
-                $active_gp_emp_ids[] = $empId;
+    foreach ($data as $record) {
+        // Only process ACTIVE records
+        if (isset($record['Active']) && strtoupper(trim($record['Active'])) === 'ACTIVE') {
+            
+            // Assign variables from API data
+            $callingName = trim($record['Alias']);
+            $department = trim($record['Cost Centre']);
+            $near_bus_stop = trim($record['Nearest Bus or Railway Stop']);
+            $direct = trim($record['Direct Status']);
+            $gender = trim($record['Gender']);
+            $route = trim($record['Commuting Route']);
+            $empId = strtoupper(trim($record['EPF No']));
 
-                if (!$stmt_insert->execute()) {
-                    echo "Error executing insert/update for $empId: " . $stmt_insert->error . "<br>";
-                }
+            if ($stmt_insert->execute()) {
+                $insert_count++;
+            } else {
+                echo "Error executing insert for $empId: " . $stmt_insert->error . "<br>";
+                $error_count++;
             }
         }
-        $stmt_insert->close();
-    } else {
-        echo "Error preparing insert statement: " . $conn->error . "<br>";
     }
-}
+    $stmt_insert->close();
+    
+    echo "--- Insert Results ---\n";
+    echo "Inserted: $insert_count active employees.\n";
+    if ($error_count > 0) {
+        echo "Errors: $error_count encountered during insert.\n";
+    }
 
-// Step 2: Identify and delete inactive employees
-$existing_gp_emp_ids = array_unique($existing_gp_emp_ids);
-$active_gp_emp_ids = array_unique($active_gp_emp_ids);
-
-// Debugging arrays
-echo "<pre>";
-echo "Existing GP IDs in DB:\n";
-print_r($existing_gp_emp_ids);
-echo "\nActive GP IDs from file:\n";
-print_r($active_gp_emp_ids);
-echo "</pre>";
-
-$emp_ids_to_delete = array_diff($existing_gp_emp_ids, $active_gp_emp_ids);
-
-// Extra debug — show why not deleted
-if (empty($emp_ids_to_delete)) {
-    echo "No employees to delete. All GP IDs in DB are still active.<br>";
 } else {
-    echo "Attempting to delete the following GP employee IDs: <br>";
-    print_r($emp_ids_to_delete);
-    echo "<br>";
-
-    $placeholders = implode(',', array_fill(0, count($emp_ids_to_delete), '?'));
-    $sql_delete = "DELETE FROM employee WHERE emp_id IN ($placeholders)";
-    
-    $stmt_delete = $conn->prepare($sql_delete);
-    
-    if ($stmt_delete) {
-        $types = str_repeat('s', count($emp_ids_to_delete));
-        $stmt_delete->bind_param($types, ...$emp_ids_to_delete);
-
-        if ($stmt_delete->execute()) {
-            $rows_affected = $stmt_delete->affected_rows;
-            echo "Successfully deleted $rows_affected inactive employees.<br>";
-        } else {
-            echo "Error deleting employees: " . $stmt_delete->error . "<br>";
-        }
-        $stmt_delete->close();
-    } else {
-        echo "Error preparing delete statement: " . $conn->error . "<br>";
-    }
+    echo "Error preparing insert statement: " . $conn->error . "<br>";
 }
 
-
-// Close the database connection
+// --- 5. Close Connection and Finish ---
 $conn->close();
 
-echo "Data successfully fetched and stored for active employees.";
+echo "\nScript finished. Table successfully refreshed with active employee data. 🚀";
 
 ?>

@@ -128,9 +128,14 @@ $result = $conn->query($sql);
         <div class="p-3">
             <h1 class="text-4xl mx-auto font-bold text-gray-800 mt-3 mb-3 text-center">Route Details</h1>
             <div class="w-full flex justify-between items-center mb-6">
-                <button onclick="openModal()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
-                    Add New Route
-                </button>
+                <div class="flex space-x-4">
+                    <button onclick="openModal()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
+                        Add New Route
+                    </button>
+                    <button onclick="generateRouteQrPdf()" class="bg-green-700 hover:bg-green-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
+                        Generate Route QR PDF
+                    </button>
+                    </div>
                 <div class="flex items-center space-x-4">
                     <div class="flex items-center space-x-1">
                         <label for="purpose-filter" class="text-gray-700 font-semibold">Filter by Purpose:</label>
@@ -152,11 +157,15 @@ $result = $conn->query($sql);
                 <table class="min-w-full table-auto">
                     <thead class="bg-blue-600 text-white">
                         <tr>
+                            <th class="px-2 py-2 text-center w-10">
+                                <input type="checkbox" id="select-all" onclick="toggleAllCheckboxes()">
+                            </th>
                             <th class="px-2 py-2 text-left">Route Code</th>
                             <th class="px-2 py-2 text-left">Supplier</th>
                             <th class="px-2 py-2 text-left">Route</th>
-                            <th class="px-2 py-2 text-left">Fixed Amount</th>
-                            <th class="px-2 py-2 text-left">Fuel Amount</th>
+                            <th class="px-2 py-2 text-left">Fixed Price(1km)</th>
+                            <th class="px-2 py-2 text-left">Fuel Price(1km)</th>
+                            <th class="px-2 py-2 text-left">Total Price(1km)</th>
                             <th class="px-2 py-2 text-left">Distance (km)</th>
                             <th class="px-2 py-2 text-left">Actions</th>
                         </tr>
@@ -183,11 +192,17 @@ $result = $conn->query($sql);
                                 $toggle_button_color = ($is_active == 1) ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600';
 
                                 echo "<tr>";
+                                // NEW CHECKBOX CELL
+                                echo "<td class='border px-2 py-2 text-center'>
+                                        <input type='checkbox' name='selected_routes[]' value='" . $route_code . "' class='route-checkbox'>
+                                      </td>";
+                                // END NEW CHECKBOX CELL
                                 echo "<td class='border px-2 py-2'>" . $route_code . "</td>";
                                 echo "<td class='border px-2 py-2'>" . $supplier_name . "</td>";
                                 echo "<td class='border px-2 py-2'>" . $route_name . "</td>";
                                 echo "<td class='border px-2 py-2'>" . $fixed_amount . "</td>";
                                 echo "<td class='border px-2 py-2'>" . $fuel_amount . "</td>";
+                                echo "<td class='border px-2 py-2'>" . number_format($fixed_amount + $fuel_amount, 2) . "</td>";
                                 echo "<td class='border px-2 py-2'>" . $distance . "</td>";
                                 echo "<td class='border px-2 py-2'>
                                             <button onclick='openViewModal(\"$route_code\", \"$route_name\", \"$fixed_amount\", \"$fuel_amount\", \"$distance\", \"$supplier_name\", \"$vehicle_no\", \"$assigned_person\", \"$purpose\", \"$with_fuel\")' class='bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 mr-2'>View</button>
@@ -198,7 +213,8 @@ $result = $conn->query($sql);
                             }
                         } else {
                             $message = ($status_filter === 'active') ? "No active routes found for this purpose." : "No inactive routes found for this purpose.";
-                            echo "<tr><td colspan='8' class='border px-4 py-2 text-center'>{$message}</td></tr>";
+                            // Changed colspan from 8 to 9 to account for the new checkbox column
+                            echo "<tr><td colspan='9' class='border px-4 py-2 text-center'>{$message}</td></tr>";
                         }
                         ?>
                     </tbody>
@@ -242,6 +258,7 @@ $result = $conn->query($sql);
                     <select id="supplier" name="supplier" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
                         <option value="">-- Select Supplier --</option>
                         <?php
+                        // Reset the pointer for supplier data if needed, or run the query again
                         $supplier_sql = "SELECT supplier_code, supplier FROM supplier ORDER BY supplier_code";
                         $supplier_result = $conn->query($supplier_sql);
                         if ($supplier_result && $supplier_result->num_rows > 0) {
@@ -262,6 +279,7 @@ $result = $conn->query($sql);
                     class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
                         <option value="">-- Select Vehicle No --</option>
                         <?php
+                        // Reset the pointer for vehicle data if needed, or run the query again
                         $vehicle_sql = "SELECT vehicle_no FROM vehicle ORDER BY vehicle_no";
                         $vehicle_result = $conn->query($vehicle_sql);
                         if ($vehicle_result && $vehicle_result->num_rows > 0) {
@@ -411,6 +429,47 @@ $result = $conn->query($sql);
         fuelOptionValueInput.value = (this.value === 'with_fuel') ? 1 : 0;
         calculateFuelAmount();
     }));
+
+    // --- NEW QR PDF GENERATION LOGIC ---
+
+    function toggleAllCheckboxes() {
+        const selectAll = document.getElementById('select-all');
+        const checkboxes = document.querySelectorAll('.route-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = selectAll.checked;
+        });
+    }
+
+    function generateRouteQrPdf() {
+        const selectedRoutes = Array.from(document.querySelectorAll('.route-checkbox:checked'))
+                                    .map(checkbox => checkbox.value);
+
+        if (selectedRoutes.length === 0) {
+            showToast("Please select at least one route to generate the PDF.", 'error');
+            return;
+        }
+
+        const routeCodesString = selectedRoutes.join(',');
+
+        // Route Codes string එක POST කරමින් නව PDF generator script එකට යැවීමට Form එකක් තාවකාලිකව සාදා යවයි.
+        const form = document.createElement('form');
+        form.method = 'POST';
+        // 💡 ගොනුවේ නම නිවැරදිව යොදන්න. Route QR PDF එක ජනනය කරන ගොනුව මෙයයි.
+        form.action = 'generate_qr_route_pdf.php'; 
+
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'selected_route_codes';
+        input.value = routeCodesString;
+
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
+    }
+    
+    // --- END NEW QR PDF GENERATION LOGIC ---
+
 
     function openModal() {
         form.reset();

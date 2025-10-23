@@ -9,39 +9,32 @@ $selected_year = isset($_GET['year']) ? $_GET['year'] : date('Y');
 
 $payment_data = [];
 $table_headers = [
-    "Supplier", "Supplier Code", "Total Worked Days", "Day Rate (LKR)", "Total Payment (LKR)", "Actions"
-];
+    "Supplier", "Supplier Code", "Total Worked Days", "Total Payment (LKR)", "Actions"
+]; // Removed "Day Rate (LKR)"
 $page_title = "Night Emergency Payments Summary";
 
-// SQL query to fetch night emergency payments including day_rate
+// SQL query to fetch payment from monthly_payment_ne AND count attendance
 $sql = "SELECT
             s.supplier,
             s.supplier_code,
-            COUNT(nea.date) AS total_worked_days,
-            COALESCE(nedr.day_rate, 0) AS day_rate,
-            (COALESCE(nedr.day_rate, 0) * COUNT(nea.date)) AS total_payment
-        FROM night_emergency_attendance AS nea
-        JOIN supplier AS s 
-            ON nea.supplier_code = s.supplier_code
-        LEFT JOIN night_emergency_day_rate AS nedr
-            ON nedr.supplier_code = s.supplier_code
-           AND STR_TO_DATE(CONCAT(nedr.year, '-', nedr.month, '-01'), '%Y-%m-%d') = (
-                SELECT MAX(STR_TO_DATE(CONCAT(nedr2.year, '-', nedr2.month, '-01'), '%Y-%m-%d'))
-                FROM night_emergency_day_rate AS nedr2
-                WHERE nedr2.supplier_code = s.supplier_code
-                  AND STR_TO_DATE(CONCAT(nedr2.year, '-', nedr2.month, '-01'), '%Y-%m-%d')
-                      <= STR_TO_DATE(CONCAT(?, '-', ?, '-01'), '%Y-%m-%d')
-           )
+            mpn.monthly_payment AS total_payment,
+            (SELECT COUNT(nea.date)
+             FROM night_emergency_attendance AS nea
+             WHERE nea.supplier_code = s.supplier_code
+               AND MONTH(nea.date) = ?
+               AND YEAR(nea.date) = ?) AS total_worked_days
+        FROM monthly_payment_ne AS mpn
+        JOIN supplier AS s
+            ON mpn.supplier_code = s.supplier_code
         WHERE
-            MONTH(nea.date) = ?
-            AND YEAR(nea.date) = ?
-        GROUP BY
-            s.supplier, s.supplier_code, nedr.day_rate
+            mpn.month = ?
+            AND mpn.year = ?
         ORDER BY
             s.supplier ASC";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("sisi", $selected_year, $selected_month, $selected_month, $selected_year);
+// Bind parameters: (Month, Year) for subquery COUNT, then (Month, Year) for main query WHERE
+$stmt->bind_param("siss", $selected_month, $selected_year, $selected_month, $selected_year);
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -50,8 +43,8 @@ if ($result->num_rows > 0) {
         $payment_data[] = [
             'supplier' => $row['supplier'],
             'supplier_code' => $row['supplier_code'],
-            'total_worked_days' => $row['total_worked_days'],
-            'day_rate' => $row['day_rate'], // Pass day_rate to the link
+            'total_worked_days' => $row['total_worked_days'], // Now fetched from the subquery
+            // 'day_rate' is no longer needed in the data array or passed to the view
             'total_payment' => !is_null($row['total_payment']) ? $row['total_payment'] : 0
         ];
     }
@@ -89,7 +82,7 @@ $stmt->close();
             <div class="flex justify-end p-2 rounded-lg mb-2">
                 <form method="get" action="" class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-2">
                     <a href="add_day_rate.php"
-                    class="text-white font-bold hover:text-blue-700 bg-yellow-600 py-2 px-3 rounded-lg"  
+                    class="text-white font-bold hover:text-blue-700 bg-yellow-600 py-2 px-3 rounded-lg"   
                     title="Manage Day Rate">
                         Day Rate
                     </a>
@@ -99,7 +92,6 @@ $stmt->close();
                         <i class="fas fa-download"></i>
                     </a>
 
-                    <!-- Month and Year Filters -->
                     <div class="relative border border-gray-400 rounded-lg">
                         <select name="month" id="month" class="w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md">
                             <?php for ($m=1; $m<=12; $m++): ?>
@@ -124,7 +116,7 @@ $stmt->close();
                 </form>
             </div>
         </div>
-       
+        
         <div class="overflow-x-auto bg-white rounded-lg shadow-xl border border-gray-200">
             <table class="min-w-full leading-normal">
                 <thead>
@@ -141,10 +133,9 @@ $stmt->close();
                                 <td class="py-3 px-6 whitespace-nowrap"><?php echo htmlspecialchars($data['supplier']); ?></td>
                                 <td class="py-3 px-6 whitespace-nowrap"><?php echo htmlspecialchars($data['supplier_code']); ?></td>
                                 <td class="py-3 px-6 whitespace-nowrap"><?php echo htmlspecialchars($data['total_worked_days']); ?></td>
-                                <td class="py-3 px-6 whitespace-nowrap"><?php echo number_format($data['day_rate'], 2); ?></td>
                                 <td class="py-3 px-6 whitespace-nowrap font-bold text-blue-700 text-lg"><?php echo number_format($data['total_payment'], 2); ?></td>
                                 <td class="py-3 px-6 whitespace-nowrap">
-                                   <a href="download_night_emergency_pdf.php?supplier_code=<?php echo urlencode($data['supplier_code']); ?>&month=<?php echo urlencode($selected_month); ?>&year=<?php echo urlencode($selected_year); ?>&worked_days=<?php echo urlencode($data['total_worked_days']); ?>&day_rate=<?php echo urlencode($data['day_rate']); ?>"
+                                    <a href="download_night_emergency_pdf.php?supplier_code=<?php echo urlencode($data['supplier_code']); ?>&month=<?php echo urlencode($selected_month); ?>&year=<?php echo urlencode($selected_year); ?>&worked_days=<?php echo urlencode($data['total_worked_days']); ?>&day_rate=0" 
                                     class="text-red-500 hover:text-red-700 individual-download-link"
                                     title="Download Supplier Summary PDF">
                                         <i class="fas fa-file-pdf fa-lg"></i>

@@ -13,7 +13,30 @@ if (isset($_GET['view_vehicle_no'])) {
     }
     header('Content-Type: application/json');
     $vehicle_no = $_GET['view_vehicle_no'];
-    $sql = "SELECT vehicle.vehicle_no, vehicle.supplier_code, supplier.supplier, vehicle.capacity, vehicle.km_per_liter, vehicle.type, vehicle.purpose, vehicle.license_expiry_date, vehicle.insurance_expiry_date, vehicle.is_active, fr.type AS fuel_type, fr.rate_id FROM vehicle LEFT JOIN supplier ON vehicle.supplier_code = supplier.supplier_code LEFT JOIN fuel_rate AS fr ON vehicle.rate_id = fr.rate_id WHERE vehicle.vehicle_no = ?";
+    $sql = "SELECT
+            vehicle.vehicle_no,
+            vehicle.supplier_code,
+            supplier.supplier,
+            vehicle.capacity,
+            vehicle.fuel_efficiency, -- This is the c_id
+            ct.c_type,                 -- New: The consumption type
+            vehicle.type,
+            vehicle.purpose,
+            vehicle.license_expiry_date,
+            vehicle.insurance_expiry_date,
+            vehicle.is_active,
+            fr.type AS fuel_type,
+            fr.rate_id
+        FROM
+            vehicle
+        LEFT JOIN
+            supplier ON vehicle.supplier_code = supplier.supplier_code
+        LEFT JOIN
+            fuel_rate AS fr ON vehicle.rate_id = fr.rate_id
+        LEFT JOIN
+            consumption AS ct ON vehicle.fuel_efficiency = ct.c_id -- New: Join to get the consumption type
+        WHERE
+            vehicle.vehicle_no = ?;";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param('s', $vehicle_no);
     $stmt->execute();
@@ -42,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
         $rate_id = $_POST['rate_id'];
 
         $sql = "UPDATE vehicle 
-                SET supplier_code=?, capacity=?, km_per_liter=?, type=?, purpose=?, 
+                SET supplier_code=?, capacity=?, fuel_efficiency=?, type=?, purpose=?, 
                     license_expiry_date=?, insurance_expiry_date=?, rate_id=?
                 WHERE vehicle_no=?";
         
@@ -103,6 +126,15 @@ if ($suppliers_result->num_rows > 0) {
     }
 }
 
+$fuel_efficiency = [];
+$fuel_efficiency_sql = "SELECT c_id, c_type FROM consumption ORDER BY c_id";
+$fuel_efficiency_result = $conn->query($fuel_efficiency_sql);
+if ($fuel_efficiency_result) {
+    while ($row = $fuel_efficiency_result->fetch_assoc()) {
+        $fuel_efficiencies[] = $row;
+    }
+}
+
 // Fetch all fuel rates for the dropdown
 $fuel_rates_sql = "SELECT rate_id, type FROM fuel_rate ORDER BY type";
 $fuel_rates_result = $conn->query($fuel_rates_sql);
@@ -116,7 +148,22 @@ if ($fuel_rates_result->num_rows > 0) {
 $purpose_filter = $_GET['purpose'] ?? 'staff';
 $status_filter = $_GET['status'] ?? 'active';
 
-$sql = "SELECT vehicle.*, supplier.supplier FROM vehicle LEFT JOIN supplier ON vehicle.supplier_code = supplier.supplier_code WHERE vehicle.purpose=?";
+$sql = "SELECT
+        vehicle.*,
+        supplier.supplier,
+        ct.c_type,
+        ct.distance,
+        fr.type AS fuel_type
+    FROM
+        vehicle
+    LEFT JOIN
+        supplier ON vehicle.supplier_code = supplier.supplier_code
+    LEFT JOIN
+        consumption AS ct ON vehicle.fuel_efficiency = ct.c_id  -- New: Join for consumption type
+    LEFT JOIN
+        fuel_rate AS fr ON vehicle.rate_id = fr.rate_id              -- New: Join for fuel rate/type
+    WHERE
+        vehicle.purpose = ?";
 $types = "s";
 $params = [$purpose_filter];
 
@@ -260,7 +307,7 @@ $vehicles_result = $stmt->get_result();
                         <th class="px-4 py-2 text-left">Vehicle No</th>
                         <th class="px-4 py-2 text-left">Supplier</th>
                         <th class="px-4 py-2 text-left">Capacity</th>
-                        <th class="px-4 py-2 text-left">Distance per liter</th>
+                        <th class="px-4 py-2 text-left">Fuel Efficiency</th>
                         <th class="px-4 py-2 text-left">Type</th>
                         <th class="px-4 py-2 text-left">Actions</th>
                     </tr>
@@ -272,7 +319,9 @@ $vehicles_result = $stmt->get_result();
                                 <td class="border px-4 py-2"><?php echo htmlspecialchars($vehicle['vehicle_no']); ?></td>
                                 <td class="border px-4 py-2"><?php echo htmlspecialchars($vehicle['supplier']); ?></td>
                                 <td class="border px-4 py-2"><?php echo htmlspecialchars($vehicle['capacity']); ?></td>
-                                <td class="border px-4 py-2"><?php echo htmlspecialchars($vehicle['km_per_liter']); ?></td>
+                                <td class="border px-4 py-2">
+                                    <?php echo htmlspecialchars($vehicle['c_type']); ?> (<?php echo htmlspecialchars($vehicle['distance']); ?>)
+                                </td>
                                 <td class="border px-4 py-2"><?php echo htmlspecialchars($vehicle['type']); ?></td>
                                 <td class="border px-4 py-2">
                                     <button onclick='viewVehicleDetails("<?php echo htmlspecialchars($vehicle['vehicle_no']); ?>")' class='bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 mr-2'>View</button>
@@ -327,8 +376,14 @@ $vehicles_result = $stmt->get_result();
                         <input type="number" id="edit_capacity" name="capacity" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
                     </div>
                     <div>
-                        <label for="edit_km_per_liter" class="block text-sm font-medium text-gray-700">Distance per liter:</label>
-                        <input type="number" id="edit_km_per_liter" name="km_per_liter" class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                        <label for="edit_km_per_liter" class="block text-sm font-medium text-gray-700">Fuel Efficiency:</label>
+                        <select id="edit_km_per_liter" name="km_per_liter" class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                            <?php foreach ($fuel_efficiencies as $fuel_efficiency): ?>
+                                <option value="<?php echo htmlspecialchars($fuel_efficiency['c_id']); ?>">
+                                    <?php echo htmlspecialchars($fuel_efficiency['c_type']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div>
                         <label for="edit_type" class="block text-sm font-medium text-gray-700">Type:</label>
@@ -404,7 +459,7 @@ $vehicles_result = $stmt->get_result();
                         <p id="viewCapacity" class="text-base font-semibold"></p>
                     </div>
                     <div class="border border-gray-200 rounded-lg p-1">
-                        <p class="text-sm font-medium text-gray-500">Distance per liter</p>
+                        <p class="text-sm font-medium text-gray-500">Fuel Efficiency</p>
                         <p id="viewKmPerLiter" class="text-base font-semibold"></p>
                     </div>
                     <div class="border border-gray-200 rounded-lg p-1">

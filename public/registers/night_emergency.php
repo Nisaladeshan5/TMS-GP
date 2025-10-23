@@ -136,7 +136,7 @@ $result = $stmt->get_result();
                         echo "</tr>";
                     }
                 } else {
-                    echo "<tr><td colspan='7' class='border px-4 py-2 text-center'>No records found.</td></tr>";
+                    echo "<tr><td colspan='8' class='border px-4 py-2 text-center'>No records found.</td></tr>";
                 }
                 ?>
             </tbody>

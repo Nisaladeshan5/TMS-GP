@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
     $stmt->close();
 
     // Insert new vehicle
-    $sql = "INSERT INTO vehicle (vehicle_no, supplier_code, capacity, km_per_liter, type, rate_id, purpose, license_expiry_date, insurance_expiry_date) 
+    $sql = "INSERT INTO vehicle (vehicle_no, supplier_code, capacity, fuel_efficiency, type, rate_id, purpose, license_expiry_date, insurance_expiry_date) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     try {
@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
         if ($stmt === false) {
             throw new Exception('Prepare failed: ' . $conn->error);
         }
-        $stmt->bind_param('ssiisisss', $vehicle_no, $supplier, $capacity, $km_per_liter, $type, $fuel_rate_id, $purpose, $license_expiry_date, $insurance_expiry_date);
+        $stmt->bind_param('ssississs', $vehicle_no, $supplier, $capacity, $km_per_liter, $type, $fuel_rate_id, $purpose, $license_expiry_date, $insurance_expiry_date);
 
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'message' => 'Vehicle added successfully!']);
@@ -93,6 +93,15 @@ $supplier_result = $conn->query($supplier_sql);
 if ($supplier_result) {
     while ($row = $supplier_result->fetch_assoc()) {
         $suppliers[] = $row;
+    }
+}
+
+$fuel_efficiency = [];
+$fuel_efficiency_sql = "SELECT c_id, c_type FROM consumption ORDER BY c_id";
+$fuel_efficiency_result = $conn->query($fuel_efficiency_sql);
+if ($fuel_efficiency_result) {
+    while ($row = $fuel_efficiency_result->fetch_assoc()) {
+        $fuel_efficiencies[] = $row;
     }
 }
 
@@ -194,8 +203,14 @@ include('../../includes/navbar.php');
                         <input type="number" id="capacity" name="capacity" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
                     </div>
                     <div>
-                        <label for="km_per_liter" class="block text-sm font-medium text-gray-700">Distance per liter:</label>
-                        <input type="number" id="km_per_liter" name="km_per_liter" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                        <label for="km_per_liter" class="block text-sm font-medium text-gray-700">Fuel Efficiency:</label>
+                        <select id="km_per_liter" name="km_per_liter" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                            <option value="">Select Fuel Efficiency Type</option>
+                            <?php foreach ($fuel_efficiencies as $fuel_efficiency): ?>
+                                <option value="<?php echo htmlspecialchars($fuel_efficiency['c_id']); ?>">
+                                    <?php echo htmlspecialchars($fuel_efficiency['c_type']); ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                 </div>

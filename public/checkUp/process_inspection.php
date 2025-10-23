@@ -1,9 +1,10 @@
 <?php
+// Note: This file is the processing script and handles insertion/update into the database.
+
 include('../../includes/db.php'); // Your database connection file
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // --- 1. Collect and Sanitize General Form Data ---
-    // Change from 'supplier' to 'supplier_code' to match the new dropdown name
     $supplier_code = $conn->real_escape_string($_POST['supplier_code']);
     $vehicle_no = $conn->real_escape_string($_POST['vehicle_no']);
     $route = $conn->real_escape_string($_POST['route_name']);
@@ -12,7 +13,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $date = $conn->real_escape_string($_POST['inspection_date']);
     $other_observations = $conn->real_escape_string($_POST['other_observations']);
     
-    // Check for and sanitize the new optional fields for 'Bus' vehicles
+    // Check for and sanitize the optional fitness certificate fields (only present for 'Bus' vehicles)
     $fitness_status = isset($_POST['vehicle_fitness_certificate_status']) ? 1 : 0;
     $fitness_remark = isset($_POST['vehicle_fitness_certificate_remark']) ? $conn->real_escape_string($_POST['vehicle_fitness_certificate_remark']) : '';
 
@@ -41,17 +42,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         'Noise' => 'noise'
     ];
 
-    // --- 3. Build arrays for SQL columns and values dynamically ---
+    // --- 3. Build arrays for SQL columns, values, and UPDATE clauses dynamically ---
     $columns = [
-        'supplier_code', // New column
-        'vehicle_no', 
+        'supplier_code', 
+        'vehicle_no', // vehicle_no is the UNIQUE KEY for the upsert
         'route', 
         'transport_type', 
         'inspector', 
         'date', 
         'other_observations',
-        'vehicle_fitness_certificate_status', // New column
-        'vehicle_fitness_certificate_remark'  // New column
+        'vehicle_fitness_certificate_status', 
+        'vehicle_fitness_certificate_remark',
     ];
     
     $values = [
@@ -65,27 +66,58 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $fitness_status,
         "'$fitness_remark'"
     ];
+    
+    // Array to hold the UPDATE part of the SQL query
+    $update_clauses = [
+        "supplier_code = VALUES(supplier_code)",
+        "route = VALUES(route)",
+        "transport_type = VALUES(transport_type)",
+        "inspector = VALUES(inspector)",
+        "date = VALUES(date)", // Assuming date should be updated
+        "other_observations = VALUES(other_observations)",
+        "vehicle_fitness_certificate_status = VALUES(vehicle_fitness_certificate_status)",
+        "vehicle_fitness_certificate_remark = VALUES(vehicle_fitness_certificate_remark)",
+    ];
+
 
     // Use the mapping to construct column names for the SQL query
     foreach ($criteria_mapping as $item_display_name => $db_column_prefix) {
-        $status_post_key = str_replace([' ', '/', '(', ')', '-'], '_', strtolower($item_display_name)) . '_status';
-        $remark_post_key = str_replace([' ', '/', '(', ')', '-'], '_', strtolower($item_display_name)) . '_remark';
+        // The form uses the sanitized item name with _status/_remark suffix
+        $sanitized_name = str_replace([' ', '/', '(', ')', '-'], '_', strtolower($item_display_name));
+        $sanitized_name = preg_replace('/_+/', '_', $sanitized_name); 
+        $sanitized_name = trim($sanitized_name, '_'); 
+
+        $status_post_key = $sanitized_name . '_status';
+        $remark_post_key = $sanitized_name . '_remark';
         
+        // Collect status (1 if checked, 0 otherwise) and remark
         $status = isset($_POST[$status_post_key]) ? 1 : 0;
         $remark = isset($_POST[$remark_post_key]) ? $conn->real_escape_string($_POST[$remark_post_key]) : '';
 
         // Add to columns and values arrays using the correct DB column prefix
-        $columns[] = $db_column_prefix . '_status';
+        $status_col = $db_column_prefix . '_status';
+        $remark_col = $db_column_prefix . '_remark';
+        
+        $columns[] = $status_col;
         $values[] = $status;
-        $columns[] = $db_column_prefix . '_remark';
+        $columns[] = $remark_col;
         $values[] = "'$remark'";
+
+        // Add to UPDATE clauses
+        $update_clauses[] = "$status_col = VALUES($status_col)";
+        $update_clauses[] = "$remark_col = VALUES($remark_col)";
     }
 
-    // --- 4. Construct and Execute SQL INSERT Statement ---
-    $sql = "INSERT INTO checkUp (" . implode(', ', $columns) . ") VALUES (" . implode(', ', $values) . ")";
+    // --- 4. Construct and Execute SQL INSERT ... ON DUPLICATE KEY UPDATE Statement ---
+    // This requires 'vehicle_no' to be a UNIQUE KEY in the 'checkUp' table.
+    $sql = "INSERT INTO checkUp (" . implode(', ', $columns) . ") VALUES (" . implode(', ', $values) . ") 
+            ON DUPLICATE KEY UPDATE " . implode(', ', $update_clauses);
 
     if ($conn->query($sql) === TRUE) {
-        $message = "New vehicle inspection recorded successfully! 🎉";
+        // Check if it was an INSERT (affected rows = 1) or an UPDATE (affected rows = 2)
+        // If the inserted row had no changes, affected_rows will be 1 (for insert) or 0 (for update)
+        // A simple query success is often enough for the user feedback.
+        $message = "Vehicle inspection recorded successfully! (Inserted or Updated based on Vehicle No.) 🎉";
         $status_type = "success";
     } else {
         $message = "Error: " . $sql . "<br>" . $conn->error;
@@ -117,7 +149,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
             echo '
             <p class="text-gray-700 mb-6">' . $message . '</p>
-            <a href="add_inspection.php" class="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-bold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 transition ease-in-out duration-150">
+            <a href="checkUp_category.php" class="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-bold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 transition ease-in-out duration-150">
                 Go Back to Form
             </a>
         </div>

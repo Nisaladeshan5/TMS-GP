@@ -31,7 +31,7 @@ function openEditModal(vehicleNo) {
                 // Populate all dropdown fields with the fetched values
                 document.getElementById('edit_supplier_code').value = data.supplier_code;
                 document.getElementById('edit_capacity').value = data.capacity;
-                document.getElementById('edit_km_per_liter').value = data.km_per_liter;
+                document.getElementById('edit_km_per_liter').value = data.fuel_efficiency;
                 document.getElementById('edit_type').value = data.type;
                 document.getElementById('edit_rate_id').value = data.rate_id;
                 document.getElementById('edit_purpose').value = data.purpose;
@@ -92,7 +92,7 @@ function viewVehicleDetails(vehicleNo) {
                 document.getElementById('viewVehicleNo').textContent = data.vehicle_no;
                 document.getElementById('viewSupplier').textContent = data.supplier;
                 document.getElementById('viewCapacity').textContent = data.capacity;
-                document.getElementById('viewKmPerLiter').textContent = data.km_per_liter;
+                document.getElementById('viewKmPerLiter').textContent = data.c_type;
                 document.getElementById('viewType').textContent = data.type;
                 document.getElementById('viewFuelType').textContent = data.fuel_type;
                 document.getElementById('viewPurpose').textContent = data.purpose;

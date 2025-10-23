@@ -20,6 +20,7 @@
         $page = substr($_SERVER['SCRIPT_NAME'], strrpos($_SERVER['SCRIPT_NAME'],"/")+1);
 
         include('config.php');
+        date_default_timezone_set('Asia/Colombo');
     ?>
 
     <!-- Side Navbar -->
@@ -44,13 +45,21 @@
                 <?= strpos($_SERVER['REQUEST_URI'], '/payments/') !== false ? 'active bg-[#351FFB] text-white' : ''; ?>">
                 Payments
             </a>
+            <a href="<?= BASE_URL ?>report/report_main.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform 
+                <?= strpos($_SERVER['REQUEST_URI'], '/report/') !== false ? 'active bg-[#351FFB] text-white' : ''; ?>">
+                Report
+            </a>
             <a href="<?= BASE_URL ?>checkUp/checkUp_category.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform 
                 <?= strpos($_SERVER['REQUEST_URI'], '/checkUp/') !== false ? 'active bg-[#351FFB] text-white' : ''; ?>">
-                Inspection ✅
+                Inspection
             </a>
             <a href="<?= BASE_URL ?>notice/notice.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform 
                 <?= strpos($_SERVER['REQUEST_URI'], '/notice/') !== false ? 'active bg-[#351FFB] text-white' : ''; ?>">
-                Notice ✅
+                Notice
+            </a>
+            <a href="<?= BASE_URL ?>user/user.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform 
+                <?= strpos($_SERVER['REQUEST_URI'], '/user/') !== false ? 'active bg-[#351FFB] text-white' : ''; ?>">
+                Users
             </a>
         </div>
 

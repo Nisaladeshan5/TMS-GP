@@ -14,10 +14,19 @@ if (isset($_GET['action']) && $_GET['action'] == 'get_fuel_rates') {
 
     $vehicle_no = $_GET['vehicle_no'];
     
-    $sql = "SELECT v.km_per_liter, fr.rate AS fuel_cost_per_liter
-            FROM vehicle v
-            JOIN fuel_rate fr ON v.rate_id = fr.rate_id
-            WHERE v.vehicle_no = ?";
+    $sql = "SELECT 
+                c.distance as km_per_liter, 
+                fr.rate AS fuel_cost_per_liter
+            FROM 
+                vehicle v
+            -- Join fuel_rate to get the cost per liter
+            JOIN 
+                fuel_rate fr ON v.rate_id = fr.rate_id
+            -- Join consumption to get the distance and fuel usage (c.c_id = v.fuel_efficiency)
+            JOIN 
+                consumption c ON v.fuel_efficiency = c.c_id 
+            WHERE 
+                v.vehicle_no = ?";
             
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
@@ -65,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sql = "UPDATE route SET route=?, purpose=?, distance=?, supplier_code=?, vehicle_no=?, fixed_amount=?, fuel_amount=?, assigned_person=?, with_fuel=? WHERE route_code=?";
         $stmt = $conn->prepare($sql);
         
-        $stmt->bind_param("ssdsdsssis", $route, $purpose, $distance, $supplier_code, $vehicle_no, $fixed_amount, $fuel_amount, $assigned_person, $with_fuel_value, $route_code);
+        $stmt->bind_param("ssdssddsis", $route, $purpose, $distance, $supplier_code, $vehicle_no, $fixed_amount, $fuel_amount, $assigned_person, $with_fuel_value, $route_code);
     } else {
         // Check for duplicates
         $check_sql = "SELECT route_code FROM route WHERE route_code = ?";
@@ -89,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // is_active is 1 by default for new routes
         $is_active = 1; 
-        $stmt->bind_param("ssdsdsssi", $route_code, $route, $purpose, $distance, $supplier_code, $vehicle_no, $fixed_amount, $fuel_amount, $assigned_person, $with_fuel_value, $is_active);
+        $stmt->bind_param("sssdssddsii", $route_code, $route, $purpose, $distance, $supplier_code, $vehicle_no, $fixed_amount, $fuel_amount, $assigned_person, $with_fuel_value, $is_active);
     }
 
     if ($stmt->execute()) {

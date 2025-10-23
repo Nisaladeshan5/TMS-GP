@@ -292,3 +292,46 @@ Stack trace:
 [23-Sep-2025 08:36:40 UTC] PHP Stack trace:
 [23-Sep-2025 08:36:40 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
 [23-Sep-2025 08:36:40 UTC] PHP   2. htmlspecialchars($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:154
+[12-Oct-2025 14:56:24 UTC] PHP Warning:  Undefined array key "out_time" in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 19
+[12-Oct-2025 14:56:24 UTC] PHP Stack trace:
+[12-Oct-2025 14:56:24 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:56:24 UTC] PHP Deprecated:  trim(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 19
+[12-Oct-2025 14:56:24 UTC] PHP Stack trace:
+[12-Oct-2025 14:56:24 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:56:24 UTC] PHP   2. trim($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:19
+[12-Oct-2025 14:56:24 UTC] PHP Warning:  Undefined array key "description" in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 20
+[12-Oct-2025 14:56:24 UTC] PHP Stack trace:
+[12-Oct-2025 14:56:24 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:56:24 UTC] PHP Deprecated:  trim(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 20
+[12-Oct-2025 14:56:24 UTC] PHP Stack trace:
+[12-Oct-2025 14:56:24 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:56:24 UTC] PHP   2. trim($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:20
+[12-Oct-2025 14:57:03 UTC] PHP Warning:  Undefined array key "out_time" in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 19
+[12-Oct-2025 14:57:03 UTC] PHP Stack trace:
+[12-Oct-2025 14:57:03 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:57:03 UTC] PHP Deprecated:  trim(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 19
+[12-Oct-2025 14:57:03 UTC] PHP Stack trace:
+[12-Oct-2025 14:57:03 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:57:03 UTC] PHP   2. trim($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:19
+[12-Oct-2025 14:57:03 UTC] PHP Warning:  Undefined array key "description" in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 20
+[12-Oct-2025 14:57:03 UTC] PHP Stack trace:
+[12-Oct-2025 14:57:03 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:57:03 UTC] PHP Deprecated:  trim(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 20
+[12-Oct-2025 14:57:03 UTC] PHP Stack trace:
+[12-Oct-2025 14:57:03 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:57:03 UTC] PHP   2. trim($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:20
+[12-Oct-2025 14:58:55 UTC] PHP Warning:  Undefined array key "out_time" in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 19
+[12-Oct-2025 14:58:55 UTC] PHP Stack trace:
+[12-Oct-2025 14:58:55 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:58:55 UTC] PHP Deprecated:  trim(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 19
+[12-Oct-2025 14:58:55 UTC] PHP Stack trace:
+[12-Oct-2025 14:58:55 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:58:55 UTC] PHP   2. trim($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:19
+[12-Oct-2025 14:58:55 UTC] PHP Warning:  Undefined array key "description" in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 20
+[12-Oct-2025 14:58:55 UTC] PHP Stack trace:
+[12-Oct-2025 14:58:55 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:58:55 UTC] PHP Deprecated:  trim(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php on line 20
+[12-Oct-2025 14:58:55 UTC] PHP Stack trace:
+[12-Oct-2025 14:58:55 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
+[12-Oct-2025 14:58:55 UTC] PHP   2. trim($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:20
+[19-Oct-2025 19:55:44 Asia/Colombo] Transaction Failed: Unknown column 'direct_indirect' in 'field list'

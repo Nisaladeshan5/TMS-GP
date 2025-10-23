@@ -23,3 +23,31 @@ Stack trace:
 #0 C:\wamp64\www\TMS\public\basic\vehicle.php(136): mysqli->query('SELECT fuel_rat...')
 #1 {main}
   thrown in C:\wamp64\www\TMS\public\basic\vehicle.php on line 136
+[08-Oct-2025 16:16:07 UTC] PHP Warning:  Undefined array key "c_id" in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 210
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP Deprecated:  htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 210
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP   2. htmlspecialchars($string = NULL) C:\wamp64\www\TMS\public\basic\add_vehicle.php:210
+[08-Oct-2025 16:16:07 UTC] PHP Warning:  Undefined array key "c_type" in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 211
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP Deprecated:  htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 211
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP   2. htmlspecialchars($string = NULL) C:\wamp64\www\TMS\public\basic\add_vehicle.php:211
+[08-Oct-2025 16:16:07 UTC] PHP Warning:  Undefined array key "c_id" in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 210
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP Deprecated:  htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 210
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP   2. htmlspecialchars($string = NULL) C:\wamp64\www\TMS\public\basic\add_vehicle.php:210
+[08-Oct-2025 16:16:07 UTC] PHP Warning:  Undefined array key "c_type" in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 211
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP Deprecated:  htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\wamp64\www\TMS\public\basic\add_vehicle.php on line 211
+[08-Oct-2025 16:16:07 UTC] PHP Stack trace:
+[08-Oct-2025 16:16:07 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\basic\add_vehicle.php:0
+[08-Oct-2025 16:16:07 UTC] PHP   2. htmlspecialchars($string = NULL) C:\wamp64\www\TMS\public\basic\add_vehicle.php:211

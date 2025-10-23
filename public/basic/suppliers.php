@@ -278,7 +278,7 @@ $suppliers_result = $stmt->get_result();
                         </div>
                         <div>
                             <label for="edit_email" class="block text-sm font-medium text-gray-700">Email:</label>
-                            <input type="email" id="edit_email" name="email" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                            <input type="email" id="edit_email" name="email" class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
                         </div>
                     </div>
                 </div>

@@ -7,6 +7,8 @@ include('../../../includes/config.php');
 // Initialize variables
 $errorMessage = '';
 $successMessage = '';
+$staff_transport_gl_code = '623400'; // Fixed GL Code for Staff Transport
+$staff_transport_supplier_code = ''; // Will be fetched from the database
 
 // Fetch routes, vehicles, and drivers
 $sqlRoutes = "SELECT route_code, route FROM route";
@@ -37,36 +39,74 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $shift = $_POST['shift'];
     $inTime = $_POST['in_time'];
     $outTime = $_POST['out_time'];
-
-    // Fetch the assigned vehicle and driver NIC by joining route and vehicle tables
-    $sqlAssignedDetails = "SELECT r.vehicle_no, v.driver_NIC FROM route r JOIN vehicle v ON r.vehicle_no = v.vehicle_no WHERE r.route_code = ?";
-    $stmtAssignedDetails = $conn->prepare($sqlAssignedDetails);
-    $stmtAssignedDetails->bind_param('s', $route);
-    $stmtAssignedDetails->execute();
-    $resultAssignedDetails = $stmtAssignedDetails->get_result();
-    $routeDetails = $resultAssignedDetails->fetch_assoc();
-    $assignedVehicle = $routeDetails['vehicle_no'];
-    $assignedDriver = $routeDetails['driver_NIC'];
-    $stmtAssignedDetails->close();
     
-    // Determine vehicle_status and driver_status
-    $vehicleStatus = ($assignedVehicle === $actualVehicleNo) ? 1 : 0;
-    $driverStatus = ($assignedDriver === $driver) ? 1 : 0;
+    // --- Start Transaction ---
+    $conn->autocommit(false); 
 
-    // Check for duplicate record based on route, date, and shift
-    $checkSql = "SELECT COUNT(*) FROM staff_transport_vehicle_register WHERE route = ? AND date = ? AND shift = ?";
-    $checkStmt = $conn->prepare($checkSql);
-    $checkStmt->bind_param('sss', $route, $date, $shift);
-    $checkStmt->execute();
-    $result = $checkStmt->get_result();
-    $row = $result->fetch_row();
-    $recordCount = $row[0];
-    $checkStmt->close();
+    try {
+        // 1. Fetch the assigned vehicle, driver NIC, COST PARAMETERS, AND SUPPLIER CODE
+        $sqlAssignedDetails = "
+            SELECT 
+                r.vehicle_no, 
+                v.driver_NIC, 
+                v.supplier_code,   /* <-- ADDED supplier_code  */
+                r.fixed_amount, 
+                r.fuel_amount, 
+                r.distance 
+            FROM route r 
+            JOIN vehicle v ON r.vehicle_no = v.vehicle_no 
+            WHERE r.route_code = ?";
+        $stmtAssignedDetails = $conn->prepare($sqlAssignedDetails);
+        $stmtAssignedDetails->bind_param('s', $route);
+        $stmtAssignedDetails->execute();
+        $resultAssignedDetails = $stmtAssignedDetails->get_result();
+        $routeDetails = $resultAssignedDetails->fetch_assoc();
+        $stmtAssignedDetails->close();
+        
+        if (!$routeDetails) {
+            throw new Exception("Route details not found.");
+        }
 
-    if ($recordCount > 0) {
-        $errorMessage = "A record for this route, date, and shift already exists. Cannot add a duplicate.";
-    } else {
-        // Proceed with insertion
+        $assignedVehicle = $routeDetails['vehicle_no'];
+        $assignedDriver = $routeDetails['driver_NIC'];
+        $staff_transport_supplier_code = $routeDetails['supplier_code']; // <-- FETCHED HERE
+        $fixed_amount = (float)$routeDetails['fixed_amount'];
+        $fuel_amount = (float)$routeDetails['fuel_amount'];
+        $distance = (float)$routeDetails['distance'];
+        
+        // Validation for critical data
+        if (empty($staff_transport_supplier_code)) {
+            throw new Exception("Supplier code is missing for the assigned vehicle.");
+        }
+
+
+        // Calculate Cost Per Trip (Assuming one entry = one half-day trip)
+        $trip_rate = (($fixed_amount + $fuel_amount) * $distance / 2);
+        $distance_per_trip = $distance / 2;
+        $current_month = date('m', strtotime($date));
+        $current_year = date('Y', strtotime($date));
+
+        // Determine vehicle_status and driver_status
+        $vehicleStatus = ($assignedVehicle === $actualVehicleNo) ? 1 : 0;
+        $driverStatus = ($assignedDriver === $driver) ? 1 : 0;
+
+        // 2. Check for duplicate record based on route, date, and shift
+        $checkSql = "SELECT COUNT(*) FROM staff_transport_vehicle_register WHERE route = ? AND date = ? AND shift = ?";
+        $checkStmt = $conn->prepare($checkSql);
+        $checkStmt->bind_param('sss', $route, $date, $shift);
+        $checkStmt->execute();
+        $result = $checkStmt->get_result();
+        $row = $result->fetch_row();
+        $recordCount = $row[0];
+        $checkStmt->close();
+
+        if ($recordCount > 0) {
+            throw new Exception("A record for this route, date, and shift already exists. Cannot add a duplicate.");
+        }
+        
+        // --- All checks passed. Proceed with insertions/updates ---
+        
+        // 3. Insert into staff_transport_vehicle_register
         $sql = "INSERT INTO staff_transport_vehicle_register 
                 (vehicle_no, actual_vehicle_no, vehicle_status, driver_NIC, driver_status, date, shift, route, in_time, out_time)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -74,14 +114,121 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmt = $conn->prepare($sql);
         $stmt->bind_param('ssisssssss', $assignedVehicle, $actualVehicleNo, $vehicleStatus, $driver, $driverStatus, $date, $shift, $route, $inTime, $outTime);
 
-        if ($stmt->execute()) {
-            header("Location: " . BASE_URL . "registers/Staff%20transport%20vehicle%20register.php?status=success&message=" . urlencode("Record added successfully!"));
-            exit();
-        } else {
-            $errorMessage = "Error adding record: " . $stmt->error;
+        if (!$stmt->execute()) {
+            throw new Exception("Database error (Register Insert): " . $stmt->error);
         }
         $stmt->close();
+
+        // 4. Update monthly_payments_sf (Contractor Payment)
+        $update_sf_sql = "
+            INSERT INTO monthly_payments_sf 
+            (route_code, supplier_code, month, year, monthly_payment, total_distance) 
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+            monthly_payment = monthly_payment + VALUES(monthly_payment), 
+            total_distance = total_distance + VALUES(total_distance)
+        ";
+        $stmt_sf = $conn->prepare($update_sf_sql);
+        $stmt_sf->bind_param("ssisdd", $route, $staff_transport_supplier_code, $current_month, $current_year, $trip_rate, $distance_per_trip);
+        
+        if (!$stmt_sf->execute()) {
+             throw new Exception("Database error (SF Payment Update): " . $stmt_sf->error);
+        }
+        $stmt_sf->close();
+        
+        
+        // 5. Cost Allocation (Consolidated: GL, DI, & Supplier in monthly_cost_allocation)
+        
+        // 5a. Get headcount for allocation
+        $employee_details_sql = "
+            SELECT 
+                department, 
+                direct, 
+                COUNT(emp_id) AS headcount 
+            FROM 
+                employee 
+            WHERE 
+                LEFT(route, 10) = ? 
+            GROUP BY 
+                department, direct
+        ";
+        $stmt_emp = $conn->prepare($employee_details_sql);
+        $stmt_emp->bind_param("s", $route);
+        $stmt_emp->execute();
+        $employee_results = $stmt_emp->get_result();
+
+        $total_route_headcount = 0;
+        $aggregated_allocations = []; // Array to hold [department, direct] => cost
+        $temp_results = [];
+
+        while ($row = $employee_results->fetch_assoc()) {
+            $total_route_headcount += (int)$row['headcount'];
+            $temp_results[] = $row;
+        }
+        $stmt_emp->close(); 
+
+        if ($total_route_headcount > 0 && $trip_rate > 0) {
+            $cost_per_employee = $trip_rate / $total_route_headcount;
+
+            foreach ($temp_results as $row) {
+                $department = $row['department'];
+                $di_status = $row['direct']; 
+                $headcount = (int)$row['headcount'];
+                $allocated_cost = $cost_per_employee * $headcount;
+
+                if ($allocated_cost > 0) {
+                    // Key is a combination of department and direct status
+                    $key = $department . '-' . $di_status; 
+                    $aggregated_allocations[$key] = ($aggregated_allocations[$key] ?? 0.00) + $allocated_cost;
+                }
+            }
+
+            // 5b. Update monthly_cost_allocation (Consolidated GL/DI/Supplier)
+            $allocation_update_sql = "
+                INSERT INTO monthly_cost_allocation
+                (supplier_code, gl_code, department, direct, month, year, monthly_allocation) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE 
+                monthly_allocation = monthly_allocation + VALUES(monthly_allocation)
+            ";
+            $allocation_stmt = $conn->prepare($allocation_update_sql);
+            
+            foreach ($aggregated_allocations as $dept_di_key => $cost) {
+                list($department, $di_status) = explode('-', $dept_di_key);
+                
+                // Bind parameters for the new structure
+                $allocation_stmt->bind_param(
+                    "ssssssd", 
+                    $staff_transport_supplier_code,  // <-- NOW USES FETCHED VALUE
+                    $staff_transport_gl_code, 
+                    $department, 
+                    $di_status, 
+                    $current_month, 
+                    $current_year, 
+                    $cost
+                );
+                
+                if (!$allocation_stmt->execute()) {
+                    throw new Exception("Database error (Consolidated Cost Allocation Update): " . $allocation_stmt->error);
+                }
+            }
+            $allocation_stmt->close();
+        }
+
+
+        // --- COMMIT TRANSACTION ---
+        $conn->commit();
+        header("Location: " . BASE_URL . "registers/Staff%20transport%20vehicle%20register.php?status=success&message=" . urlencode("Record and financial allocations added successfully!"));
+        exit();
+
+    } catch (Exception $e) {
+        // --- ROLLBACK TRANSACTION ---
+        $conn->rollback();
+        $errorMessage = "Transaction Failed: " . $e->getMessage();
     }
+    
+    // Restore default autocommit mode
+    $conn->autocommit(true); 
 }
 ?>
 
@@ -255,29 +402,46 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         const actualVehicleInput = document.getElementById('actual_vehicle_no');
         const driverSelect = document.getElementById('driver');
 
+        // Reset fields immediately
+        document.getElementById('vehicle_no').value = '';
+        actualVehicleInput.value = '';
+        driverSelect.value = '';
+
         if (routeCode) {
             fetch(`get_vehicle_driver.php?route_code=${routeCode}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    // 1. Set the ASSIGNED vehicle number (always read-only)
                     if (data.vehicle_no) {
                         document.getElementById('vehicle_no').value = data.vehicle_no;
-                        
-                        // Check if actual_vehicle_no is empty before setting a default value
+
+                        // 2. Set the ACTUAL vehicle number (only if user hasn't typed anything)
                         if (actualVehicleInput.value === '') {
-                             actualVehicleInput.value = data.vehicle_no;
+                            actualVehicleInput.value = data.vehicle_no;
                         }
 
-                        // Check if driver is unselected before setting a default value
-                        if (driverSelect.value === '' || driverSelect.value === 'Select Driver') {
-                            driverSelect.value = data.driver;
+                        // 3. Set the DRIVER NIC (***USES data.driver key***)
+                        // Check if data.driver exists AND the field is currently empty/default
+                        if (data.driver && 
+                            (driverSelect.value === '' || driverSelect.value === 'Select Driver')) {
+                            
+                            // ✅ FIX: Setting the selected option using the NIC returned by the PHP key 'driver'
+                            driverSelect.value = data.driver; 
                         }
                     } else {
-                        document.getElementById('vehicle_no').value = '';
-                        actualVehicleInput.value = '';
-                        driverSelect.value = '';
+                        // Log error if vehicle data is missing for debugging
+                        console.warn("No vehicle details found for route:", routeCode);
                     }
                 })
-                .catch(error => console.error('Error fetching data:', error));
+                .catch(error => {
+                    console.error('Error fetching route data:', error);
+                    showToast('Could not fetch route details. Check server logs.', 'error');
+                });
         }
     }
 
@@ -321,8 +485,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         let isValid = true;
 
         if (shift === 'Morning') {
+            // 04:00 (240 mins) to 11:59 (719 mins)
             isValid = inMins >= 240 && inMins <= 719 && outMins >= 240 && outMins <= 719;
         } else if (shift === 'Evening') {
+            // 12:00 (720 mins) to 23:59 (1439 mins)
             isValid = inMins >= 720 && inMins <= 1439 && outMins >= 720 && outMins <= 1439;
         }
 
@@ -335,12 +501,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         return true;
     }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const status = urlParams.get('status');
-    const message = urlParams.get('message');
-    if (status && message) {
-        showToast(decodeURIComponent(message), status);
-    }
+    // Initial checks on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const status = urlParams.get('status');
+        const message = urlParams.get('message');
+        if (status && message) {
+            showToast(decodeURIComponent(message), status);
+            // Clear URL parameters after showing toast
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        updateTimeLimits(); // Set initial time limits if a shift is pre-selected
+    });
 </script>
 
 </body>

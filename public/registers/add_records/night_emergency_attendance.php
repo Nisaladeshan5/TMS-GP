@@ -69,6 +69,7 @@ $result = $stmt->get_result();
         <a href="../night_emergency.php" class="hover:text-yellow-600">Back to Trips</a>
         <a href="add_night_emergency_vehicle.php" class="hover:text-yellow-600">Add Trip Record</a>
         <a href="night_emergency_attendance.php" class="text-yellow-500 hover:text-yellow-600">Attendance</a>
+        <a href="add_night_emergency_attendance.php" class="hover:text-yellow-600">Add Attendance</a>
         <a href="night_emergency_barcode.php" class="hover:text-yellow-600">Barcode</a>
     </div>
 </div>
