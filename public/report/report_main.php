@@ -30,6 +30,7 @@ function generateMonthOptions($selectedMonth = null) {
 function generateYearOptions($selectedYear = null) {
     $currentYear = date('Y');
     // Start from 2025 as required, and go up to 5 years past the current year
+    // NOTE: Current year is 2025 based on your logic, but I'll honor the 2025 start for consistency
     $startYear = 2025;
     $endYear = $currentYear + 5;
     $output = '';
@@ -189,7 +190,7 @@ function generateYearOptions($selectedYear = null) {
 
                 <div class="flex items-center gap-3 lg:ml-auto">
                     <button id="generate_report_btn"
-                        style="background: linear-gradient(to right, #3b82f6, #6366f1);"  
+                        style="background: linear-gradient(to right, #3b82f6, #6366f1);"  
                         class="px-5 py-2 text-white font-semibold rounded-lg shadow-md 
                                 hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-150 
                                 flex items-center gap-2 relative z-[9999]">
@@ -200,10 +201,14 @@ function generateYearOptions($selectedYear = null) {
                         class="px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-600 hover:bg-gray-50">
                         Export Full GL Excel
                     </button>
-
+                    
+                    <button id="export_employee_counts" title="Export current employee counts for Route F" 
+                        class="px-3 py-2 bg-green-500 text-white font-medium rounded-md text-sm hover:bg-green-600 shadow-md transition-colors duration-150">
+                        Export Employee Counts
+                    </button>
                     <button id="export_transport_excel" title="Export FACTORY EMPLOYEE TRANSPORT COST (623401)" 
                         class="px-3 py-2 bg-indigo-500 text-white font-medium rounded-md text-sm hover:bg-indigo-600 ml-2 shadow-md transition-colors duration-150">
-                        Export Transport Cost (623401)
+                        Export Purchase Journal (623401)
                     </button>
                 </div>
             </div>
@@ -296,6 +301,18 @@ function generateYearOptions($selectedYear = null) {
             var month = $('#month_filter').val();
             var year = $('#year_filter').val();
             var form = $('<form action="export_transport_cost.php" method="post" style="display:none;"></form>');
+            form.append('<input type="hidden" name="month_input" value="' + month + '">');
+            form.append('<input type="hidden" name="year_input" value="' + year + '">');
+            $('body').append(form);
+            form.submit();
+            form.remove();
+        });
+        
+        // NEW EXPORT LOGIC: Uses month/year for filename but the PHP script won't filter the data by them.
+        $('#export_employee_counts').click(function() {
+            var month = $('#month_filter').val();
+            var year = $('#year_filter').val();
+            var form = $('<form action="export_employee_report.php" method="post" style="display:none;"></form>');
             form.append('<input type="hidden" name="month_input" value="' + month + '">');
             form.append('<input type="hidden" name="year_input" value="' + year + '">');
             $('body').append(form);

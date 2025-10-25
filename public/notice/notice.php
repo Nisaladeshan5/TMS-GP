@@ -5,49 +5,72 @@ include('../../includes/header.php');
 include('../../includes/navbar.php');
 ?>
 
-<div class="w-[85%] ml-[15%] p-6 font-sans bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
+<div class="w-[85%] ml-[15%] min-h-screen bg-gray-100 font-sans p-8">
 
-    <!-- Drivers with Expiring Licenses -->
-    <section class="m-4 p-6 rounded-2xl shadow-xl bg-white border border-blue-100">
-        <div class="flex items-center gap-2 mb-6">
-            <span class="text-3xl">⏳</span>
-            <p class="text-2xl font-bold text-gray-800">Drivers with Expiring Licenses</p>
-        </div>
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-8 border-b border-gray-300 pb-4">
+        <h1 class="text-3xl font-bold text-gray-800 tracking-tight">Expiration Monitoring Dashboard</h1>
+        <a href="generate_report.php" target="_blank"
+           class="px-5 py-2 bg-emerald-600 text-white font-semibold rounded-md hover:bg-emerald-700 transition">
+            ⬇️ Generate Full Report
+        </a>
+    </div>
+
+    <!-- Drivers -->
+    <section class="mb-10 bg-white border border-gray-200 rounded-lg shadow-sm p-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <span class="text-2xl">🚗</span> Drivers with Expiring Licenses
+        </h2>
+
         <?php
-        $sql_drivers = "SELECT calling_name, phone_no, license_expiry_date, DATEDIFF(license_expiry_date, CURDATE()) AS days_left 
-                        FROM driver 
-                        WHERE DATEDIFF(license_expiry_date, CURDATE()) <= 15 OR DATEDIFF(license_expiry_date, CURDATE()) < 0";
+        $sql_drivers = "
+            SELECT d.calling_name, d.phone_no, d.license_expiry_date, 
+                DATEDIFF(d.license_expiry_date, CURDATE()) AS days_left,
+                v.vehicle_no
+            FROM driver d
+            LEFT JOIN vehicle v ON d.driver_NIC = v.driver_NIC
+            WHERE DATEDIFF(d.license_expiry_date, CURDATE()) <= 15 
+            OR DATEDIFF(d.license_expiry_date, CURDATE()) < 0
+            ORDER BY d.license_expiry_date ASC
+        ";
         $result_drivers = mysqli_query($conn, $sql_drivers);
 
         if (mysqli_num_rows($result_drivers) > 0) {
-            echo '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">';
-            while($row = mysqli_fetch_assoc($result_drivers)) {
-                $days_left = $row['days_left'];
-                $status_class = ($days_left > 0) ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
-                $status_text = ($days_left > 0) ? $days_left . ' days left' : abs($days_left) . ' days passed';
+            echo '<div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">';
+            while ($row = mysqli_fetch_assoc($result_drivers)) {
+                $days_left = (int)$row['days_left'];
+                $isExpired = $days_left < 0;
+                $status_class = $isExpired ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-800';
+                $status_text = $isExpired 
+                    ? abs($days_left) . ' days passed' 
+                    : $days_left . ' days left';
 
-                echo '<div class="rounded-xl bg-gradient-to-br from-blue-50 to-white shadow-md p-5 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">';
-                echo '<h4 class="text-lg font-bold text-gray-900 mb-2">👤 ' . htmlspecialchars($row["calling_name"]) . '</h4>';
-                echo '<p class="text-sm text-gray-600 mb-2"><span class="font-semibold text-gray-800">📞 Phone:</span> ' . htmlspecialchars($row["phone_no"]) . '</p>';
-                echo '<span class="px-3 py-1 text-sm font-bold rounded-full ' . $status_class . '">' . $status_text . '</span>';
-                echo '</div>';
+                echo '
+                <div class="border border-gray-200 rounded-lg bg-gray-50 p-5 hover:shadow-md transition duration-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-lg font-semibold text-gray-900">' . htmlspecialchars($row["calling_name"]) . '</h3>
+                        <span class="inline-block px-3 py-1 text-xs font-medium rounded-full ' . $status_class . '">' . $status_text . '</span>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-1">📞 ' . htmlspecialchars($row["phone_no"]) . '</p>
+                    <p class="text-sm text-gray-600 mb-1">🚘 <span class="font-medium text-gray-800">' . (!empty($row["vehicle_no"]) ? htmlspecialchars($row["vehicle_no"]) : '-') . '</span></p>
+                    <p class="text-sm text-gray-600">📅 Expiry: <span class="font-medium text-gray-800">' . htmlspecialchars($row["license_expiry_date"]) . '</span></p>
+                </div>';
             }
             echo '</div>';
         } else {
-            echo '<p class="text-gray-500 italic mt-4 text-center">✨ No drivers with licenses expiring soon.</p>';
+            echo '<p class="text-gray-500 italic text-center">No drivers with licenses expiring soon.</p>';
         }
         ?>
     </section>
 
-    <!-- Vehicles with Expiring Documents -->
-    <section class="m-4 p-6 rounded-2xl shadow-xl bg-white border border-blue-100">
-        <div class="flex items-center gap-2 mb-6">
-            <span class="text-3xl">🚗</span>
-            <p class="text-2xl font-bold text-gray-800">Vehicles with Expiring Documents</p>
-        </div>
+    <!-- Vehicle Documents -->
+    <section class="mb-10 bg-white border border-gray-200 rounded-lg shadow-sm p-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <span class="text-2xl">🚘</span> Vehicles with Expiring Documents
+        </h2>
 
-        <!-- License Expiry -->
-        <h3 class="text-xl font-semibold text-gray-700 border-b-2 border-gray-200 pb-2 mb-4">📜 License Expiry</h3>
+        <!-- License -->
+        <h3 class="text-lg font-semibold text-gray-700 mb-3 border-b border-gray-200 pb-1">📜 License Expiry</h3>
         <?php
         $sql_vehicle_license = "SELECT 
                 v.vehicle_no, 
@@ -59,26 +82,28 @@ include('../../includes/navbar.php');
         $result_vehicle_license = mysqli_query($conn, $sql_vehicle_license);
 
         if (mysqli_num_rows($result_vehicle_license) > 0) {
-            echo '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">';
+            echo '<div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 mb-8">';
             while($row = mysqli_fetch_assoc($result_vehicle_license)) {
                 $days_left = $row['days_left'];
-                $status_class = ($days_left > 0) ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
-                $status_text = ($days_left > 0) ? $days_left . ' days left' : abs($days_left) . ' days passed';
+                $isExpired = $days_left < 0;
+                $status_class = $isExpired ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-800';
+                $status_text = $isExpired ? abs($days_left) . ' days passed' : $days_left . ' days left';
 
-                echo '<div class="rounded-xl bg-gradient-to-br from-blue-50 to-white shadow-md p-5 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">';
-                echo '<h4 class="text-lg font-bold text-gray-900 mb-2">🚙 ' . htmlspecialchars($row["vehicle_no"]) . '</h4>';
-                echo '<p class="text-sm text-gray-600 mb-2"><span class="font-semibold text-gray-800">📞 Phone:</span> ' . htmlspecialchars($row["supplier_phone"]) . '</p>';
-                echo '<span class="px-3 py-1 text-sm font-bold rounded-full ' . $status_class . '">' . $status_text . '</span>';
-                echo '</div>';
+                echo '
+                <div class="border border-gray-200 rounded-lg bg-gray-50 p-5 hover:shadow-md transition">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-1">🚙 ' . htmlspecialchars($row["vehicle_no"]) . '</h3>
+                    <p class="text-sm text-gray-600 mb-2">📞 ' . htmlspecialchars($row["supplier_phone"]) . '</p>
+                    <span class="inline-block px-3 py-1 text-sm font-medium rounded-full ' . $status_class . '">' . $status_text . '</span>
+                </div>';
             }
             echo '</div>';
         } else {
-            echo '<p class="text-gray-500 italic mb-6 text-center">✨ No vehicle licenses expiring soon.</p>';
+            echo '<p class="text-gray-500 italic text-center mb-6">No vehicle licenses expiring soon.</p>';
         }
         ?>
 
-        <!-- Insurance Expiry -->
-        <h3 class="text-xl font-semibold text-gray-700 border-b-2 border-gray-200 pb-2 mb-4">🛡️ Insurance Expiry</h3>
+        <!-- Insurance -->
+        <h3 class="text-lg font-semibold text-gray-700 mb-3 border-b border-gray-200 pb-1">🛡️ Insurance Expiry</h3>
         <?php
         $sql_vehicle_insurance = "SELECT 
                 v.vehicle_no, 
@@ -90,31 +115,33 @@ include('../../includes/navbar.php');
         $result_vehicle_insurance = mysqli_query($conn, $sql_vehicle_insurance);
 
         if (mysqli_num_rows($result_vehicle_insurance) > 0) {
-            echo '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">';
+            echo '<div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">';
             while($row = mysqli_fetch_assoc($result_vehicle_insurance)) {
                 $days_left = $row['days_left'];
-                $status_class = ($days_left > 0) ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
-                $status_text = ($days_left > 0) ? $days_left . ' days left' : abs($days_left) . ' days passed';
+                $isExpired = $days_left < 0;
+                $status_class = $isExpired ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-800';
+                $status_text = $isExpired ? abs($days_left) . ' days passed' : $days_left . ' days left';
 
-                echo '<div class="rounded-xl bg-gradient-to-br from-blue-50 to-white shadow-md p-5 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">';
-                echo '<h4 class="text-lg font-bold text-gray-900 mb-2">🚘 ' . htmlspecialchars($row["vehicle_no"]) . '</h4>';
-                echo '<p class="text-sm text-gray-600 mb-2"><span class="font-semibold text-gray-800">📞 Phone:</span> ' . htmlspecialchars($row["supplier_phone"]) . '</p>';
-                echo '<span class="px-3 py-1 text-sm font-bold rounded-full ' . $status_class . '">' . $status_text . '</span>';
-                echo '</div>';
+                echo '
+                <div class="border border-gray-200 rounded-lg bg-gray-50 p-5 hover:shadow-md transition">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-1">🚘 ' . htmlspecialchars($row["vehicle_no"]) . '</h3>
+                    <p class="text-sm text-gray-600 mb-2">📞 ' . htmlspecialchars($row["supplier_phone"]) . '</p>
+                    <span class="inline-block px-3 py-1 text-sm font-medium rounded-full ' . $status_class . '">' . $status_text . '</span>
+                </div>';
             }
             echo '</div>';
         } else {
-            echo '<p class="text-gray-500 italic mt-4 text-center">✨ No vehicle insurance expiring soon.</p>';
+            echo '<p class="text-gray-500 italic text-center">No vehicle insurance expiring soon.</p>';
         }
         ?>
     </section>
 
-    <!-- Vehicles with Expiring Inspections -->
-    <section class="m-4 p-6 rounded-2xl shadow-xl bg-white border border-blue-100">
-        <div class="flex items-center gap-2 mb-6">
-            <span class="text-3xl">🛠️</span>
-            <p class="text-2xl font-bold text-gray-800">Vehicles with Expiring Inspections</p>
-        </div>
+    <!-- Inspections -->
+    <section class="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <span class="text-2xl">🧰</span> Vehicles with Expiring Inspections
+        </h2>
+
         <?php
         $sql_inspection = "SELECT 
                 s.supplier AS supplier_name,
@@ -130,42 +157,40 @@ include('../../includes/navbar.php');
         if (mysqli_num_rows($result_inspection) > 0) {
             $grouped_data = [];
             while($row = mysqli_fetch_assoc($result_inspection)) {
-                $supplier_code = $row['supplier_code'];
-                if (!isset($grouped_data[$supplier_code])) {
-                    $grouped_data[$supplier_code] = [
+                $code = $row['supplier_code'];
+                if (!isset($grouped_data[$code])) {
+                    $grouped_data[$code] = [
                         'name' => $row['supplier_name'],
                         'phone' => $row['supplier_phone'],
-                        'most_critical_days_left' => $row['days_left']
+                        'days_left' => $row['days_left']
                     ];
                 } else {
-                    if ($row['days_left'] < $grouped_data[$supplier_code]['most_critical_days_left']) {
-                        $grouped_data[$supplier_code]['most_critical_days_left'] = $row['days_left'];
+                    if ($row['days_left'] < $grouped_data[$code]['days_left']) {
+                        $grouped_data[$code]['days_left'] = $row['days_left'];
                     }
                 }
             }
 
-            echo '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">';
-            foreach($grouped_data as $supplier_code => $data) {
-                $days_left = $data['most_critical_days_left'];
-                $status_class = ($days_left > 0) ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
-                $status_text = ($days_left > 0) ? $days_left . ' days left' : abs($days_left) . ' days passed';
+            echo '<div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">';
+            foreach ($grouped_data as $data) {
+                $days_left = $data['days_left'];
+                $isExpired = $days_left < 0;
+                $status_class = $isExpired ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-800';
+                $status_text = $isExpired ? abs($days_left) . ' days passed' : $days_left . ' days left';
 
-                echo '<div class="rounded-xl bg-gradient-to-br from-blue-50 to-white shadow-md p-5 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">';
-                echo '<h4 class="text-lg font-bold text-gray-900 mb-2">🏭 Supplier: ' . htmlspecialchars($data["name"]) . '</h4>';
-                echo '<p class="text-sm text-gray-600 mb-2"><span class="font-semibold text-gray-800">📞 Phone:</span> ' . htmlspecialchars($data["phone"]) . '</p>';
-                echo '<span class="px-3 py-1 text-sm font-bold rounded-full ' . $status_class . '">' . $status_text . '</span>';
-                echo '</div>';
+                echo '
+                <div class="border border-gray-200 rounded-lg bg-gray-50 p-5 hover:shadow-md transition">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-1">' . htmlspecialchars($data["name"]) . '</h3>
+                    <p class="text-sm text-gray-600 mb-2">📞 ' . htmlspecialchars($data["phone"]) . '</p>
+                    <span class="inline-block px-3 py-1 text-sm font-medium rounded-full ' . $status_class . '">' . $status_text . '</span>
+                </div>';
             }
             echo '</div>';
         } else {
-            echo '<p class="text-gray-500 italic mt-4 text-center">✨ No inspections expiring soon.</p>';
+            echo '<p class="text-gray-500 italic text-center">No inspections expiring soon.</p>';
         }
         ?>
     </section>
-
 </div>
 
-<?php
-// Close the database connection
-mysqli_close($conn);
-?>
+<?php mysqli_close($conn); ?>
