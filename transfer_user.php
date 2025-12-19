@@ -63,7 +63,7 @@ function get_user_data_to_sync($conn) {
  * DB2 API එකට දත්ත POST Request එකක් ලෙස යවයි. (CURL Logic)
  */
 function post_data_to_api($api_url, $api_key, $data_array) {
-    // NOTE: This function remains unchanged
+    // ⚠️ NOTE: $data_array is now the full payload including 'active_emp_ids'
     $json_data = json_encode($data_array);
 
     $ch = curl_init($api_url);
@@ -109,9 +109,11 @@ echo "Found " . count($raw_user_data) . " user records to transfer/sync.\n";
 
 // DB2 API එකට යැවීමට අවශ්‍ය පරිදි දත්ත සකස් කිරීම
 $user_data_to_post = [];
+$active_emp_ids = []; // 👈 NEW: Array to store all active emp_ids
+
 foreach ($raw_user_data as $row) {
+    // User Table සඳහා තීරු (Data for Upsert)
     $user_data_to_post[] = [
-        // User Table සඳහා තීරු
         'emp_id' => $row['emp_id'],
         'calling_name' => $row['calling_name'],
         'route_code' => $row['route_code'],
@@ -120,19 +122,29 @@ foreach ($raw_user_data as $row) {
         'qr_token' => $row['qr_token'],
         'token_status' => $row['token_status'],
     ];
+    
+    // 👈 NEW: Collect the ID for deletion check
+    $active_emp_ids[] = $row['emp_id']; 
 }
 
+// 💥 Wrap the data into a single payload for the API
+$payload = [
+    'users' => $user_data_to_post,
+    'active_emp_ids' => $active_emp_ids // This tells the API which IDs MUST be kept
+];
+
+
 // Post data to DB2 API
-$api_response = post_data_to_api($target_api_url, $api_key, $user_data_to_post);
+// ⚠️ NOTE: We send the full $payload now
+$api_response = post_data_to_api($target_api_url, $api_key, $payload);
 
 echo "API Response Code: " . $api_response['code'] . "\n";
 
-// The API is expected to handle both new records (INSERT) and existing records (UPDATE)
+// The API is expected to handle upsert (INSERT/UPDATE) and DELETION
 if ($api_response['code'] === 201) {
     echo "✅ Success! All " . count($raw_user_data) . " records sent for upsert/sync.\n";
-    echo "API Response Message: " . ($api_response['response']['message'] ?? 'Data Created/Updated') . "\n";
+    echo "API Response Message: " . ($api_response['response']['message'] ?? 'Data Created/Updated/Cleaned') . "\n";
     
-    // *** mark_users_as_migrated function call has been REMOVED ***
 } else {
     echo "❌ User Sync Failed! \n";
     echo "Error Details: " . print_r($api_response['response'], true) . "\n";

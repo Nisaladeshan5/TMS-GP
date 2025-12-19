@@ -1,151 +1,324 @@
 <?php
-// Note: This script assumes the included files exist and the database connection is valid.
+// payments_category.php (Staff Monthly Payments)
+require_once '../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 include('../../includes/db.php');
-include('../../includes/header.php');
-include('../../includes/navbar.php');
+
+// =======================================================================
+// 1. DYNAMIC DATE FILTER LOGIC
+//    (Uses monthly_payments_sf ONLY to find where the history ends)
+// =======================================================================
+
+// A. Fetch Max Month and Year from history table
+$max_payments_sql = "SELECT MAX(month) AS max_month, MAX(year) AS max_year FROM monthly_payments_sf";
+$max_payments_result = $conn->query($max_payments_sql);
+
+$db_max_month = 0;
+$db_max_year = 0;
+
+if ($max_payments_result && $max_payments_result->num_rows > 0) {
+    $max_data = $max_payments_result->fetch_assoc();
+    $db_max_month = (int)($max_data['max_month'] ?? 0);
+    $db_max_year = (int)($max_data['max_year'] ?? 0);
+}
+
+// B. Calculate the STARTING point for the dropdowns (Month after the Max Payment)
+$start_month = 0;
+$start_year = 0;
+
+if ($db_max_month === 0 && $db_max_year === 0) {
+    // Case 1: No data in the table, start from the current month/year
+    $start_month = (int)date('n');
+    $start_year = (int)date('Y');
+} elseif ($db_max_month == 12) {
+    // Case 2: Max month is December, start from January of the next year
+    $start_month = 1;        
+    $start_year = $db_max_year + 1; 
+} else {
+    // Case 3: Start from the next month in the same year
+    $start_month = $db_max_month + 1;
+    $start_year = $db_max_year;
+}
+
+// C. Determine the CURRENT (ENDING) point for the dropdowns
+$current_month = (int)date('n');
+$current_year = (int)date('Y');
+
+// D. Set the variables for the HTML loops
+$year_loop_start = $current_year;
+$year_loop_end = $start_year; 
+$month_loop_end = $current_month;
+
+
+// =======================================================================
+// 2. HELPER FUNCTIONS & SETUP
+// =======================================================================
 
 // Get selected month and year, default to current month/year
-$selected_month = isset($_GET['month']) ? $_GET['month'] : date('m');
-$selected_year = isset($_GET['year']) ? $_GET['year'] : date('Y');
+$selected_month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
+$selected_year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 
 $payment_data = [];
-$table_headers = [];
-$page_title = "";
 
-// --- STAFF PAYMENT LOGIC (Day Rate and DB Authority Based) ---
-$page_title = "Staff Monthly Payments Summary ";
-$table_headers = [
-    "Route (Vehicle)", // MODIFIED: To show Route and Vehicle Code
+// Fetch Fuel Price changes within the selected Month and Year
+function get_fuel_price_changes_in_month($conn, $rate_id, $month, $year)
+{
+    $start_date = "$year-$month-01";
+    $end_date = date('Y-m-t', strtotime($start_date)); 
+
+    $sql = "
+        SELECT date, rate
+        FROM fuel_rate
+        WHERE rate_id = ? 
+        AND date <= ? 
+        ORDER BY date DESC, id DESC
+    ";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) return []; 
+    
+    $stmt->bind_param("is", $rate_id, $end_date);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $changes = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    
+    $slabs = [];
+    
+    foreach ($changes as $change) {
+        $change_date = $change['date'];
+        $rate = (float)$change['rate'];
+        
+        if (strtotime($change_date) < strtotime($start_date)) {
+            $slabs[date('Y-m-d', strtotime($start_date))] = $rate;
+            break; 
+        }
+        
+        $slabs[$change_date] = $rate;
+    }
+    
+    ksort($slabs);
+    return $slabs;
+}
+
+// Fetch Consumption Rates
+$consumption_rates = [];
+$consumption_sql = "SELECT c_id, distance FROM consumption"; 
+$consumption_result = $conn->query($consumption_sql);
+if ($consumption_result) {
+    while ($row = $consumption_result->fetch_assoc()) {
+        $consumption_rates[$row['c_id']] = $row['distance'];
+    }
+}
+$default_km_per_liter = 1.00;
+
+// Core Calculation Logic
+function calculate_total_payment($conn, $route_code, $supplier_code, $month, $year, $route_distance, $fixed_amount, $with_fuel, $consumption_id, $rate_id, $consumption_rates, $default_km_per_liter)
+{
+    // Fetch trip counts per day
+    $trips_sql = "
+        SELECT date, COUNT(id) AS daily_trips 
+        FROM staff_transport_vehicle_register 
+        WHERE route = ? AND supplier_code = ? 
+        AND MONTH(date) = ? AND YEAR(date) = ? AND is_active = 1
+        GROUP BY date
+    ";
+    $trips_stmt = $conn->prepare($trips_sql);
+    $trips_stmt->bind_param("ssii", $route_code, $supplier_code, $month, $year);
+    $trips_stmt->execute();
+    $trips_result = $trips_stmt->get_result();
+    $daily_trip_counts = $trips_result->fetch_all(MYSQLI_ASSOC);
+    $trips_stmt->close();
+    
+    $total_calculated_payment = 0;
+    $total_trip_count = 0;
+    $trip_rate = 0; 
+
+    if (empty($daily_trip_counts)) {
+        return ['total_payment' => 0, 'total_trips' => 0, 'effective_trip_rate' => 0];
+    }
+    
+    $price_slabs = [];
+    if ($with_fuel === 1 && $rate_id !== null) {
+        $price_slabs = get_fuel_price_changes_in_month($conn, $rate_id, $month, $year);
+    }
+    
+    $km_per_liter = $consumption_rates[$consumption_id] ?? $default_km_per_liter;
+    
+    foreach ($daily_trip_counts as $daily_data) {
+        $trip_date = $daily_data['date'];
+        $daily_trips = (int)$daily_data['daily_trips'];
+        $total_trip_count += $daily_trips;
+
+        // Find fuel price for this date
+        $latest_fuel_price = 0;
+        if ($with_fuel === 1 && !empty($price_slabs)) {
+            foreach ($price_slabs as $change_date => $rate) {
+                if (strtotime($trip_date) >= strtotime($change_date)) {
+                    $latest_fuel_price = $rate;
+                }
+            }
+        }
+        
+        // Calculate Fuel Cost per KM
+        $calculated_fuel_amount_per_km = 0;
+        if ($with_fuel === 1 && $consumption_id !== null) {
+            if ($latest_fuel_price > 0 && $km_per_liter > 0) {
+                $calculated_fuel_amount_per_km = $latest_fuel_price / $km_per_liter;
+            }
+        }
+
+        // Total Rate per KM
+        $rate_per_km = $fixed_amount + $calculated_fuel_amount_per_km;
+
+        // Rate per TRIP 
+        $trip_rate = $rate_per_km * ($route_distance / 2); 
+
+        // Daily Payment
+        $daily_payment = $trip_rate * $daily_trips;
+        $total_calculated_payment += $daily_payment;
+    }
+
+    return [
+        'total_payment' => $total_calculated_payment, 
+        'total_trips' => $total_trip_count,
+        'effective_trip_rate' => $trip_rate 
+    ];
+}
+
+
+/**
+ * ADJUSTED FUNCTION: Get Total Reduction Amount (from the 'reduction' table)
+ * This replaces the previous combined Extra Vehicle/Petty Cash function.
+ */
+function get_total_adjustment_amount($conn, $route_code, $supplier_code, $month, $year)
+{
+    $total_adjustment = 0.00;
+
+    // 1. Sum 'amount' from the 'reduction' table
+    $reduction_sql = "
+        SELECT SUM(amount) AS total_adjustment_amount 
+        FROM reduction 
+        WHERE route_code = ? AND supplier_code = ? AND MONTH(date) = ? AND YEAR(date) = ?
+    ";
+    $reduction_stmt = $conn->prepare($reduction_sql);
+    
+    if (!$reduction_stmt) {
+        error_log("SQL Prepare failed for reduction table: " . $conn->error);
+        return 0.00; 
+    }
+    
+    $reduction_stmt->bind_param("ssii", $route_code, $supplier_code, $month, $year);
+    if ($reduction_stmt->execute()) {
+        $reduction_result = $reduction_stmt->get_result();
+        $row = $reduction_result->fetch_assoc();
+        // Use the fetched sum
+        $total_adjustment = (float)($row['total_adjustment_amount'] ?? 0);
+        $reduction_result->free();
+    }
+    $reduction_stmt->close();
+
+    return $total_adjustment; // This is the total sum from the reduction table.
+}
+
+
+// --- MAIN DATA FETCH (DECOUPLED FROM monthly_payments_sf) ---
+// We fetch routes/suppliers that HAVE registered trips in the selected month/year.
+$payments_sql = "
+    SELECT DISTINCT 
+        stvr.route AS route_code, 
+        stvr.supplier_code, 
+        r.route, 
+        r.fixed_amount, 
+        r.distance AS route_distance, 
+        r.with_fuel,
+        v.fuel_efficiency,  
+        v.rate_id
+    FROM staff_transport_vehicle_register stvr 
+    JOIN route r ON stvr.route = r.route_code
+    LEFT JOIN vehicle v ON r.vehicle_no = v.vehicle_no 
+    WHERE MONTH(stvr.date) = ? 
+      AND YEAR(stvr.date) = ? 
+      AND r.purpose = 'staff'
+    ORDER BY CAST(SUBSTRING(stvr.route, 7, 3) AS UNSIGNED) ASC;
+";
+$payments_stmt = $conn->prepare($payments_sql);
+$payments_stmt->bind_param("ii", $selected_month, $selected_year);
+$payments_stmt->execute();
+$payments_result = $payments_stmt->get_result();
+
+if ($payments_result && $payments_result->num_rows > 0) {
+    while ($payment_row = $payments_result->fetch_assoc()) {
+        $route_code = $payment_row['route_code'];
+        $supplier_code = $payment_row['supplier_code'];
+        $route_name = $payment_row['route'];
+        $route_distance = (float)$payment_row['route_distance']; 
+        $fixed_amount = (float)$payment_row['fixed_amount']; 
+        $with_fuel = (int)$payment_row['with_fuel'];
+        $consumption_id = $payment_row['fuel_efficiency'] ?? null;
+        $rate_id = $payment_row['rate_id'] ?? null;
+        
+        // 🎯 Prorated Calculation (Base Trip Payment)
+        $calculation_results = calculate_total_payment(
+            $conn, $route_code, $supplier_code, $selected_month, $selected_year,
+            $route_distance, $fixed_amount, $with_fuel, $consumption_id, $rate_id,
+            $consumption_rates, $default_km_per_liter
+        );
+
+        // --- START NEW ADJUSTMENT LOGIC ---
+        // Calling the function that queries the 'reduction' table only.
+        $adjustment_vs_db = get_total_adjustment_amount($conn, $route_code, $supplier_code, $selected_month, $selected_year);
+        $adjustment_vs_db = $adjustment_vs_db * -1;
+        // --- END NEW ADJUSTMENT LOGIC ---
+
+        $calculated_total_payment = $calculation_results['total_payment'];
+        $calculated_total_payment += $adjustment_vs_db;
+        $total_trip_count = $calculation_results['total_trips'];
+        $trip_rate = $calculation_results['effective_trip_rate']; // Last calculated trip rate
+
+        // 6. Calculate Total Distance: (Route Distance / 2) * Total Trips
+        $total_distance_calculated = ($route_distance / 2) * $total_trip_count;
+
+        $route_suffix = substr($route_code, 6, 3);
+
+        $payment_data[] = [
+            'route_code' => $route_code, 
+            'supplier_code' => $supplier_code, 
+            'no' => $route_suffix,
+            'route' => $route_name . " (" . $supplier_code . ")", 
+            'price_per_1km' => $trip_rate, // Display Trip Rate (based on the last calculated slab)
+            'total_working_days' => $total_trip_count, 
+            'total_distance' => $total_distance_calculated, 
+            'other_amount' => $adjustment_vs_db, // NOW holds the total sum from 'reduction' table
+            'payments' => $calculated_total_payment // NEW CALCULATED AMOUNT
+        ];
+    }
+    $payments_stmt->close();
+}
+// --------------------------------------------------------------------------------
+
+// Define global variables BEFORE including header/navbar
+$page_title = $page_title ?? "Staff Monthly Payments Summary";
+$table_headers = $table_headers ?? [
+    "No",
+    "Route (Supplier Code)", 
     "Trip Rate (LKR)",
-    "Total Trip Count",
+    "Total Trip Count", 
     "Total Distance (km)",
-    "Reductions (LKR)",
+    "Adjustment (LKR)",
     "Total Payments (LKR)",
     "PDF"
 ];
 
-// Fetch all routes with the staff payment type
-$routes_sql = "SELECT route_code, route, fixed_amount, fuel_amount, distance FROM route WHERE purpose = 'staff' ORDER BY route ASC";
-$routes_result = $conn->query($routes_sql);
-
-if ($routes_result && $routes_result->num_rows > 0) {
-    while ($route_row = $routes_result->fetch_assoc()) {
-        $route_code = $route_row['route_code'];
-        $route_name = $route_row['route'];
-        $rate_per_km = $route_row['fixed_amount'] + $route_row['fuel_amount'];
-        $route_distance = $route_row['distance']; 
-
-        // 1. Find all distinct vehicles that operated on this route this month/year, AND fetch their supplier_code
-        $vehicles_sql = "
-            SELECT DISTINCT stvr.vehicle_no, v.supplier_code 
-            FROM staff_transport_vehicle_register stvr
-            JOIN vehicle v ON stvr.vehicle_no = v.vehicle_no /* <-- JOIN added to get supplier code */
-            WHERE stvr.route = ? 
-              AND MONTH(stvr.date) = ? 
-              AND YEAR(stvr.date) = ?
-        ";
-        $vehicles_stmt = $conn->prepare($vehicles_sql);
-        $vehicles_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-        $vehicles_stmt->execute();
-        $vehicles_result = $vehicles_stmt->get_result();
-
-        // If no vehicle activity is found, we still want to show the route with 0s (Optional, but better for completeness)
-        // If a vehicle is found, loop through each one separately
-        if ($vehicles_result->num_rows > 0) {
-            
-            while ($vehicle_row = $vehicles_result->fetch_assoc()) {
-                $vehicle_no = $vehicle_row['vehicle_no'];
-                $supplier_code = $vehicle_row['supplier_code']; // <-- Supplier code fetched
-                
-                // Initialized variables (now per-vehicle)
-                $total_working_days = 0; 
-                $total_distance = 0; 
-                $monthly_payment_from_db = 0; // The authoritative total payment
-                $calculated_base_payment = 0; 
-                $other_amount = 0;
-                $total_payments = 0;
-
-                // 2. Calculate the number of working days (Total Trip Count) FOR THIS SPECIFIC VEHICLE
-                // This correctly uses the vehicle_no from the register table.
-                $days_sql = "
-                    SELECT COUNT(*) AS total_days 
-                    FROM staff_transport_vehicle_register 
-                    WHERE route = ? AND vehicle_no = ? AND MONTH(date) = ? AND YEAR(date) = ?
-                ";
-                $days_stmt = $conn->prepare($days_sql);
-                $days_stmt->bind_param("ssii", $route_code, $vehicle_no, $selected_month, $selected_year);
-                $days_stmt->execute();
-                $days_result = $days_stmt->get_result();
-                $days_row = $days_result->fetch_assoc();
-                $total_working_days = $days_row['total_days'] ?? 0;
-                $days_stmt->close();
-                
-                // --- Day Rate Calculation ---
-                // Since this report is at the vehicle level, we use the trip count and rate.
-                $day_rate = ($rate_per_km * $route_distance) / 2;
-
-                // Calculated Base Payment = Trip Rate * Total Trip Count
-                $calculated_base_payment = $day_rate * $total_working_days;
-
-                // 3. Fetch DB Total Payment (monthly_payment) and Total Distance 
-                // *** MODIFIED to use supplier_code as requested ***
-                $distance_sql = "
-                    SELECT total_distance, monthly_payment 
-                    FROM monthly_payments_sf 
-                    WHERE route_code = ? AND supplier_code = ? AND month = ? AND year = ?
-                ";
-                $distance_stmt = $conn->prepare($distance_sql);
-                // NOTE: Binding to supplier_code instead of vehicle_no
-                $distance_stmt->bind_param("ssii", $route_code, $supplier_code, $selected_month, $selected_year); 
-                $distance_stmt->execute();
-                $distance_result = $distance_stmt->get_result();
-                
-                if ($distance_row = $distance_result->fetch_assoc()) {
-                    // NOTE: If the monthly_payments_sf aggregates distance by supplier, 
-                    // this distance figure will be the *TOTAL* distance for the route
-                    // covered by *all* vehicles belonging to this supplier.
-                    $total_distance = $distance_row['total_distance'] ?? 0;
-                    // AUTHORITATIVE SOURCE FOR TOTAL PAYMENT
-                    $monthly_payment_from_db = $distance_row['monthly_payment'] ?? 0; 
-                } else {
-                    // Fallback distance calculation using vehicle activity
-                    $total_distance = ($route_distance / 2) * $total_working_days; 
-                }
-                $distance_stmt->close();
-                
-                
-                // 4. Calculate Total Payments (uses DB authority value) and Other Amount
-                $current_month = date('m');
-                $current_year = date('Y');
-
-                if ($selected_year > $current_year || ($selected_year == $current_year && $selected_month > $current_month)) {
-                    // Future month, set payments to 0
-                    $total_payments = 0;
-                    $other_amount = 0;
-                } else {
-                    // Set Total Payment to the authoritative DB value
-                    $total_payments = $monthly_payment_from_db;
-                    
-                    // Other Amount = Total Payments (DB) - Base Payment (Calculated)
-                    $other_amount = $total_payments - $calculated_base_payment;
-                }
-                
-                $payment_data[] = [
-                    'route_code' => $route_code, 
-                    'vehicle_no' => $vehicle_no, // Keep vehicle code for PDF drill-down
-                    'supplier_code' => $supplier_code, // Store supplier code for context
-                    'route' => $route_name . " (" . $vehicle_no . ")", // Display route + vehicle
-                    'price_per_1km' => $day_rate, 
-                    'total_working_days' => $total_working_days,
-                    'total_distance' => $total_distance, // IMPORTANT: This is the distance *per supplier* or *calculated* now.
-                    'other_amount' => $other_amount, // The difference/adjustment
-                    'payments' => $total_payments // The definitive total from DB
-                ];
-            }
-            $vehicles_stmt->close();
-        } 
-    }
-}
+include('../../includes/header.php');
+include('../../includes/navbar.php');
 ?>
 
 <!DOCTYPE html>
@@ -157,30 +330,33 @@ if ($routes_result && $routes_result->num_rows > 0) {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Custom scrollbar for better visibility */
-        .overflow-x-auto::-webkit-scrollbar {
-            height: 8px;
-        }
-        .overflow-x-auto::-webkit-scrollbar-thumb {
-            background-color: #a0aec0; /* gray-400 */
-            border-radius: 4px;
-        }
-        .overflow-x-auto::-webkit-scrollbar-track {
-            background-color: #edf2f7; /* gray-100 */
-        }
+        .overflow-x-auto::-webkit-scrollbar { height: 8px; }
+        .overflow-x-auto::-webkit-scrollbar-thumb { background-color: #a0aec0; border-radius: 4px; }
+        .overflow-x-auto::-webkit-scrollbar-track { background-color: #edf2f7; }
     </style>
 </head>
+<script>
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+
+    setTimeout(function() {
+        // Alert is used based on your provided code structure, replace with a custom modal if needed.
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-50 text-gray-800 min-h-screen">
     <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-[5%] fixed top-0 left-0 right-0 z-10">
         <div class="text-lg font-semibold ml-3">Payments</div>
         <div class="flex gap-4">
             <p class="hover:text-yellow-600 text-yellow-500 font-bold">Staff</p>
-            <a href="" class="hover:text-yellow-600">Factory</a>
-            <a href="" class="hover:text-yellow-600">Day Heldup</a>
+            <a href="factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
+            <a href="factory/sub/sub_route_payments.php" class="hover:text-yellow-600">Sub Route</a>
+            <a href="DH/day_heldup_payments.php" class="hover:text-yellow-600">Day Heldup</a>
             <a href="" class="hover:text-yellow-600">Night Heldup</a>
             <a href="night_emergency_payment.php" class="hover:text-yellow-600">Night Emergency</a>
             <a href="" class="hover:text-yellow-600">Extra Vehicle</a>
-            <a href="own_vehicle_payments.php" class="hover:text-yellow-600">Own Vehicle</a>
+            <a href="own_vehicle_payments.php" class="hover:text-yellow-600">Fuel Allowance</a>
         </div>
     </div>
     
@@ -198,8 +374,24 @@ if ($routes_result && $routes_result->num_rows > 0) {
                     
                     <div class="relative border border-gray-300 rounded-lg shadow-sm">
                         <select name="month" id="month" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
-                            <?php for ($m=1; $m<=12; $m++): ?>
-                                <option value="<?php echo sprintf('%02d', $m); ?>" <?php echo ($selected_month == sprintf('%02d', $m)) ? 'selected' : ''; ?>>
+                            <?php 
+                            // Dynamic Month Dropdown Logic
+                            $min_month_to_show = 1;
+                            if ($start_year == $selected_year) {
+                                $min_month_to_show = $start_month;
+                            }
+                            if ($selected_year < $start_year) {
+                                $min_month_to_show = 13; 
+                            }
+
+                            $max_month_to_show = 12;
+                            if ($selected_year == $current_year) {
+                                $max_month_to_show = $month_loop_end;
+                            }
+
+                            for ($m = $min_month_to_show; $m <= $max_month_to_show; $m++): 
+                            ?>
+                                <option value="<?php echo sprintf('%02d', $m); ?>" <?php echo ($selected_month == $m) ? 'selected' : ''; ?>>
                                     <?php echo date('F', mktime(0, 0, 0, $m, 10)); ?>
                                 </option>
                             <?php endfor; ?>
@@ -211,7 +403,9 @@ if ($routes_result && $routes_result->num_rows > 0) {
                     
                     <div class="relative border border-gray-300 rounded-lg shadow-sm">
                         <select name="year" id="year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
-                            <?php for ($y=date('Y'); $y>=2020; $y--): ?>
+                            <?php 
+                            // Dynamic Year Dropdown Logic
+                            for ($y=$year_loop_start; $y>=$year_loop_end; $y--): ?>
                                 <option value="<?php echo $y; ?>" <?php echo ($selected_year == $y) ? 'selected' : ''; ?>>
                                     <?php echo $y; ?>
                                 </option>
@@ -222,9 +416,16 @@ if ($routes_result && $routes_result->num_rows > 0) {
                         </div>
                     </div>
                     
-                    <button type="submit" class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-200">
-                        <i class="fas fa-filter mr-1"></i> Filter
+                    <button type="submit" class="px-3 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-200" title="Filter">
+                        <i class="fas fa-filter mr-1"></i> 
                     </button>
+                    <a href="payments_done.php" class="px-3 py-2 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition duration-200 text-center">
+                    <i class="fas fa-check-circle mr-1"></i>
+                </a>
+                    <a href="payments_history.php" 
+                    class="px-3 py-2 bg-yellow-600 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition duration-200 text-center"
+                    title="History"> <i class="fas fa-history mr-1"></i>
+                    </a> 
                 </form>
             </div>
         </div>
@@ -243,34 +444,29 @@ if ($routes_result && $routes_result->num_rows > 0) {
                         <?php foreach ($payment_data as $data): ?>
                             <tr class="hover:bg-blue-50 transition-colors duration-150 ease-in-out">
                                 <?php 
-                                // Define the order of keys to ensure table alignment
-                                $display_keys = ['route', 'price_per_1km', 'total_working_days', 'total_distance', 'other_amount', 'payments'];
+                                $display_keys = ['no','route', 'price_per_1km', 'total_working_days', 'total_distance', 'other_amount', 'payments'];
 
                                 foreach ($display_keys as $key): 
                                     $value = $data[$key];
                                     $cell_class = "py-3 px-6 whitespace-nowrap";
                                     $formatted_value = htmlspecialchars($value);
 
-                                    // Apply specific formatting
                                     if (in_array($key, ['price_per_1km', 'other_amount', 'payments'])) {
                                         $formatted_value = number_format($value, 2);
                                         $cell_class .= " font-semibold text-left"; 
                                         
                                         if ($key === 'payments') {
-                                            // Final Total Payment (from DB)
                                             $cell_class .= " text-blue-700 text-base font-extrabold";
                                         } elseif ($key === 'other_amount') {
-                                            // The adjustment/difference
+                                            // Highlight positive amounts green (addition) and negative red (deduction)
                                             $cell_class .= $value >= 0 ? " text-green-600" : " text-red-600";
                                         } elseif ($key === 'price_per_1km') {
-                                            // Day Rate
                                             $cell_class .= " text-purple-600";
                                         }
                                     } elseif (in_array($key, ['total_distance', 'total_working_days'])) {
                                         $formatted_value = number_format($value, $key === 'total_working_days' ? 0 : 2);
                                         $cell_class .= " text-left";
                                     } else {
-                                        // Default for 'route'
                                         $cell_class .= " font-medium";
                                     }
                                 ?>
@@ -279,7 +475,11 @@ if ($routes_result && $routes_result->num_rows > 0) {
                                     </td>
                                 <?php endforeach; ?>
                                 <td class="py-3 px-6 whitespace-nowrap text-center">
-                                    <a href="download_staff2_pdf.php?route_code=<?php echo htmlspecialchars($data['route_code']); ?>&vehicle_no=<?php echo htmlspecialchars($data['vehicle_no']); ?>&month=<?php echo htmlspecialchars($selected_month); ?>&year=<?php echo htmlspecialchars($selected_year); ?>"
+                                    <?php 
+                                        $calculated_payment_url = urlencode(number_format($data['payments'], 2, '.', ''));
+                                        $total_distance_url = urlencode(number_format($data['total_distance'], 2, '.', ''));
+                                    ?>
+                                    <a href="download_staff2_pdf.php?route_code=<?php echo htmlspecialchars($data['route_code']); ?>&supplier_code=<?php echo htmlspecialchars($data['supplier_code']); ?>&month=<?php echo htmlspecialchars($selected_month); ?>&year=<?php echo htmlspecialchars($selected_year); ?>&calculated_payment=<?php echo $calculated_payment_url; ?>&total_distance_calc=<?php echo $total_distance_url; ?>"
                                         class="text-red-500 hover:text-red-700 transition duration-150"
                                         title="Download Detailed PDF">
                                             <i class="fas fa-file-pdf fa-lg"></i>
@@ -300,6 +500,5 @@ if ($routes_result && $routes_result->num_rows > 0) {
 </html>
 
 <?php
-// Close the database connection
 $conn->close();
 ?>

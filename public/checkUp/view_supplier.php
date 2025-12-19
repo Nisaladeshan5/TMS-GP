@@ -1,4 +1,18 @@
 <?php
+require_once '../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
+$is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
+$user_role = $is_logged_in && isset($_SESSION['user_role']) ? $_SESSION['user_role'] : '';
+
 include('../../includes/db.php'); // Your database connection file
 include('../../includes/header.php');
 include('../../includes/navbar.php');
@@ -178,14 +192,32 @@ elseif (isset($_GET['view_vehicle_no']) && !empty($_GET['view_vehicle_no'])) {
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100 font-sans">
     <div class="w-[85%] ml-[15%] mb-6">
         <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg ">
             <div class="text-lg font-semibold ml-3">Inspection</div>
             <div class="flex gap-4">
+                <?php
+                if ($user_role === 'admin' || $user_role === 'super admin' || $user_role === 'developer') {
+                ?>
                 <a href="checkUp_category.php" class="hover:text-yellow-600">Add Inspection</a>
                 <a href="edit_inspection.php" class="hover:text-yellow-600">Edit Inspection</a>
                 <a href="" class="text-yellow-600">View Supplier</a>
+                 <?php
+                }
+                ?>
                 <a href="generate_report_checkup.php" class="hover:text-yellow-600">Report</a>
             </div>
         </div>

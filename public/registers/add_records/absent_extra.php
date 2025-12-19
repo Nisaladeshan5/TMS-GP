@@ -1,4 +1,15 @@
 <?php
+require_once '../../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../../includes/login.php");
+    exit();
+}
+
 // ***************************************************************
 // 1. CRITICAL FIX: Add Output Buffering at the very top 
 // ***************************************************************
@@ -22,7 +33,7 @@ $staff_transport_gl_code = '623400';
  */
 function getRouteCodes($conn): array {
     // Added ORDER BY for better UI experience
-    $sql = "SELECT route_code, route FROM route ORDER BY route_code ASC"; 
+    $sql = "SELECT route_code, route FROM route WHERE purpose='staff' ORDER BY route_code ASC"; 
     $result = $conn->query($sql);
     $routes = [];
     if ($result) {
@@ -90,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($check_result->num_rows > 0) {
             $row = $check_result->fetch_assoc();
             $source = ($row['source'] == 'staff_transport') ? 'Primary Vehicle Register' : (($row['source'] == 'extra_vehicle') ? 'Extra Vehicle Register' : 'Petty Cash Register');
-            throw new Exception("A record already exists for Route: $routeCode, Date: $date, Shift: $shift in the $source. Only one trip entry (Primary, Extra, or Petty Cash) is allowed per shift.");
+            throw new Exception("A record already exists.");
         }
         $stmt_check->close();
 
@@ -143,13 +154,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         // --- 2. Insert the new extra vehicle record ---
-        $sql_insert = "INSERT INTO extra_vehicle_register (vehicle_no, date, amount, reason, route_code, supplier_code, shift)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)";
+        $sql_insert = "INSERT INTO extra_vehicle_register (vehicle_no, date, amount, reason, route_code, shift)
+                           VALUES (?, ?, ?, ?, ?, ?)";
         $stmt_insert = $conn->prepare($sql_insert);
         if ($stmt_insert === false) {
             throw new Exception("Failed to prepare extra vehicle statement: " . $conn->error);
         }
-        $stmt_insert->bind_param('ssdssss', $vehicleNo, $date, $amount, $reason, $routeCode, $route_supplier_code, $shift);
+        $stmt_insert->bind_param('ssdsss', $vehicleNo, $date, $amount, $reason, $routeCode, $shift);
 
         if (!$stmt_insert->execute()) {
              throw new Exception("Error saving extra vehicle record: " . $stmt_insert->error);
@@ -387,6 +398,18 @@ $routes = getRouteCodes($conn);
         }
     </style>
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100 font-sans">
     <div id="toast-container"></div>
     <div class="w-[85%] ml-[15%]">

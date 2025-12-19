@@ -1,6 +1,5 @@
 <?php
 // update_user_pin.php
-
 header('Content-Type: application/json');
 // IMPORTANT: db.php MUST NOT echo or output anything besides the connection object
 include('../../includes/db.php');

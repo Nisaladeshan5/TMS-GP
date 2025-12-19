@@ -1,4 +1,14 @@
 <?php
+require_once '../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
 
 // Include necessary files (assuming these handle setup and database connection)
 include('../../includes/db.php');
@@ -148,6 +158,18 @@ function generateYearOptions($selectedYear = null) {
         }
     </style>
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen font-sans text-gray-800">
 
     <div class="w-[85%] ml-[15%] py-3">

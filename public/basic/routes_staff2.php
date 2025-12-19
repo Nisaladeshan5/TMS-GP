@@ -1,36 +1,156 @@
 <?php
+// routes_staff2.php
+// Output buffering ආරම්භ කරන්න, navbar.php හෝ header.php වෙතින් header error වළක්වා ගැනීමට
+ob_start();
+require_once '../../includes/session_check.php';
+
 // Includes
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
+$is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
+$user_role = $is_logged_in && isset($_SESSION['user_role']) ? $_SESSION['user_role'] : '';
+
 include('../../includes/db.php');
+
+// --- DYNAMIC FUEL PRICE & CONSUMPTION SETUP ---
+
+// 1. Fetch LATEST Fuel Price for a specific rate_id (consumption ID)
+// මෙම ශ්‍රිතය fuel_rate වගුවෙන් නිශ්චිත rate_id එකට අදාළ නවතම මිල ලබා ගනී.
+function get_latest_fuel_price_by_rate_id($conn, $rate_id)
+{
+    // rate_id එක integer එකක් යැයි උපකල්පනය කරමු
+    $sql = "SELECT rate FROM fuel_rate WHERE rate_id = ? ORDER BY date DESC, id DESC LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        // SQL prepare error: 
+        return 0; 
+    }
+    $stmt->bind_param("i", $rate_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    
+    return $row['rate'] ?? 0;
+}
+// ගෝලීය වශයෙන් නවතම මිල ලබා ගැනීම අවශ්‍ය නොවේ, එය එක් එක් මාර්ගය සඳහා ගණනය කරනු ලැබේ.
+// $current_fuel_price_per_liter = get_current_fuel_price($conn); // <<-- මෙම පේළිය ඉවත් කර ඇත
+
+// 2. Fetch Consumption Rates (km per Liter)
+$consumption_rates = [];
+$consumption_sql = "SELECT c_id, distance FROM consumption";
+$consumption_result = $conn->query($consumption_sql);
+if ($consumption_result) {
+    while ($row = $consumption_result->fetch_assoc()) {
+        $consumption_rates[$row['c_id']] = $row['distance'];
+    }
+}
+$default_km_per_liter = 1.00;
+
+// 3. Helper Function to calculate Fuel Cost per KM
+// $fuel_price_per_liter පරාමිතිය ඉවත් කර ඇත
+function calculate_fuel_cost_per_km($conn, $vehicle_no, $consumption_rates) 
+{
+    global $default_km_per_liter;
+
+    if (empty($vehicle_no)) {
+        return 0;
+    }
+
+    // a. Get the Vehicle's Fuel Efficiency ID (rate_id)
+    $vehicle_stmt = $conn->prepare("SELECT fuel_efficiency, rate_id FROM vehicle WHERE vehicle_no = ?");
+    $vehicle_stmt->bind_param("s", $vehicle_no);
+    $vehicle_stmt->execute();
+    $vehicle_result = $vehicle_stmt->get_result();
+    $vehicle_row = $vehicle_result->fetch_assoc();
+    $vehicle_stmt->close();
+
+    // fuel_efficiency යනු rate_id යැයි උපකල්පනය කරමු
+    $rate_id = $vehicle_row['rate_id'] ?? null; 
+    $consumption_id = $vehicle_row['fuel_efficiency'] ?? null; 
+
+    if ($rate_id === null) {
+        return 0;
+    }
+
+    if ($consumption_id === null) {
+        return 0;
+    }
+
+    // --- නව තර්කය: නිශ්චිත rate_id එකට අදාළ නවතම ඉන්ධන මිල ලබා ගැනීම ---
+    $current_fuel_price_per_liter = get_latest_fuel_price_by_rate_id($conn, $rate_id);
+
+    if ($current_fuel_price_per_liter <= 0) {
+         return 0;
+    }
+    // ----------------------------------------------------------------------
+
+    // b. Get the Consumption (km/L)
+    // consumption_id එක fuel_efficiency (rate_id) එක ලෙස භාවිත කරයි
+    $km_per_liter = $consumption_rates[$consumption_id] ?? 0;
+
+    if ($km_per_liter <= 0) {
+        $km_per_liter = $default_km_per_liter;
+    }
+
+    // නිශ්චිත rate_id එකට අදාළ නවතම මිල භාවිතයෙන් ගණනය කිරීම
+    $fuel_cost = $current_fuel_price_per_liter / $km_per_liter; 
+    return $fuel_cost;
+}
+
+// --------------------------------------------------------------------------------
+
+$purpose_filter = isset($_GET['purpose_filter']) && in_array($_GET['purpose_filter'], ['staff', 'factory']) ? $_GET['purpose_filter'] : 'staff';
+$status_filter = isset($_GET['status_filter']) && in_array($_GET['status_filter'], ['active', 'inactive']) ? $_GET['status_filter'] : 'active';
+
+$status_value = ($status_filter === 'active') ? 1 : 0;
+
+// --- Build the Secure SQL Query ---
+$sql = "SELECT
+            r.route_code, r.supplier_code, s.supplier, r.route, r.purpose,
+            r.distance, r.vehicle_no, r.fixed_amount, r.fuel_amount, 
+            r.with_fuel, 
+            r.assigned_person, r.is_active
+        FROM
+            route r
+        JOIN
+            supplier s ON r.supplier_code = s.supplier_code
+        WHERE
+            r.purpose = ?
+        AND
+            r.is_active = ?
+        ORDER BY
+            SUBSTRING(r.route_code, 7, 3) ASC;";
+
+$stmt = $conn->prepare($sql);
+if (!$stmt) {
+    die("SQL prepare error: " . $conn->error);
+}
+$stmt->bind_param("si", $purpose_filter, $status_value);
+$stmt->execute();
+$result = $stmt->get_result();
+
+// --- Toast Message ---
+$toast_message = '';
+$toast_status = '';
+if (isset($_GET['status']) && isset($_GET['message'])) {
+    $toast_status = htmlspecialchars($_GET['status']);
+    $toast_message = htmlspecialchars($_GET['message']);
+    $toast_message = urldecode($toast_message);
+}
+
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
-session_start();
-
-// Handle purpose filter
-if (isset($_GET['purpose_filter']) && in_array($_GET['purpose_filter'], ['staff', 'worker'])) {
-    $_SESSION['purpose_filter'] = $_GET['purpose_filter'];
-}
-$purpose_filter = isset($_SESSION['purpose_filter']) ? $_SESSION['purpose_filter'] : 'staff';
-
-// Handle status filter
-$status_filter = isset($_GET['status_filter']) && in_array($_GET['status_filter'], ['active', 'inactive']) ? $_GET['status_filter'] : 'active';
-
-// Build the SQL query with WHERE clauses
-$sql = "SELECT r.route_code, r.supplier_code, s.supplier, r.route, r.purpose, r.distance, r.vehicle_no, r.fixed_amount, r.fuel_amount, r.assigned_person, r.with_fuel, r.is_active
-        FROM route r
-        JOIN supplier s ON r.supplier_code = s.supplier_code";
-
-// Sanitize the input and add WHERE clauses
-$safe_purpose_filter = $conn->real_escape_string($purpose_filter);
-$sql .= " WHERE r.purpose = '" . $safe_purpose_filter . "'";
-
-if ($status_filter === 'active') {
-    $sql .= " AND r.is_active = 1";
-} else {
-    $sql .= " AND r.is_active = 0";
-}
-
-$result = $conn->query($sql);
+ob_end_flush();
 ?>
 
 <!DOCTYPE html>
@@ -41,45 +161,7 @@ $result = $conn->query($sql);
     <title>Route Details</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        /* Modal CSS */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0,0,0,0.4);
-            justify-content: center;
-            align-items: center;
-        }
-        .modal-content {
-            background-color: #ffffff;
-            padding: 24px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            width: 90%;
-            max-width: 500px;
-            position: relative;
-        }
-        .close {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            position: absolute;
-            top: 10px;
-            right: 20px;
-        }
-        .close:hover,
-        .close:focus {
-            color: black;
-            text-decoration: none;
-            cursor: pointer;
-        }
-        /* Toast Notifications CSS */
+        /* Toast CSS */
         #toast-container {
             position: fixed;
             top: 1rem;
@@ -103,11 +185,11 @@ $result = $conn->query($sql);
             opacity: 1;
         }
         .toast.success {
-            background-color: #4CAF50; /* Green for success */
+            background-color: #4CAF50;
             color: white;
         }
         .toast.error {
-            background-color: #F44336; /* Red for errors */
+            background-color: #F44336;
             color: white;
         }
         .toast-icon {
@@ -115,33 +197,40 @@ $result = $conn->query($sql);
             height: 1.5rem;
             margin-right: 0.75rem;
         }
-        .readonly-field {
-            background-color: #e5e7eb; /* A light gray background to indicate it's not editable */
-            cursor: not-allowed;
-        }
     </style>
 </head>
-<body class="bg-gray-100">
 
+<script>
+const SESSION_TIMEOUT_MS = 32400000; 
+const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+setTimeout(function() {
+    alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+    window.location.href = LOGIN_PAGE_URL; 
+}, SESSION_TIMEOUT_MS);
+</script>
+
+<body class="bg-gray-100">
 <div class="containerl flex justify-center">
     <div class="w-[85%] ml-[15%]">
         <div class="p-3">
             <h1 class="text-4xl mx-auto font-bold text-gray-800 mt-3 mb-3 text-center">Route Details</h1>
             <div class="w-full flex justify-between items-center mb-6">
+
                 <div class="flex space-x-4">
-                    <button onclick="openModal()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
+                    <a href="add_route.php" class="bg-blue-500 text-white font-bold py-2 px-4 rounded-md shadow-md hover:bg-blue-600">
                         Add New Route
-                    </button>
-                    <button onclick="generateRouteQrPdf()" class="bg-green-700 hover:bg-green-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
+                    </a>
+                    <button onclick="generateRouteQrPdf()" class="bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md hover:bg-green-800">
                         Generate Route QR PDF
                     </button>
-                    </div>
+                </div>
+
                 <div class="flex items-center space-x-4">
                     <div class="flex items-center space-x-1">
                         <label for="purpose-filter" class="text-gray-700 font-semibold">Filter by Purpose:</label>
                         <select id="purpose-filter" onchange="filterRoutes()" class="p-2 border rounded-md">
                             <option value="staff" <?php echo ($purpose_filter === 'staff') ? 'selected' : ''; ?>>Staff</option>
-                            <option value="worker" <?php echo ($purpose_filter === 'worker') ? 'selected' : ''; ?>>Workers</option>
+                            <option value="factory" <?php echo ($purpose_filter === 'factory') ? 'selected' : ''; ?>>Factory</option>
                         </select>
                     </div>
                     <div class="flex items-center space-x-1">
@@ -153,16 +242,15 @@ $result = $conn->query($sql);
                     </div>
                 </div>
             </div>
+
             <div class="overflow-x-auto bg-white shadow-md rounded-md w-full">
                 <table class="min-w-full table-auto">
                     <thead class="bg-blue-600 text-white">
                         <tr>
-                            <th class="px-2 py-2 text-center w-10">
-                                <input type="checkbox" id="select-all" onclick="toggleAllCheckboxes()">
-                            </th>
+                            <th class="px-2 py-2 text-center w-10"><input type="checkbox" id="select-all" onclick="toggleAllCheckboxes()"></th>
                             <th class="px-2 py-2 text-left">Route Code</th>
-                            <th class="px-2 py-2 text-left">Supplier</th>
                             <th class="px-2 py-2 text-left">Route</th>
+                            <th class="px-2 py-2 text-left">Supplier</th>
                             <th class="px-2 py-2 text-left">Fixed Price(1km)</th>
                             <th class="px-2 py-2 text-left">Fuel Price(1km)</th>
                             <th class="px-2 py-2 text-left">Total Price(1km)</th>
@@ -177,44 +265,49 @@ $result = $conn->query($sql);
                                 $route_code = htmlspecialchars($row["route_code"]);
                                 $supplier_name = htmlspecialchars($row["supplier"]);
                                 $route_name = htmlspecialchars($row["route"]);
-                                $fixed_amount = htmlspecialchars($row["fixed_amount"]);
-                                $fuel_amount = htmlspecialchars($row["fuel_amount"]);
-                                $distance = htmlspecialchars($row["distance"]);
                                 $vehicle_no = htmlspecialchars($row["vehicle_no"]);
-                                $purpose = htmlspecialchars($row["purpose"]); 
-                                $assigned_person = htmlspecialchars($row["assigned_person"]);
-                                $with_fuel = htmlspecialchars($row["with_fuel"]);
+                                $with_fuel = (int)$row["with_fuel"];
+                                $fixed_amount_float = (float)$row["fixed_amount"];
+                                $distance_float = (float)$row["distance"];
+                                $current_calculated_fuel_amount = 0;
+                                $current_filter_params = "&purpose_filter=" . urlencode($purpose_filter) . "&status_filter=" . urlencode($status_filter);
+
+                                if ($with_fuel === 1) {
+                                    // නවීකරණය කරන ලද ශ්‍රිතය ඇමතීම
+                                    $current_calculated_fuel_amount = calculate_fuel_cost_per_km($conn, $vehicle_no, $consumption_rates);
+                                }
+
+                                $total_amount = $fixed_amount_float + $current_calculated_fuel_amount;
+
                                 $is_active = htmlspecialchars($row["is_active"]);
-                                
-                                $status_text = ($is_active == 1) ? 'Active' : 'Disabled';
-                                $status_color = ($is_active == 1) ? 'text-green-600' : 'text-red-600';
                                 $toggle_button_text = ($is_active == 1) ? 'Disable' : 'Enable';
                                 $toggle_button_color = ($is_active == 1) ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600';
 
                                 echo "<tr>";
-                                // NEW CHECKBOX CELL
-                                echo "<td class='border px-2 py-2 text-center'>
-                                        <input type='checkbox' name='selected_routes[]' value='" . $route_code . "' class='route-checkbox'>
-                                      </td>";
-                                // END NEW CHECKBOX CELL
+                                echo "<td class='border px-2 py-2 text-center'><input type='checkbox' name='selected_routes[]' value='" . $route_code . "' class='route-checkbox'></td>";
                                 echo "<td class='border px-2 py-2'>" . $route_code . "</td>";
-                                echo "<td class='border px-2 py-2'>" . $supplier_name . "</td>";
                                 echo "<td class='border px-2 py-2'>" . $route_name . "</td>";
-                                echo "<td class='border px-2 py-2'>" . $fixed_amount . "</td>";
-                                echo "<td class='border px-2 py-2'>" . $fuel_amount . "</td>";
-                                echo "<td class='border px-2 py-2'>" . number_format($fixed_amount + $fuel_amount, 2) . "</td>";
-                                echo "<td class='border px-2 py-2'>" . $distance . "</td>";
+                                echo "<td class='border px-2 py-2'>" . $supplier_name . "</td>";
+                                echo "<td class='border px-2 py-2'>" . number_format($fixed_amount_float, 2) . "</td>";
+                                echo "<td class='border px-2 py-2 font-semibold'>" . number_format($current_calculated_fuel_amount, 2) . "</td>";
+                                echo "<td class='border px-2 py-2 font-bold text-orange-600'>" . number_format($total_amount, 2) . "</td>";
+                                echo "<td class='border px-2 py-2'>" . number_format($distance_float, 2) . "</td>";
                                 echo "<td class='border px-2 py-2'>
-                                            <button onclick='openViewModal(\"$route_code\", \"$route_name\", \"$fixed_amount\", \"$fuel_amount\", \"$distance\", \"$supplier_name\", \"$vehicle_no\", \"$assigned_person\", \"$purpose\", \"$with_fuel\")' class='bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 mr-2'>View</button>
-                                            <button onclick='openEditModal(\"$route_code\", \"$route_name\", \"$fixed_amount\", \"$fuel_amount\", \"$distance\", \"$supplier_name\", \"$vehicle_no\", \"$assigned_person\", \"$purpose\", \"$with_fuel\")' class='bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 mr-2'>Edit</button>
-                                            <button onclick='toggleRouteStatus(\"$route_code\", $is_active)' class='" . $toggle_button_color . " text-white font-bold py-1 px-2 rounded text-sm transition duration-300'>$toggle_button_text</button>
-                                        </td>";
+                                        <div class='flex flex-nowrap space-x-1'>
+                                            <a href='view_route.php?code=$route_code" . $current_filter_params . "' class='bg-green-500 hover:bg-green-600 text-white font-bold py-0.5 px-1 rounded text-xs'>View</a>
+                                            
+                                            <a href='edit_route.php?code=$route_code" . $current_filter_params . "' class='bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-0.5 px-1 rounded text-xs'>Edit</a>
+                                            
+                                            <button onclick='toggleRouteStatus(\"$route_code\", $is_active)' class='" . $toggle_button_color . " text-white font-bold py-0.5 px-1 rounded text-xs'>$toggle_button_text</button>
+                                        </div>
+                                    </td>";
                                 echo "</tr>";
                             }
                         } else {
-                            $message = ($status_filter === 'active') ? "No active routes found for this purpose." : "No inactive routes found for this purpose.";
-                            // Changed colspan from 8 to 9 to account for the new checkbox column
-                            echo "<tr><td colspan='9' class='border px-4 py-2 text-center'>{$message}</td></tr>";
+                            $display_message = ($status_filter === 'active')
+                                ? "No active routes found for {$purpose_filter} purpose."
+                                : "No inactive routes found for {$purpose_filter} purpose.";
+                            echo "<tr><td colspan='9' class='border px-4 py-2 text-center'>{$display_message}</td></tr>";
                         }
                         ?>
                     </tbody>
@@ -224,352 +317,75 @@ $result = $conn->query($sql);
     </div>
 </div>
 
-<div id="myModal" class="modal">
-    <div class="modal-content">
-        <span class="close" onclick="closeModal()">&times;</span>
-        <h3 class="text-2xl font-semibold mb-1" id="modalTitle">Add New Route</h3>
-        <form id="routeForm" onsubmit="handleFormSubmit(event)" class="space-y-4">
-            <input type="hidden" name="action" id="action">
-            <div>
-                <label for="route_code" class="block text-gray-700">Route Code:</label>
-                <input type="text" id="route_code" name="route_code" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-            </div>
-            <div class="flex">
-                <div class="w-[63%] mr-4"> 
-                    <label for="route" class="block text-gray-700">Route:</label>
-                    <input type="text" id="route" name="route" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                </div>
-                <div class="w-[33%]">
-                    <label for="purpose" class="block text-gray-700">Purpose:</label>
-                    <select id="purpose" name="purpose" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                        <option value="">-- Select Purpose --</option>
-                        <option value="staff">Staff</option>
-                        <option value="worker">Worker</option>
-                    </select>
-                </div>
-            </div>
-            <div class="flex">
-                <div class="w-[48%] mr-4">
-                    <label for="distance" class="block text-gray-700">Distance (km):</label>
-                    <input type="number" id="distance" name="distance" step="0.01" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                </div>
-                <div class="w-[48%]">
-                    <label for="supplier" class="block text-gray-700">Supplier:</label>
-                    <select id="supplier" name="supplier" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                        <option value="">-- Select Supplier --</option>
-                        <?php
-                        // Reset the pointer for supplier data if needed, or run the query again
-                        $supplier_sql = "SELECT supplier_code, supplier FROM supplier ORDER BY supplier_code";
-                        $supplier_result = $conn->query($supplier_sql);
-                        if ($supplier_result && $supplier_result->num_rows > 0) {
-                            while ($supplier_row = $supplier_result->fetch_assoc()) {
-                                $supplier_name = htmlspecialchars($supplier_row["supplier"]);
-                                $supplier_code_val = htmlspecialchars($supplier_row["supplier_code"]);
-                                echo "<option value='{$supplier_name}' data-code='{$supplier_code_val}'>{$supplier_name}</option>";
-                            }
-                        }
-                        ?>
-                    </select>
-                </div>
-            </div>
-            <div class="flex">
-                <div class="w-[48%] mr-4">
-                    <label for="vehicle_no" class="block text-gray-700">Vehicle No:</label>
-                    <select id="vehicle_no" name="vehicle_no" required 
-                    class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                        <option value="">-- Select Vehicle No --</option>
-                        <?php
-                        // Reset the pointer for vehicle data if needed, or run the query again
-                        $vehicle_sql = "SELECT vehicle_no FROM vehicle ORDER BY vehicle_no";
-                        $vehicle_result = $conn->query($vehicle_sql);
-                        if ($vehicle_result && $vehicle_result->num_rows > 0) {
-                            while ($vehicle_row = $vehicle_result->fetch_assoc()) {
-                                $vehicle_no = htmlspecialchars($vehicle_row["vehicle_no"]);
-                                echo "<option value='{$vehicle_no}'>{$vehicle_no}</option>";
-                            }
-                        }
-                        ?>
-                    </select>
-                </div>
-                <div class="w-[48%]">
-                    <label class="block text-gray-700">Fuel Calculation:</label>
-                    <div class="flex items-center space-x-4 mt-2">
-                        <label>
-                            <input type="radio" name="fuel_option" value="with_fuel" checked class="mr-1">
-                            With Fuel
-                        </label>
-                        <label>
-                            <input type="radio" name="fuel_option" value="without_fuel" class="mr-1">
-                            Without Fuel
-                        </label>
-                    </div>
-                </div>
-            </div>
-            <div>
-                <label for="fixed_amount" class="block text-gray-700">Fixed Amount:</label>
-                <input type="number" id="fixed_amount" name="fixed_amount" step="0.01" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-            </div>
-            <div>
-                <label for="fuel_amount" class="block text-gray-700">Fuel Amount:</label>
-                <input type="number" id="fuel_amount" name="fuel_amount" step="0.01" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 readonly-field" readonly>
-            </div>
-            <div>
-                <label for="assigned_person" class="block text-gray-700">Assigned Person:</label>
-                <input type="text" id="assigned_person" name="assigned_person" required class="mt-1 p-1 block w-full rounded-md border border-gray-300 shadow-md focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-            </div>
-            <input type="hidden" name="fuel_option_value" id="fuel_option_value" value="1">
-            <div class="flex justify-end">
-                <input type="submit" id="submitBtn" value="Add" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md cursor-pointer transition duration-300">
-            </div>
-        </form>
-    </div>
-</div>
-
 <div id="toast-container"></div>
 
 <script>
-    var modal = document.getElementById("myModal");
-    var form = document.getElementById("routeForm");
-    var submitBtn = document.getElementById("submitBtn");
-    var modalTitle = document.getElementById("modalTitle");
-    var toastContainer = document.getElementById("toast-container");
-    const routeCodeInput = document.getElementById('route_code');
-    const vehicleNoSelect = document.getElementById('vehicle_no');
-    const fuelAmountInput = document.getElementById('fuel_amount');
-    const fuelRadioOptions = document.querySelectorAll('input[name="fuel_option"]');
-    const fuelOptionValueInput = document.getElementById('fuel_option_value');
-    
-    function showToast(message, type = 'success') {
-        const toast = document.createElement('div');
-        toast.classList.add('toast', type);
-        toast.innerHTML = `
-            <svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                ${type === 'success' ? `
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                ` : `
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                `}
-            </svg>
-            <span>${message}</span>
-        `;
-        toastContainer.appendChild(toast);
-        setTimeout(() => { toast.classList.add('show'); }, 10);
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => { toast.remove(); }, 300);
-        }, 3000);
-    }
-
-    function setFormState(isReadOnly) {
-        const formFields = form.querySelectorAll('input:not([type="hidden"]), select');
-        formFields.forEach(field => {
-            if (field.id !== 'action' && field.id !== 'fuel_option_value') {
-                field.readOnly = isReadOnly;
-                field.disabled = isReadOnly;
-                if (isReadOnly) {
-                    field.classList.add('readonly-field');
-                } else {
-                    field.classList.remove('readonly-field');
-                }
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.classList.add('toast', type);
+    toast.innerHTML = `
+        <svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            ${type === 'success' ?
+                `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />`
+                :
+                `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />`
             }
-        });
-        // Disable radio buttons separately
-        fuelRadioOptions.forEach(radio => radio.disabled = isReadOnly);
-        submitBtn.style.display = isReadOnly ? 'none' : 'block';
+        </svg>
+        <span>${message}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => toast.classList.add('show'), 10);
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const initialStatus = '<?= $toast_status ?>';
+    const initialMessage = '<?= $toast_message ?>';
+    if (initialMessage && initialStatus) {
+        showToast(initialMessage, initialStatus);
     }
+});
 
-    // New function to handle fuel calculation
-    async function calculateFuelAmount() {
-        const selectedOption = document.querySelector('input[name="fuel_option"]:checked').value;
-        const vehicleNo = vehicleNoSelect.value;
-        
-        fuelAmountInput.classList.add('readonly-field');
-        fuelAmountInput.readOnly = true;
+function toggleAllCheckboxes() {
+    const selectAll = document.getElementById('select-all');
+    const checkboxes = document.querySelectorAll('.route-checkbox');
+    checkboxes.forEach(checkbox => checkbox.checked = selectAll.checked);
+}
 
-        if (selectedOption === 'without_fuel') {
-            fuelAmountInput.value = 0;
-            return;
-        }
-
-        if (selectedOption === 'with_fuel' && vehicleNo) {
-            try {
-                const response = await fetch(`routes_backend2.php?action=get_fuel_rates&vehicle_no=${encodeURIComponent(vehicleNo)}`);
-                const data = await response.json();
-
-                if (data.success) {
-                    const fuelCostPerLiter = parseFloat(data.fuel_cost_per_liter);
-                    const kmPerLiter = parseFloat(data.km_per_liter);
-                    const distance = parseFloat(document.getElementById('distance').value);
-
-                    if (!isNaN(fuelCostPerLiter) && !isNaN(kmPerLiter) && kmPerLiter > 0) {
-                        const calculatedAmount = (fuelCostPerLiter / kmPerLiter);
-                        fuelAmountInput.value = calculatedAmount.toFixed(2);
-                    } else {
-                        showToast("Fuel data incomplete or invalid for this vehicle.", 'error');
-                        fuelAmountInput.value = '';
-                    }
-                } else {
-                    showToast(data.message || "Failed to fetch fuel rates.", 'error');
-                    fuelAmountInput.value = '';
-                }
-            } catch (error) {
-                console.error('Error fetching fuel data:', error);
-                showToast("An error occurred during calculation.", 'error');
-                fuelAmountInput.value = '';
-            }
-        } else {
-            fuelAmountInput.value = '';
-        }
+function generateRouteQrPdf() {
+    const selectedRoutes = Array.from(document.querySelectorAll('.route-checkbox:checked'))
+        .map(checkbox => checkbox.value);
+    if (selectedRoutes.length === 0) {
+        showToast("Please select at least one route to generate the PDF.", 'error');
+        return;
     }
+    const routeCodesString = selectedRoutes.join(',');
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = 'generate_qr_route_pdf.php';
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'selected_route_codes';
+    input.value = routeCodesString;
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+}
 
-    // Attach event listeners
-    vehicleNoSelect.addEventListener('change', calculateFuelAmount);
-    document.getElementById('distance').addEventListener('input', calculateFuelAmount);
-    fuelRadioOptions.forEach(radio => radio.addEventListener('change', function() {
-        fuelOptionValueInput.value = (this.value === 'with_fuel') ? 1 : 0;
-        calculateFuelAmount();
-    }));
-
-    // --- NEW QR PDF GENERATION LOGIC ---
-
-    function toggleAllCheckboxes() {
-        const selectAll = document.getElementById('select-all');
-        const checkboxes = document.querySelectorAll('.route-checkbox');
-        checkboxes.forEach(checkbox => {
-            checkbox.checked = selectAll.checked;
-        });
-    }
-
-    function generateRouteQrPdf() {
-        const selectedRoutes = Array.from(document.querySelectorAll('.route-checkbox:checked'))
-                                    .map(checkbox => checkbox.value);
-
-        if (selectedRoutes.length === 0) {
-            showToast("Please select at least one route to generate the PDF.", 'error');
-            return;
-        }
-
-        const routeCodesString = selectedRoutes.join(',');
-
-        // Route Codes string එක POST කරමින් නව PDF generator script එකට යැවීමට Form එකක් තාවකාලිකව සාදා යවයි.
-        const form = document.createElement('form');
-        form.method = 'POST';
-        // 💡 ගොනුවේ නම නිවැරදිව යොදන්න. Route QR PDF එක ජනනය කරන ගොනුව මෙයයි.
-        form.action = 'generate_qr_route_pdf.php'; 
-
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'selected_route_codes';
-        input.value = routeCodesString;
-
-        form.appendChild(input);
-        document.body.appendChild(form);
-        form.submit();
-        document.body.removeChild(form);
-    }
-    
-    // --- END NEW QR PDF GENERATION LOGIC ---
-
-
-    function openModal() {
-        form.reset();
-        setFormState(false);
-        document.getElementById('action').value = 'add';
-        modalTitle.textContent = "Add New Route";
-        modal.style.display = "flex";
-        calculateFuelAmount();
-    }
-    
-    function openEditModal(code, route, fixed_amount, fuel_amount, distance, supplier, vehicle_no, assigned_person, purpose, with_fuel) {
-        setFormState(false);
-        document.getElementById('action').value = 'edit';
-        document.getElementById('route_code').value = code;
-        document.getElementById('route_code').disabled = true;
-        document.getElementById('route_code').readOnly = true;
-        document.getElementById('route_code').style.backgroundColor = '#e5e7eb';
-        
-        document.getElementById('route').value = route;
-        document.getElementById('fixed_amount').value = fixed_amount;
-        document.getElementById('fuel_amount').value = fuel_amount;
-        document.getElementById('distance').value = distance;
-        document.getElementById('supplier').value = supplier; 
-        document.getElementById('vehicle_no').value = vehicle_no;
-        document.getElementById('assigned_person').value = assigned_person;
-        document.getElementById('purpose').value = purpose;
-        
-        if (with_fuel == 1) {
-            document.querySelector('input[name="fuel_option"][value="with_fuel"]').checked = true;
-            fuelOptionValueInput.value = 1;
-        } else {
-            document.querySelector('input[name="fuel_option"][value="without_fuel"]').checked = true;
-            fuelOptionValueInput.value = 0;
-        }
-        
-        submitBtn.value = "Save Changes";
-        modalTitle.textContent = "Edit Route";
-        modal.style.display = "flex";
-        calculateFuelAmount();
-    }
-    
-    function openViewModal(code, route, fixed_amount, fuel_amount, distance, supplier, vehicle_no, assigned_person, purpose, with_fuel) {
-        setFormState(true);
-        document.getElementById('route_code').value = code;
-        document.getElementById('route').value = route;
-        document.getElementById('fixed_amount').value = fixed_amount;
-        document.getElementById('fuel_amount').value = fuel_amount;
-        document.getElementById('distance').value = distance;
-        document.getElementById('supplier').value = supplier; 
-        document.getElementById('vehicle_no').value = vehicle_no;
-        document.getElementById('assigned_person').value = assigned_person;
-        document.getElementById('purpose').value = purpose;
-        
-        if (with_fuel == 1) {
-            document.querySelector('input[name="fuel_option"][value="with_fuel"]').checked = true;
-        } else {
-            document.querySelector('input[name="fuel_option"][value="without_fuel"]').checked = true;
-        }
-
-        modalTitle.textContent = "View Route Details";
-        modal.style.display = "flex";
-    }
-
-    function closeModal() {
-        modal.style.display = "none";
-        setFormState(false);
-        document.getElementById('route_code').disabled = false;
-        document.getElementById('route_code').readOnly = false;
-        document.getElementById('route_code').style.backgroundColor = 'white';
-    }
-
-    function handleFormSubmit(event) {
-        event.preventDefault();
-        const formData = new FormData(form);
-        const action = formData.get('action');
-
-        if (action === 'edit') {
-            formData.append('route_code', routeCodeInput.value);
-        }
-
-        const selectedSupplierName = formData.get('supplier');
-        const supplierSelect = document.getElementById('supplier');
-        const selectedOption = supplierSelect.querySelector(`option[value="${selectedSupplierName}"]`);
-        if (selectedOption) {
-            formData.set('supplier_code', selectedOption.getAttribute('data-code'));
-        }
-        formData.delete('supplier');
-
-        fetch('routes_backend2.php', {
-            method: 'POST',
-            body: formData
-        })
+function toggleRouteStatus(routeCode, currentStatus) {
+    const newStatus = currentStatus === 1 ? 0 : 1;
+    const actionText = newStatus === 1 ? 'enable' : 'disable';
+    if (confirm(`Are you sure you want to ${actionText} this route?`)) {
+        fetch(`routes_backend2.php?toggle_status=true&route_code=${encodeURIComponent(routeCode)}&new_status=${newStatus}`)
         .then(response => response.text())
         .then(data => {
             if (data.trim() === "Success") {
-                const message = action === 'add' ? "Route added successfully!" : "Route updated successfully!";
-                showToast(message, 'success');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
+                showToast(`Route ${actionText}d successfully!`, 'success');
+                setTimeout(() => { filterRoutes(); }, 2300);
             } else {
                 showToast("Error: " + data, 'error');
             }
@@ -579,38 +395,18 @@ $result = $conn->query($sql);
             showToast("An error occurred. Please try again.", 'error');
         });
     }
+}
 
-    function toggleRouteStatus(routeCode, currentStatus) {
-        const newStatus = currentStatus === 1 ? 0 : 1;
-        const actionText = newStatus === 1 ? 'enable' : 'disable';
-        if (confirm(`Are you sure you want to ${actionText} this route?`)) {
-            fetch(`routes_backend2.php?toggle_status=true&route_code=${encodeURIComponent(routeCode)}&new_status=${newStatus}`)
-            .then(response => response.text())
-            .then(data => {
-                if (data.trim() === "Success") {
-                    showToast(`Route ${actionText}d successfully!`, 'success');
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 2300);
-                } else {
-                    showToast("Error: " + data, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast("An error occurred. Please try again.", 'error');
-            });
-        }
-    }
-    
-    function filterRoutes() {
-        const purpose = document.getElementById('purpose-filter').value;
-        const status = document.getElementById('status-filter').value;
-        window.location.href = `?purpose_filter=${purpose}&status_filter=${status}`;
-    }
+function filterRoutes() {
+    const purpose = document.getElementById('purpose-filter').value;
+    const status = document.getElementById('status-filter').value;
+    window.location.href = `routes_staff2.php?purpose_filter=${purpose}&status_filter=${status}`;
+}
 </script>
-
 </body>
 </html>
 
-<?php $conn->close(); ?>
+<?php 
+if (isset($stmt)) $stmt->close();
+$conn->close();
+?>

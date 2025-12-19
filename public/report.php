@@ -1,4 +1,15 @@
 <?php
+require_once '../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../includes/login.php");
+    exit();
+}
+
 include('../includes/db.php');  // Include MySQLi connection file
 include('../includes/header.php');
 include('../includes/navbar.php');
@@ -8,7 +19,18 @@ $vehicles_sql = "SELECT vehicle_no FROM vehicle";
 $vehicles_result = mysqli_query($conn, $vehicles_sql);
 
 ?>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
 
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <div class="container">
     <h2>Generate Bill</h2>
     <form method="POST">

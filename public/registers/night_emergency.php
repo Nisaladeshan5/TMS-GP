@@ -52,9 +52,8 @@ $result = $stmt->get_result();
 <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
     <div class="text-lg font-semibold ml-3">Registers</div>
     <div class="flex gap-4">
-        <a href="add_records/add_night_emergency_vehicle.php" class="hover:text-yellow-600">Add Trip Record</a>
         <a href="add_records/night_emergency_attendance.php" class="hover:text-yellow-600">Attendance</a>
-        <a href="add_records/night_emergency_barcode.php" class="hover:text-yellow-600">Barcode</a>
+        <a href="add_records/add_night_emergency_vehicle.php" class="hover:text-yellow-600">Add Trip Record</a>
     </div>
 </div>
 

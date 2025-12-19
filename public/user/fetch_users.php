@@ -1,6 +1,5 @@
 <?php
 // fetch_users.php - Dedicated AJAX endpoint for user table data
-
 // Start Output Buffering to prevent unwanted output before HTML
 ob_start();
 

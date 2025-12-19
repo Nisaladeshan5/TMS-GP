@@ -108,7 +108,7 @@ $html = '<!DOCTYPE html>
             box-sizing: border-box;
             border: 1px solid black;
             page-break-inside: avoid;
-            padding: 1px;
+            padding: 0; 
         }
 
         .logo-table {
@@ -117,9 +117,47 @@ $html = '<!DOCTYPE html>
             border-collapse: collapse;
             text-align: center;
         }
-        .logo-table td { vertical-align: middle; padding: 0; }
+        
+        .logo-table td { 
+            vertical-align: middle; 
+            padding: 0; 
+            height: 100%;
+        } 
+        
+        /* සම්පූර්ණ අන්තර්ගතය රඳවා ඇති ප්‍රධාන කන්ටේනරය */
+        .rotated-content-wrapper {
+            height: 100%; 
+            width: 100%; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+            box-sizing: border-box;
+            padding: 1mm; 
+            /* Logo සහ Name එකවර 180° කරකවයි - මෙය සාමාන්‍යයෙන් "උඩට" හැරවීමට යොදා ගනී */
+            transform: rotate(180deg); 
+        }
 
-        .logo-container img { max-width: 40mm; max-height: 40mm; transform: rotate(180deg); }
+        /* Route Name එකේ CSS - Logo එකට කිට්ටු කිරීමට margin-bottom: 1mm */
+        .route-name-display { 
+            font-size: 17pt; 
+            font-weight: 900; 
+            line-height: 1.1; 
+            margin: 3mm 0 1mm 0; 
+            color: #000; 
+            word-wrap: break-word;
+            text-align: center;
+            display: block; 
+        }
+        
+        /* Logo රූපයේ CSS */
+        .logo-container img { 
+            max-width: 45mm; 
+            max-height: 45mm; 
+            margin: auto; 
+            display: block;
+            transform: none; 
+        }
 
         .label-container table { page-break-inside: avoid; }
 
@@ -147,6 +185,7 @@ foreach ($route_data as $index => $route) {
     $route_name = htmlspecialchars(strtoupper($route['route'] ?? 'N/A ROUTE'));
     $purpose = htmlspecialchars(strtoupper($route['purpose'] ?? 'STAFF')); 
     
+    // --- QR Label Container ---
     $html .= '
 <div class="label-container" style="' . $label_margin_style . '">
     <div style="height: 100%; width: 100%; box-sizing: border-box;">
@@ -172,11 +211,17 @@ foreach ($route_data as $index => $route) {
     </div>
 </div>';
 
+    // --- UPDATED Logo Container (දෙකම එකට කරකවයි) ---
     $html .= '<div class="item-container">
         <div class="logo-container">
             <table class="logo-table">
                 <tr>
-                    <td><img src="' . $base64_logo_data . '" alt="Company Logo"></td>
+                    <td>
+                        <div class="rotated-content-wrapper">
+                            <span class="route-name-display">' . $route_name . '</span>
+                            <img src="' . $base64_logo_data . '" alt="Company Logo">
+                        </div>
+                    </td>
                 </tr>
             </table>
         </div>

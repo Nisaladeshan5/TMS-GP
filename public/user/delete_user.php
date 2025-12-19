@@ -1,4 +1,13 @@
 <?php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
 // delete_user.php
 // Handles the AJAX request to delete a user record from the 'user' table.
 

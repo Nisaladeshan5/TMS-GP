@@ -1,4 +1,14 @@
 <?php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 // Include the database connection and FPDF library
 include('../../includes/db.php');
 require('fpdf.php'); // Adjust the path as needed

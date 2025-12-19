@@ -124,6 +124,15 @@ include('../../../includes/navbar.php');
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
+    <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
+    <div class="text-lg font-semibold ml-3">Registers</div>
+    <div class="flex gap-4">
+        <a href="../night_emergency.php" class="hover:text-yellow-600">Back to Trips</a>
+        <a href="night_emergency_attendance.php" class="hover:text-yellow-600">Attendance</a>
+        <a href="add_night_emergency_attendance.php" class="hover:text-yellow-600">Add Attendance</a>
+        <a href="night_emergency_barcode.php" class="hover:text-yellow-600">Barcode</a>
+    </div>
+</div>
     <div class="w-[85%] ml-[15%]">
         <div class="container max-w-4xl p-6 md:p-10 bg-white shadow-lg rounded-lg mt-10">
             <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-6 border-b pb-2">Add Night Emergency Vehicle Record</h1>

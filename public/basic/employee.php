@@ -1,5 +1,148 @@
 <?php
+require_once '../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 include('../../includes/db.php');
+
+// Get filter parameters from GET request (Required for both normal view and export)
+$filter_emp_id = $_GET['emp_id'] ?? '';
+$filter_route_code = $_GET['route_code'] ?? '';
+$filter_department = $_GET['department'] ?? '';
+$filter_staff_type = $_GET['staff_type'] ?? '';
+
+// Base query for the main table view - near_bus_stop must be included
+$sql = "SELECT 
+            emp_id, 
+            calling_name, 
+            department, 
+            gender,
+            route, 
+            near_bus_stop,  
+            SUBSTRING(route, 1, 10) AS route_code, 
+            SUBSTRING(route, 12, LENGTH(route) - 12) AS route_name
+        FROM employee
+        WHERE route != ''"; 
+
+// Array for prepared statement binding parameters
+$params = [];
+$param_types = '';
+
+// 1. Filter by Employee ID
+if (!empty($filter_emp_id)) {
+    $sql .= " AND emp_id LIKE ?";
+    $params[] = "%$filter_emp_id%";
+    $param_types .= 's';
+}
+
+// 2. Filter by Department
+if (!empty($filter_department)) {
+    $sql .= " AND department = ?";
+    $params[] = $filter_department;
+    $param_types .= 's';
+}
+
+// 3. Filter by Route Code (Exact match since it's a dropdown selection)
+if (!empty($filter_route_code)) {
+    $sql .= " AND SUBSTRING(route, 1, 10) = ?";
+    $params[] = $filter_route_code;
+    $param_types .= 's';
+}
+
+// 4. Filter by Staff Type (Derived from 5th character of route)
+if (!empty($filter_staff_type)) {
+    $char = strtoupper(substr($filter_staff_type, 0, 1)); // 'S' or 'F'
+    if ($char === 'S' || $char === 'F') {
+        $sql .= " AND SUBSTRING(route, 5, 1) = ?";
+        $params[] = $char;
+        $param_types .= 's';
+    }
+}
+
+// Order by Employee ID
+$sql .= " ORDER BY emp_id";
+
+// --- 💾 EXPORT MODE (CSV Download) ---
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    // 1. Prepare and execute the query for filtered data
+    $stmt_export = $conn->prepare($sql);
+    if (!empty($params)) {
+        // Dynamically bind parameters
+        $stmt_export->bind_param($param_types, ...$params);
+    }
+    $stmt_export->execute();
+    $employees_to_export = $stmt_export->get_result();
+
+    // 2. Set headers for CSV download
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=employee_details_' . date('Ymd_His') . '.csv');
+    ob_clean(); 
+    
+    // 3. Create a file pointer connected to the output stream
+    $output = fopen('php://output', 'w');
+
+    // 4. Define CSV Headers (Column Names)
+    $headers = [
+        'Employee ID', 
+        'Calling Name', 
+        'Department', 
+        'Gender', 
+        'Route Code', 
+        'Route Name', 
+        'Near Bus Stop (Raw Data)', 
+        'Sub Route Info (Derived)' // The calculated field
+    ];
+    
+    // Write the column headers to the CSV file
+    fputcsv($output, $headers);
+
+    // 5. Write data rows, including the calculated Sub Route Info
+    while ($employee = $employees_to_export->fetch_assoc()) {
+        $bus_stop_chars = $employee['near_bus_stop'] ?? '';
+        $first_char_is_number = isset($bus_stop_chars[0]) && is_numeric($bus_stop_chars[0]);
+        $sub_route_info = 'No'; // Default value
+
+        // Replicate the Sub Route calculation logic
+        if ($first_char_is_number) {
+            $vehicle_type = 'Other';
+            if (isset($bus_stop_chars[1])) {
+                switch (strtoupper($bus_stop_chars[1])) {
+                    case 'T': $vehicle_type = 'Three Wheel'; break;
+                    case 'V': $vehicle_type = 'Van'; break;
+                    case 'B': $vehicle_type = 'Bus'; break;
+                }
+            }
+            $sub_route_info = ($bus_stop_chars[0] ?? '') . ' . - . ' . $vehicle_type;
+        }
+
+        $row = [
+            $employee['emp_id'] ?? 'N/A',
+            $employee['calling_name'],
+            $employee['department'],
+            $employee['gender'] ?? 'N/A',
+            $employee['route_code'],
+            $employee['route_name'],
+            $employee['near_bus_stop'] ?? 'N/A',
+            $sub_route_info 
+        ];
+
+        fputcsv($output, $row);
+    }
+
+    // 6. Close and exit
+    fclose($output);
+    $stmt_export->close(); 
+    $conn->close(); 
+    exit; // Stop script execution after sending the file
+}
+// --- END EXPORT MODE ---
 
 // --- API MODE (AJAX requests for View/Edit) ---
 if (isset($_GET['view_emp_id'])) {
@@ -64,64 +207,8 @@ if (isset($_GET['view_emp_id'])) {
 include('../../includes/header.php'); 
 include('../../includes/navbar.php');
 
-// Get filter parameters from GET request
-$filter_emp_id = $_GET['emp_id'] ?? '';
-$filter_route_code = $_GET['route_code'] ?? '';
-$filter_department = $_GET['department'] ?? '';
-$filter_staff_type = $_GET['staff_type'] ?? '';
 
-// Base query for the main table view - near_bus_stop must be included
-$sql = "SELECT 
-            emp_id, 
-            calling_name, 
-            department, 
-            gender,
-            route, 
-            near_bus_stop,  
-            SUBSTRING(route, 1, 10) AS route_code, 
-            SUBSTRING(route, 12, LENGTH(route) - 12) AS route_name
-        FROM employee
-        WHERE 1=1"; 
-
-// Array for prepared statement binding parameters
-$params = [];
-$param_types = '';
-
-// 1. Filter by Employee ID
-if (!empty($filter_emp_id)) {
-    $sql .= " AND emp_id LIKE ?";
-    $params[] = "%$filter_emp_id%";
-    $param_types .= 's';
-}
-
-// 2. Filter by Department
-if (!empty($filter_department)) {
-    $sql .= " AND department = ?";
-    $params[] = $filter_department;
-    $param_types .= 's';
-}
-
-// 3. Filter by Route Code (Exact match since it's a dropdown selection)
-if (!empty($filter_route_code)) {
-    $sql .= " AND SUBSTRING(route, 1, 10) = ?";
-    $params[] = $filter_route_code;
-    $param_types .= 's';
-}
-
-// 4. Filter by Staff Type (Derived from 5th character of route)
-if (!empty($filter_staff_type)) {
-    $char = strtoupper(substr($filter_staff_type, 0, 1)); // 'S' or 'F'
-    if ($char === 'S' || $char === 'F') {
-        $sql .= " AND SUBSTRING(route, 5, 1) = ?";
-        $params[] = $char;
-        $param_types .= 's';
-    }
-}
-
-// Order by Employee ID
-$sql .= " ORDER BY emp_id";
-
-// Prepare and execute the final query
+// Prepare and execute the final query for the HTML table view
 $stmt = $conn->prepare($sql);
 if (!empty($params)) {
     // Dynamically bind parameters
@@ -152,6 +239,18 @@ $route_code_options = $conn->query("
     <title>Employee Details</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     </head>
+<script>
+// 9 hours in milliseconds (32,400,000 ms)
+const SESSION_TIMEOUT_MS = 32400000; 
+const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+setTimeout(function() {
+    // Alert and redirect
+    alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+    window.location.href = LOGIN_PAGE_URL; 
+    
+}, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100">
     <div class="h-screen flex flex-col">
         
@@ -171,14 +270,14 @@ $route_code_options = $conn->query("
                 <div class="w-full bg-white p-4 rounded-md shadow-md mb-4 flex-shrink-0">
                     <h4 class="text-xl font-semibold mb-3 text-blue-600">Filter Employees</h4>
                     
-                    <form method="GET" action="" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                    <form id="filterForm" method="GET" action="" class="grid grid-cols-1 gap-4 items-end md:grid-cols-7">
                         
-                        <div>
-                            <label for="filter_emp_id" class="block text-sm font-medium text-gray-700">Employee ID</label>
+                        <div class="md:col-span-1">
+                            <label for="filter_emp_id" class="block text-sm font-medium text-gray-700">Emp ID</label>
                             <input type="text" id="filter_emp_id" name="emp_id" value="<?php echo htmlspecialchars($filter_emp_id); ?>" class="mt-1 p-2 block w-full border rounded-md shadow-sm">
                         </div>
 
-                        <div>
+                        <div class="md:col-span-1">
                             <label for="filter_staff_type" class="block text-sm font-medium text-gray-700">Staff/Factory</label>
                             <select id="filter_staff_type" name="staff_type" class="mt-1 p-2 block w-full border rounded-md shadow-sm">
                                 <option value="">-- All --</option>
@@ -187,7 +286,7 @@ $route_code_options = $conn->query("
                             </select>
                         </div>
 
-                        <div>
+                        <div class="md:col-span-1">
                             <label for="filter_route_code" class="block text-sm font-medium text-gray-700">Route Code</label>
                             <select id="filter_route_code" name="route_code" class="mt-1 p-2 block w-full border rounded-md shadow-sm">
                                 <option value="">-- All --</option>
@@ -199,7 +298,8 @@ $route_code_options = $conn->query("
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div>
+                        
+                        <div class="md:col-span-1">
                             <label for="filter_department" class="block text-sm font-medium text-gray-700">Department</label>
                             <select id="filter_department" name="department" class="mt-1 p-2 block w-full border rounded-md shadow-sm">
                                 <option value="">-- All --</option>
@@ -211,15 +311,24 @@ $route_code_options = $conn->query("
                             </select>
                         </div>
 
-                        <div class="flex space-x-2">
-                            <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full">
+                        <div class="md:col-span-1"> 
+                            <label class="block text-sm font-medium text-gray-700 opacity-0">Apply</label> <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full whitespace-nowrap">
                                 Apply Filter
                             </button>
-                            <button type="button" id="clearFiltersBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md shadow-md transition duration-300 flex-shrink-0">
+                        </div>
+                        
+                        <div class="md:col-span-1">
+                            <label class="block text-sm font-medium text-gray-700 opacity-0">Clear</label> <button type="button" id="clearFiltersBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full whitespace-nowrap">
                                 Clear
                             </button>
                         </div>
-                    </form>
+
+                        <div class="md:col-span-1">
+                            <label class="block text-sm font-medium text-gray-700 opacity-0">CSV</label> <button type="button" id="exportCsvBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full whitespace-nowrap">
+                                Download CSV
+                            </button>
+                        </div>
+                        </form>
                 </div>
                 
                 <div class="bg-white shadow-md rounded-md w-full overflow-y-auto flex-grow">
@@ -293,6 +402,33 @@ $route_code_options = $conn->query("
     document.getElementById('clearFiltersBtn').addEventListener('click', function() {
         // Clear all filter fields and redirect to the base page
         window.location.href = window.location.pathname;
+    });
+
+    document.getElementById('exportCsvBtn').addEventListener('click', function() {
+        // Get the current URL parameters from the filter form
+        const form = document.getElementById('filterForm');
+        // We use URLSearchParams to correctly handle the current filter values
+        const params = new URLSearchParams(window.location.search);
+        
+        // Remove existing 'export' parameter if present
+        params.delete('export');
+        
+        // Update URL parameters with current form values
+        // Note: We iterate through all form elements to ensure the current values (even for text inputs) are captured, 
+        // though in this specific form, only the select boxes and the text input are relevant filters.
+        form.querySelectorAll('input, select').forEach(element => {
+            if (element.name && element.value) {
+                params.set(element.name, element.value);
+            } else if (element.name && !element.value) {
+                params.delete(element.name); // Clear empty fields from URL
+            }
+        });
+
+        // Add the 'export=csv' flag to the parameters
+        params.append('export', 'csv');
+        
+        // Construct the new URL and navigate (triggering the download)
+        window.location.href = window.location.pathname + '?' + params.toString();
     });
 </script>
 

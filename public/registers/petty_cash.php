@@ -1,4 +1,15 @@
 <?php
+require_once '../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 include('../../includes/db.php');
 include('../../includes/header.php');
 include('../../includes/navbar.php');
@@ -31,6 +42,18 @@ $result = $stmt->get_result();
     <title>Petty Cash Details</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100">
 
 <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">

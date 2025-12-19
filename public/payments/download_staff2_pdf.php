@@ -1,6 +1,15 @@
 <?php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 // Include the database connection file
-// NOTE: Ensure the path to db.php is correct for the PDF script's location
 include('../../includes/db.php');
 
 // Include the FPDF library. You must have this file in your project.
@@ -9,7 +18,7 @@ require('fpdf.php');
 // Extend the FPDF class to create custom Header and Footer methods
 class PDF extends FPDF
 {
-    // --- Custom Drawing Methods (Kept for visual integrity) ---
+    // ... (Custom Drawing Methods like RoundedRect and _Arc remain the same) ...
     function RoundedRect($x, $y, $w, $h, $r, $style = '')
     {
         $k = $this->k;
@@ -80,8 +89,27 @@ class PDF extends FPDF
 
 // Get and sanitize the parameters from the URL
 $route_code = isset($_GET['route_code']) ? htmlspecialchars($_GET['route_code']) : '';
+$supplier_code = isset($_GET['supplier_code']) ? htmlspecialchars($_GET['supplier_code']) : ''; 
 $selected_month = isset($_GET['month']) ? htmlspecialchars($_GET['month']) : date('m');
 $selected_year = isset($_GET['year']) ? htmlspecialchars($_GET['year']) : date('Y');
+
+// --- NEW PARAMETERS FROM SUMMARY PAGE (assuming they are passed) ---
+// We assume 'calculated_payment' holds the Base Trip Payment (Base Rate * Total Trips)
+$calculated_base_payment = isset($_GET['base_payment']) ? (float)$_GET['base_payment'] : 0; 
+// OR, if you passed the final total payment, you need to adjust this block:
+$total_distance = isset($_GET['total_distance_calc']) ? (float)$_GET['total_distance_calc'] : 0;
+
+// Since the `payments_category.php` logic relies on calculating the Base Payment 
+// from trip counts, we will recalculate Base Payment here for robustness 
+// and only use the supplier_code for fetching trip counts, or assume 
+// we only need the total working days. 
+// --- We'll stick to the original plan: fetch base data, trip count, and reduction.
+
+// Exit if required parameters are missing
+if (empty($route_code) || empty($supplier_code)) {
+    echo "Error: Missing Route Code or Supplier Code.";
+    exit;
+}
 
 // Create a new PDF instance using your custom class
 $pdf = new PDF();
@@ -89,9 +117,8 @@ $pdf->AliasNbPages(); // Required for {nb} alias
 $pdf->AddPage();
 $pdf->SetFont('Arial', 'B', 16);
 
-// --- Fetch main route data for calculations ---
-// FIX: Added 'supplier_code' and 'fuel_amount' to the SELECT statement.
-$route_sql = "SELECT route, fixed_amount, fuel_amount, distance, supplier_code FROM route WHERE route_code = ? LIMIT 1";
+// --- 1. Fetch main route data (Base Rates) ---
+$route_sql = "SELECT route, fixed_amount, fuel_amount, distance FROM route WHERE route_code = ? LIMIT 1";
 $route_stmt = $conn->prepare($route_sql);
 $route_stmt->bind_param("s", $route_code);
 $route_stmt->execute();
@@ -99,23 +126,79 @@ $route_result = $route_stmt->get_result();
 $route_data = $route_result->fetch_assoc();
 $route_stmt->close();
 
+$route_suffix = substr($route_code, 6, 3);
+
 if (!$route_data) {
-    // Handle the case where the route is not found
     $pdf->SetFont('Arial', '', 12);
     $pdf->Cell(0, 10, 'Error: Route not found or invalid route code.', 0, 1);
     $pdf->Output('D', 'error_report.pdf');
     exit;
 }
 
-$route_name = $route_data['route'];
-$fixed_amount = $route_data['fixed_amount'];
-$fuel_amount = $route_data['fuel_amount']; // New variable
-$rate_per_km = $fixed_amount + $fuel_amount; // New logic for combined rate
+$rate_per_km = $route_data['fixed_amount'] + $route_data['fuel_amount'];
 $route_distance = $route_data['distance'];
 
-// --- Fetch supplier details ---
+// --- 2. Fetch Trip Count (to calculate Base Payment and Distance) ---
+$working_days_sql = "
+    SELECT COUNT(id) AS total_working_days 
+    FROM staff_transport_vehicle_register 
+    WHERE route = ? 
+    AND supplier_code = ?  
+    AND MONTH(date) = ? 
+    AND YEAR(date) = ?
+    AND is_active = 1";
+$working_days_stmt = $conn->prepare($working_days_sql);
+$working_days_stmt->bind_param("ssii", $route_code, $supplier_code, $selected_month, $selected_year);
+$working_days_stmt->execute();
+$working_days_result = $working_days_stmt->get_result();
+$working_days_row = $working_days_result->fetch_assoc();
+$total_working_days = $working_days_row['total_working_days'] ?? 0;
+$working_days_stmt->close();
+
+// Calculate Day Rate, Base Payment, and Total Distance
+// Day Rate (Trip Rate) = (Rate per KM) * (Distance / 2)
+$day_rate = ($rate_per_km * $route_distance) / 2;
+
+// Calculated Base Payment = Trip Rate * Total Trip Count
+$calculated_base_payment = $day_rate * $total_working_days;
+
+// Calculated Total Distance (for display)
+$total_distance = ($route_distance / 2) * $total_working_days;
+
+
+// --- 3. Fetch Total Reduction Amount and Breakdown (from 'reduction' table) ---
+$adjustments = [];
+$total_reduction_amount = 0.00;
+
+$reduction_sql_breakdown = "
+    SELECT date, reason, amount 
+    FROM reduction 
+    WHERE route_code = ?
+    AND supplier_code = ?
+    AND MONTH(date) = ? 
+    AND YEAR(date) = ?";
+$reduction_stmt = $conn->prepare($reduction_sql_breakdown);
+$reduction_stmt->bind_param("ssii", $route_code, $supplier_code, $selected_month, $selected_year);
+$reduction_stmt->execute();
+$reduction_result = $reduction_stmt->get_result();
+while ($row = $reduction_result->fetch_assoc()) {
+    $row['description'] = $row['reason'];
+    $adjustments[] = $row; 
+    // Sum the amounts
+    $total_reduction_amount += (float)$row['amount'];
+}
+$reduction_stmt->close();
+
+// --- 4. Final Calculation ---
+// Reductions are typically stored as positive values but represent a negative adjustment.
+$other_amount = $total_reduction_amount * -1;
+
+// Total Payments = Base Payment + Other Amount (which is the reduction multiplied by -1)
+$total_payments = $calculated_base_payment + $other_amount;
+
+
+// --- 5. Fetch supplier details ---
 $supplier_data = [];
-$supplier_code = $route_data['supplier_code'];
 if (!empty($supplier_code)) {
     $supplier_sql = "
         SELECT supplier, email, beneficiaress_name, bank, bank_code, branch, branch_code, acc_no, supplier_code FROM supplier
@@ -131,83 +214,8 @@ if (!empty($supplier_code)) {
     $supplier_stmt->close();
 }
 
-// --- **UPDATED LOGIC**: Calculate Base Payment Components ---
 
-// 1. Get the total number of trips (working days) for the selected month and year
-$working_days_sql = "SELECT COUNT(*) AS total_working_days FROM staff_transport_vehicle_register WHERE route = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-$working_days_stmt = $conn->prepare($working_days_sql);
-$working_days_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-$working_days_stmt->execute();
-$working_days_result = $working_days_stmt->get_result();
-$working_days_row = $working_days_result->fetch_assoc();
-$total_working_days = $working_days_row['total_working_days'] ?? 0;
-$working_days_stmt->close();
-
-// Calculate Day Rate and Base Payment
-// Day Rate = (fixed_amount + fuel_amount) * distance / 2
-$day_rate = ($rate_per_km * $route_distance) / 2;
-
-// Calculated Base Payment = Day Rate * Total Trip Count
-$calculated_base_payment = $day_rate * $total_working_days;
-
-
-// 2. Fetch Authoritative Total Payment (monthly_payment) and Total Distance (for display)
-$total_distance = 0;
-$monthly_payment_from_db = 0; 
-$distance_sql = "SELECT total_distance, monthly_payment FROM monthly_payments_sf WHERE route_code = ? AND month = ? AND year = ?";
-$distance_stmt = $conn->prepare($distance_sql);
-$distance_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-$distance_stmt->execute();
-$distance_result = $distance_stmt->get_result();
-
-if ($distance_row = $distance_result->fetch_assoc()) {
-    $total_distance = $distance_row['total_distance'] ?? 0;
-    // AUTHORITATIVE SOURCE FOR TOTAL PAYMENT
-    $monthly_payment_from_db = $distance_row['monthly_payment'] ?? 0;
-} else {
-    // Fallback distance for display if no monthly summary is found
-    $total_distance = $route_distance * $total_working_days; // Use calculated total distance for a more meaningful value
-}
-$distance_stmt->close();
-
-
-// 3. Calculate Final Payments and Other Amount
-$total_payments = $monthly_payment_from_db;
-// Other Amount = Total Payments (DB) - Base Payment (Calculated)
-$other_amount = $total_payments - $calculated_base_payment;
-
-// --- Fetch breakdown data for the "Other Amount" section ---
-$adjustments = [];
-
-
-
-// 3b. Petty Cash Payments
-$petty_cash_sql = "SELECT date, reason AS description, amount FROM petty_cash WHERE route_code = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-$petty_cash_stmt = $conn->prepare($petty_cash_sql);
-$petty_cash_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-$petty_cash_stmt->execute();
-$petty_cash_result = $petty_cash_stmt->get_result();
-while ($row = $petty_cash_result->fetch_assoc()) {
-    $row['description'] = "Petty Cash: " . $row['description']; // Clarify the source
-    $adjustments[] = $row;
-}
-$petty_cash_stmt->close();
-
-// 3c. **NEW**: Extra Vehicle Register Payments
-// NOTE: Assuming 'extra_vehicle_register' table exists with similar columns: date, reason, amount
-$extra_vehicle_sql = "SELECT date, reason AS description, amount FROM extra_vehicle_register WHERE route_code = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-$extra_vehicle_stmt = $conn->prepare($extra_vehicle_sql);
-$extra_vehicle_stmt->bind_param("sii", $route_code, $selected_month, $selected_year);
-$extra_vehicle_stmt->execute();
-$extra_vehicle_result = $extra_vehicle_stmt->get_result();
-while ($row = $extra_vehicle_result->fetch_assoc()) {
-    $row['description'] = "Extra Vehicle: " . $row['description']; // Clarify the source
-    $adjustments[] = $row;
-}
-$extra_vehicle_stmt->close();
-
-
-// Sort adjustments by date
+// Sort adjustments by date (Optional but useful for presentation)
 usort($adjustments, function($a, $b) {
     return strcmp($a['date'], $b['date']);
 });
@@ -216,16 +224,16 @@ usort($adjustments, function($a, $b) {
 $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
 
 $pdf->SetFont('Arial', '', 13);
-$pdf->Cell(0, 12, "Route: {$route_data['route']} for $month_name, $selected_year", 0, 1, 'C');
+// Display route name and supplier code
+$pdf->Cell(0, 12, "Route: {$route_data['route']} ($route_suffix) for $month_name, $selected_year", 0, 1, 'C'); 
 $pdf->SetFont('Arial', '', 12); 
 $pdf->Ln(5);
 
-// Supplier Details Section (Unchanged)
+// Supplier Details Section
 $pdf->SetFont('Arial', 'B', 12);
 $pdf->Cell(0, 7, 'Supplier Details', 0, 1, 'L');
 $pdf->SetFont('Arial', '', 10);
 if (!empty($supplier_data)) {
-    // ... (Supplier details output remains the same)
     $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(30, 7, 'Supplier Code:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, $supplier_data['supplier_code'], 0, 1);
     $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(30, 7, 'Supplier:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, $supplier_data['supplier'], 0, 1);
     $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(30, 7, 'Email:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, $supplier_data['email'], 0, 1);
@@ -234,7 +242,7 @@ if (!empty($supplier_data)) {
     $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(30, 7, 'Branch:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, $supplier_data['branch'], 0, 1);
     $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(30, 7, 'Account No:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, $supplier_data['acc_no'], 0, 1);
 } else {
-    $pdf->Cell(0, 7, 'No supplier details found for this route.', 0, 1);
+    $pdf->Cell(0, 7, 'No supplier details found for this supplier code.', 0, 1);
 }
 $pdf->Ln(5);
 
@@ -242,7 +250,7 @@ $pdf->Ln(5);
 $pdf->SetFont('Arial', 'B', 10);
 $pdf->SetFillColor(220, 220, 220);
 $pdf->Cell(100, 7, 'Description', 1, 0, 'L', 1);
-$pdf->Cell(80, 7, 'Amount/Value', 1, 1, 'R', 1);
+$pdf->Cell(80, 7, 'Amount', 1, 1, 'R', 1);
 
 $pdf->SetFont('Arial', '', 10);
 $pdf->SetFillColor(255, 255, 255);
@@ -251,34 +259,34 @@ $pdf->SetFillColor(255, 255, 255);
 $pdf->Cell(100, 7, 'Total Trip Count', 1, 0, 'L', 1);
 $pdf->Cell(80, 7, number_format($total_working_days), 1, 1, 'R', 1);
 
-// Reported Total Distance (for context, from monthly_payments_sf)
+// Calculated Total Distance
 $pdf->Cell(100, 7, 'Total Distance (km)', 1, 0, 'L', 1);
-$pdf->Cell(80, 7, $total_distance, 1, 1, 'R', 1);
+$pdf->Cell(80, 7, number_format($total_distance, 2), 1, 1, 'R', 1); 
 
 // Calculated Base Payment (Trip Rate * Count)
 $pdf->Cell(100, 7, 'Base Payment (LKR)', 1, 0, 'L', 1);
 $pdf->Cell(80, 7, number_format($calculated_base_payment, 2), 1, 1, 'R', 1);
 
-// Other Payments (Calculated as difference)
-$pdf->Cell(100, 7, 'Reductions (LKR)', 1, 0, 'L');
+// Other Payments (Calculated as Reduction * -1)
+$pdf->Cell(100, 7, 'Adjustment (LKR)', 1, 0, 'L');
 if ($other_amount < 0) {
-    $pdf->SetFillColor(255, 220, 220); // Light Red
+    $pdf->SetFillColor(255, 220, 220); // Light Red for negative adjustments (deductions)
 } else {
-    $pdf->SetFillColor(220, 255, 220); // Light Green
+    $pdf->SetFillColor(220, 255, 220); // Light Green for positive adjustments (additions/credits)
 }
 $pdf->Cell(80, 7, number_format($other_amount, 2), 1, 1, 'R', 1);
 $pdf->SetFillColor(255, 255, 255); // Reset fill color to white
 
-// Total Payments (Authoritative from DB)
+// Total Payments (Calculated from Base Payment + Adjustment)
 $pdf->SetFont('Arial', 'B', 10);
 $pdf->SetFillColor(220, 220, 220);
 $pdf->Cell(100, 7, 'TOTAL PAYMENTS (LKR)', 1, 0, 'L', 1);
 $pdf->Cell(80, 7, number_format($total_payments, 2), 1, 1, 'R', 1);
 $pdf->Ln(10);
 
-// Other Amount Breakdown Section
+// Reduction Breakdown Section
 $pdf->SetFont('Arial', 'B', 14);
-$pdf->Cell(0, 10, 'Ajustment Breakdown', 0, 1, 'L');
+$pdf->Cell(0, 10, 'Reduction Breakdown', 0, 1, 'L');
 $pdf->Ln(2);
 
 // Adjustments Table
@@ -286,29 +294,25 @@ $pdf->SetFont('Arial', 'B', 10);
 $pdf->SetFillColor(240, 240, 240);
 $pdf->Cell(30, 7, 'Date', 1, 0, 'L', 1);
 $pdf->Cell(100, 7, 'Description', 1, 0, 'L', 1);
-$pdf->Cell(50, 7, 'Amount (LKR)', 1, 1, 'R', 1);
+$pdf->Cell(50, 7, 'Amount (LKR)', 1, 1, 'R', 1); // This is the Gross Reduction Amount
 
 $pdf->SetFont('Arial', '', 10);
 if (empty($adjustments)) {
     $pdf->SetFillColor(255, 255, 255);
-    $pdf->Cell(180, 7, 'No specific monetary adjustments (petty cash/extra vehicle) recorded.', 1, 1, 'C', 1);
+    $pdf->Cell(180, 7, 'No specific reduction records found for this route.', 1, 1, 'C', 1);
 } else {
     foreach ($adjustments as $row) {
-        // Set color based on amount sign
-        if ($row['amount'] < 0) {
-            $pdf->SetFillColor(220, 255, 220); // Light Green for deductions
-        } else {
-            $pdf->SetFillColor(255, 220, 220); // Light Red for additions
-        }
-
+        // Assume reduction amounts are stored as positive values representing a charge/deduction
+        $pdf->SetFillColor(255, 220, 220); // Light Red for reductions
+        
         $pdf->Cell(30, 7, $row['date'], 1, 0, 'L', 1);
-        // Use MultiCell for descriptions that might wrap
+        
         $x = $pdf->GetX();
         $y = $pdf->GetY();
         $pdf->MultiCell(100, 7, $row['description'], 1, 'L', 1);
-        $pdf->SetXY($x + 100, $y); // Move cursor back to the right position
+        $pdf->SetXY($x + 100, $y); 
 
-        // Cell for Amount
+        // Cell for Amount (Displaying the positive amount recorded in the reduction table)
         $pdf->Cell(50, 7, number_format($row['amount'], 2), 1, 1, 'R', 1);
     }
 }
@@ -316,7 +320,7 @@ $pdf->SetFillColor(255, 255, 255); // Reset fill color
 $pdf->Ln(5);
 
 // Output the PDF for download
-$filename = "staff_report_{$route_code}_" . date('Y-m', mktime(0, 0, 0, $selected_month, 1, $selected_year)) . ".pdf";
+$filename = "staff_report_{$route_code}_{$supplier_code}_" . date('Y-m', mktime(0, 0, 0, $selected_month, 1, $selected_year)) . ".pdf";
 $pdf->Output('D', $filename);
 
 // Close the database connection

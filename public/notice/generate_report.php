@@ -1,4 +1,14 @@
 <?php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 ob_start();
 include('../../includes/db.php');
 require '../../vendor/autoload.php';
@@ -147,8 +157,8 @@ $html .= '<h2>Driver License Expirations</h2>';
 
 $sql_drivers = "SELECT calling_name, phone_no, license_expiry_date,
                 DATEDIFF(license_expiry_date, CURDATE()) AS days_left
-                FROM driver
-                WHERE DATEDIFF(license_expiry_date, CURDATE()) <= $CRITICAL_DAYS
+                FROM driver 
+                WHERE DATEDIFF(license_expiry_date, CURDATE()) <= $CRITICAL_DAYS AND is_active = 1
                 ORDER BY license_expiry_date ASC";
 $result_drivers = mysqli_query($conn, $sql_drivers);
 
@@ -196,7 +206,7 @@ $sql_vehicle_license = "SELECT v.vehicle_no, v.license_expiry_date,
                         s.supplier AS supplier_name, s.s_phone_no AS supplier_phone
                         FROM vehicle v
                         JOIN supplier s ON v.supplier_code = s.supplier_code
-                        WHERE DATEDIFF(v.license_expiry_date, CURDATE()) <= $CRITICAL_DAYS
+                        WHERE DATEDIFF(v.license_expiry_date, CURDATE()) <= $CRITICAL_DAYS AND v.is_active = 1
                         ORDER BY v.license_expiry_date ASC";
 $result_vehicle_license = mysqli_query($conn, $sql_vehicle_license);
 
@@ -237,7 +247,7 @@ $sql_vehicle_insurance = "SELECT v.vehicle_no, v.insurance_expiry_date,
                         s.supplier AS supplier_name, s.s_phone_no AS supplier_phone
                         FROM vehicle v
                         JOIN supplier s ON v.supplier_code = s.supplier_code
-                        WHERE DATEDIFF(v.insurance_expiry_date, CURDATE()) <= $CRITICAL_DAYS
+                        WHERE DATEDIFF(v.insurance_expiry_date, CURDATE()) <= $CRITICAL_DAYS AND v.is_active = 1
                         ORDER BY v.insurance_expiry_date ASC";
 $result_vehicle_insurance = mysqli_query($conn, $sql_vehicle_insurance);
 

@@ -335,3 +335,21 @@ Stack trace:
 [12-Oct-2025 14:58:55 UTC] PHP   1. {main}() C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:0
 [12-Oct-2025 14:58:55 UTC] PHP   2. trim($string = NULL) C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_vehicle.php:20
 [19-Oct-2025 19:55:44 Asia/Colombo] Transaction Failed: Unknown column 'direct_indirect' in 'field list'
+[04-Nov-2025 16:00:59 Asia/Colombo] PHP Fatal error:  Uncaught mysqli_sql_exception: Unknown column 'driver_nic' in 'field list' in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php:130
+Stack trace:
+#0 C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php(130): mysqli->prepare('SELECT vehicle_...')
+#1 C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php(207): fetch_vehicle_and_supplier_by_op_code(Object(mysqli), 'NE-001V')
+#2 {main}
+  thrown in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php on line 130
+[04-Nov-2025 16:01:19 Asia/Colombo] PHP Fatal error:  Uncaught mysqli_sql_exception: Unknown column 'driver_nic' in 'field list' in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php:130
+Stack trace:
+#0 C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php(130): mysqli->prepare('SELECT vehicle_...')
+#1 C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php(207): fetch_vehicle_and_supplier_by_op_code(Object(mysqli), 'NE-001V')
+#2 {main}
+  thrown in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php on line 130
+[04-Nov-2025 16:03:28 Asia/Colombo] PHP Fatal error:  Uncaught mysqli_sql_exception: Unknown column 'driver_nic' in 'field list' in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php:117
+Stack trace:
+#0 C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php(117): mysqli->prepare('SELECT vehicle_...')
+#1 C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php(176): fetch_vehicle_and_supplier_by_op_code(Object(mysqli), 'NE-001V')
+#2 {main}
+  thrown in C:\wamp64\www\TMS\public\registers\add_records\add_night_emergency_attendance.php on line 117

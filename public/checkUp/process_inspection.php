@@ -1,5 +1,14 @@
 <?php
 // Note: This file is the processing script and handles insertion/update into the database.
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
 
 include('../../includes/db.php'); // Your database connection file
 

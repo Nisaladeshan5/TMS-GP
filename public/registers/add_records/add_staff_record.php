@@ -1,17 +1,29 @@
 <?php
+require_once '../../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../../includes/login.php");
+    exit();
+}
+
 include('../../../includes/db.php');
-include('../../../includes/header.php');
-include('../../../includes/navbar.php');
 include('../../../includes/config.php');
 
 // Initialize variables
 $errorMessage = '';
 $successMessage = '';
-$staff_transport_gl_code = '623400'; // Fixed GL Code for Staff Transport
+// $staff_transport_gl_code = '623400'; // No longer needed
 $staff_transport_supplier_code = ''; // Will be fetched from the database
 
 // Fetch routes, vehicles, and drivers
-$sqlRoutes = "SELECT route_code, route FROM route";
+$sqlRoutes = "SELECT route_code, route 
+              FROM route 
+              WHERE purpose='staff'
+              ORDER BY CAST(REPLACE(SUBSTRING_INDEX(route_code, '-', -1), 'V', '') AS UNSIGNED) ASC;";
 $resultRoutes = $conn->query($sqlRoutes);
 $routes = [];
 if ($resultRoutes) {
@@ -41,18 +53,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $outTime = $_POST['out_time'];
     
     // --- Start Transaction ---
+    // Transaction is good practice even for a single insert + prior fetch
     $conn->autocommit(false); 
 
     try {
-        // 1. Fetch the assigned vehicle, driver NIC, COST PARAMETERS, AND SUPPLIER CODE
+        // 1. Fetch the assigned vehicle, driver NIC, and SUPPLIER CODE (still needed for the register table)
         $sqlAssignedDetails = "
             SELECT 
                 r.vehicle_no, 
                 v.driver_NIC, 
-                v.supplier_code,   /* <-- ADDED supplier_code  */
-                r.fixed_amount, 
-                r.fuel_amount, 
-                r.distance 
+                v.supplier_code 
             FROM route r 
             JOIN vehicle v ON r.vehicle_no = v.vehicle_no 
             WHERE r.route_code = ?";
@@ -68,27 +78,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         $assignedVehicle = $routeDetails['vehicle_no'];
-        $assignedDriver = $routeDetails['driver_NIC'];
-        $staff_transport_supplier_code = $routeDetails['supplier_code']; // <-- FETCHED HERE
-        $fixed_amount = (float)$routeDetails['fixed_amount'];
-        $fuel_amount = (float)$routeDetails['fuel_amount'];
-        $distance = (float)$routeDetails['distance'];
+        $assignedDriver = $routeDetails['driver_NIC']; // Assigned Driver is only used for comparison
+        $staff_transport_supplier_code = $routeDetails['supplier_code'];
         
         // Validation for critical data
         if (empty($staff_transport_supplier_code)) {
             throw new Exception("Supplier code is missing for the assigned vehicle.");
         }
 
-
-        // Calculate Cost Per Trip (Assuming one entry = one half-day trip)
-        $trip_rate = (($fixed_amount + $fuel_amount) * $distance / 2);
-        $distance_per_trip = $distance / 2;
-        $current_month = date('m', strtotime($date));
-        $current_year = date('Y', strtotime($date));
-
         // Determine vehicle_status and driver_status
         $vehicleStatus = ($assignedVehicle === $actualVehicleNo) ? 1 : 0;
-        $driverStatus = ($assignedDriver === $driver) ? 1 : 0;
+        $driverStatus = ($assignedDriver === $driver) ? 1 : 0; // Check actual driver against assigned driver
 
         // 2. Check for duplicate record based on route, date, and shift
         $checkSql = "SELECT COUNT(*) FROM staff_transport_vehicle_register WHERE route = ? AND date = ? AND shift = ?";
@@ -104,121 +104,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             throw new Exception("A record for this route, date, and shift already exists. Cannot add a duplicate.");
         }
         
-        // --- All checks passed. Proceed with insertions/updates ---
+        // --- All checks passed. Proceed with insertion ---
         
-        // 3. Insert into staff_transport_vehicle_register
+        // 3. Insert ONLY into staff_transport_vehicle_register
         $sql = "INSERT INTO staff_transport_vehicle_register 
-                (vehicle_no, actual_vehicle_no, vehicle_status, driver_NIC, driver_status, date, shift, route, in_time, out_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                (supplier_code, vehicle_no, actual_vehicle_no, vehicle_status, driver_NIC, driver_status, date, shift, route, in_time, out_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param('ssisssssss', $assignedVehicle, $actualVehicleNo, $vehicleStatus, $driver, $driverStatus, $date, $shift, $route, $inTime, $outTime);
+        // Note: We use $driver (Actual Driver) for the register entry, and compare with $assignedDriver for status.
+        $stmt->bind_param('sssisssssss', $staff_transport_supplier_code, $assignedVehicle, $actualVehicleNo, $vehicleStatus, $driver, $driverStatus, $date, $shift, $route, $inTime, $outTime);
 
         if (!$stmt->execute()) {
             throw new Exception("Database error (Register Insert): " . $stmt->error);
         }
         $stmt->close();
 
-        // 4. Update monthly_payments_sf (Contractor Payment)
-        $update_sf_sql = "
-            INSERT INTO monthly_payments_sf 
-            (route_code, supplier_code, month, year, monthly_payment, total_distance) 
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE 
-            monthly_payment = monthly_payment + VALUES(monthly_payment), 
-            total_distance = total_distance + VALUES(total_distance)
-        ";
-        $stmt_sf = $conn->prepare($update_sf_sql);
-        $stmt_sf->bind_param("ssisdd", $route, $staff_transport_supplier_code, $current_month, $current_year, $trip_rate, $distance_per_trip);
+        // **Steps 4 and 5 (monthly_payments_sf and monthly_cost_allocation) are REMOVED.**
         
-        if (!$stmt_sf->execute()) {
-             throw new Exception("Database error (SF Payment Update): " . $stmt_sf->error);
-        }
-        $stmt_sf->close();
-        
-        
-        // 5. Cost Allocation (Consolidated: GL, DI, & Supplier in monthly_cost_allocation)
-        
-        // 5a. Get headcount for allocation
-        $employee_details_sql = "
-            SELECT 
-                department, 
-                direct, 
-                COUNT(emp_id) AS headcount 
-            FROM 
-                employee 
-            WHERE 
-                LEFT(route, 10) = ? 
-            GROUP BY 
-                department, direct
-        ";
-        $stmt_emp = $conn->prepare($employee_details_sql);
-        $stmt_emp->bind_param("s", $route);
-        $stmt_emp->execute();
-        $employee_results = $stmt_emp->get_result();
-
-        $total_route_headcount = 0;
-        $aggregated_allocations = []; // Array to hold [department, direct] => cost
-        $temp_results = [];
-
-        while ($row = $employee_results->fetch_assoc()) {
-            $total_route_headcount += (int)$row['headcount'];
-            $temp_results[] = $row;
-        }
-        $stmt_emp->close(); 
-
-        if ($total_route_headcount > 0 && $trip_rate > 0) {
-            $cost_per_employee = $trip_rate / $total_route_headcount;
-
-            foreach ($temp_results as $row) {
-                $department = $row['department'];
-                $di_status = $row['direct']; 
-                $headcount = (int)$row['headcount'];
-                $allocated_cost = $cost_per_employee * $headcount;
-
-                if ($allocated_cost > 0) {
-                    // Key is a combination of department and direct status
-                    $key = $department . '-' . $di_status; 
-                    $aggregated_allocations[$key] = ($aggregated_allocations[$key] ?? 0.00) + $allocated_cost;
-                }
-            }
-
-            // 5b. Update monthly_cost_allocation (Consolidated GL/DI/Supplier)
-            $allocation_update_sql = "
-                INSERT INTO monthly_cost_allocation
-                (supplier_code, gl_code, department, direct, month, year, monthly_allocation) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE 
-                monthly_allocation = monthly_allocation + VALUES(monthly_allocation)
-            ";
-            $allocation_stmt = $conn->prepare($allocation_update_sql);
-            
-            foreach ($aggregated_allocations as $dept_di_key => $cost) {
-                list($department, $di_status) = explode('-', $dept_di_key);
-                
-                // Bind parameters for the new structure
-                $allocation_stmt->bind_param(
-                    "ssssssd", 
-                    $staff_transport_supplier_code,  // <-- NOW USES FETCHED VALUE
-                    $staff_transport_gl_code, 
-                    $department, 
-                    $di_status, 
-                    $current_month, 
-                    $current_year, 
-                    $cost
-                );
-                
-                if (!$allocation_stmt->execute()) {
-                    throw new Exception("Database error (Consolidated Cost Allocation Update): " . $allocation_stmt->error);
-                }
-            }
-            $allocation_stmt->close();
-        }
-
-
         // --- COMMIT TRANSACTION ---
         $conn->commit();
-        header("Location: " . BASE_URL . "registers/Staff%20transport%20vehicle%20register.php?status=success&message=" . urlencode("Record and financial allocations added successfully!"));
+        // Updated success message for clarity
+        header("Location: " . BASE_URL . "registers/Staff%20transport%20vehicle%20register.php?status=success&message=" . urlencode("Record added successfully to the Vehicle Register!"));
         exit();
 
     } catch (Exception $e) {
@@ -230,6 +137,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // Restore default autocommit mode
     $conn->autocommit(true); 
 }
+
+include('../../../includes/header.php');
+include('../../../includes/navbar.php');
 ?>
 
 <!DOCTYPE html>
@@ -283,6 +193,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     </style>
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100 font-sans">
     
 <div id="toast-container"></div>
@@ -306,7 +228,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <select id="route" name="route" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2" onchange="fetchVehicleAndDriver()">
                         <option value="" disabled selected>Select a Route</option>
                         <?php foreach ($routes as $routeOption): ?>
-                            <option value="<?php echo htmlspecialchars($routeOption['route_code']); ?>"><?php echo htmlspecialchars($routeOption['route']); ?></option>
+                            <option value="<?php echo htmlspecialchars($routeOption['route_code']); ?>">
+                                <?php echo htmlspecialchars($routeOption['route']); ?> (<?php echo htmlspecialchars($routeOption['route_code']); ?>)
+                            </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -360,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             <p id="timeWarning" class="text-red-500 text-sm mb-4 hidden">Time must be between 04:00–11:59 for Morning or 12:00–23:59 for Evening.</p>
 
-            <div class="flex justify-end gap-4 mt-6">
+            <div class="flex justify-between gap-4 mt-6">
                 <a href="<?= BASE_URL ?>/registers/Staff%20transport%20vehicle%20register.php"
                    class="inline-flex items-center px-6 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition duration-300">
                     Cancel

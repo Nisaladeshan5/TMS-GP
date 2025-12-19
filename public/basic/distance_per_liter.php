@@ -1,8 +1,77 @@
 <?php
+require_once '../../includes/session_check.php';
+// Start the session (ensure it's started before accessing session variables)
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 include('../../includes/db.php');
+
+// Get the logged-in user's ID (Assuming 'user_id' is stored in the session)
+$logged_in_user_id = $_SESSION['user_id'] ?? 0;
 
 $toast_message = null;
 $toast_type = null;
+
+// --- AUDIT LOG FUNCTION (FIXED) ---
+/**
+ * Logs an entry into the audit_log table.
+ * Uses the standard 7 columns (table, record_id, action, user_id, field, old, new)
+ */
+function log_general_audit_entry(
+    $conn, 
+    $tableName, 
+    $recordId, 
+    $actionType, 
+    $userId, 
+    $fieldName = null,  
+    $oldValue = null,   
+    $newValue = null    
+) {
+    if (!isset($conn) || $conn->connect_error) {
+         error_log("Audit Log: Database connection is not valid for logging.");
+         return;
+    }
+
+    $log_sql = "INSERT INTO audit_log (table_name, record_id, action_type, user_id, field_name, old_value, new_value, change_time) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+
+    $log_stmt = $conn->prepare($log_sql);
+
+    if ($log_stmt === false) {
+        error_log("General Audit Log Preparation Error: " . $conn->error);
+        return;
+    }
+    
+    // FIX: Convert integer/numeric variables to strings in separate variables 
+    // before binding, as bind_param requires variables by reference.
+    $record_id_str = (string)$recordId;
+    $user_id_str = (string)$userId;
+
+    $log_stmt->bind_param(
+        "sssssss", // Using 's' for all string/text fields
+        $tableName, 
+        $record_id_str, // Now a variable
+        $actionType,
+        $user_id_str,   // Now a variable
+        $fieldName, 
+        $oldValue, 
+        $newValue
+    );
+    
+    if (!$log_stmt->execute()) {
+        error_log("General Audit Log Execution Error: " . $log_stmt->error);
+    }
+    $log_stmt->close();
+}
+// --- END AUDIT LOG FUNCTION ---
+
 
 /**
  * Fetch all consumption rows (id, type, distance)
@@ -25,13 +94,11 @@ function getAllConsumption($conn) {
 
 // Handle form submissions (POST requests) for individual database updates or insertion
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    // --- Existing: Handle individual distance update ---
+    // --- Handle individual distance update (UPDATE LOGGING) ---
     if (isset($_POST['action']) && $_POST['action'] === 'update_distance_individual') {
-        // Get posted values
         $c_id_raw   = $_POST['c_id'] ?? '';
         $distance_raw = $_POST['distance'] ?? '';
 
-        // Sanitize / validate
         $c_id = filter_var($c_id_raw, FILTER_VALIDATE_INT);
         $distance = filter_var($distance_raw, FILTER_VALIDATE_FLOAT);
 
@@ -40,32 +107,55 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $toast_type = "error";
         } else {
             try {
+                // 1. Fetch OLD rate and c_type for audit logging BEFORE update
+                $old_distance = null;
+                $c_type = null;
+                $stmt_fetch_old = $conn->prepare("SELECT distance, c_type FROM consumption WHERE c_id = ?");
+                $stmt_fetch_old->bind_param("i", $c_id);
+                $stmt_fetch_old->execute();
+                $result_old = $stmt_fetch_old->get_result();
+                if ($row_old = $result_old->fetch_assoc()) {
+                    $old_distance = $row_old['distance'];
+                    $c_type = $row_old['c_type'];
+                }
+                $stmt_fetch_old->close();
+
+                // 2. Update record
                 $stmt = $conn->prepare("UPDATE consumption SET distance = ? WHERE c_id = ?");
                 if (!$stmt) {
                     throw new Exception("Prepare failed: " . $conn->error);
                 }
-                // distance (double), c_id (int)
                 $stmt->bind_param("di", $distance, $c_id);
 
                 if ($stmt->execute()) {
                     if ($stmt->affected_rows > 0) {
+                        
+                        // 3. --- AUDIT LOG: Distance Update ---
+                        if ($old_distance !== null && $old_distance != $distance) {
+                             log_general_audit_entry(
+                                $conn, 
+                                'consumption', 
+                                (string)$c_id, 
+                                'UPDATE', 
+                                $logged_in_user_id,
+                                'distance (' . $c_type . ')', // Log the type in the field for clarity
+                                (string)$old_distance, 
+                                (string)$distance
+                            );
+                        }
+                        // --- END AUDIT LOG ---
+
                         $toast_message = "Distance updated successfully!";
                         $toast_type = "success";
                     } else {
-                        // Might be same value or row not found
-                        // Check if row exists
-                        $chk = $conn->prepare("SELECT 1 FROM consumption WHERE c_id = ?");
-                        $chk->bind_param("i", $c_id);
-                        $chk->execute();
-                        $chk->store_result();
-                        if ($chk->num_rows === 0) {
+                        // Check if row exists (we already did this during fetch)
+                        if ($c_type === null) { 
                             $toast_message = "No record found to update. Please insert the record first.";
                             $toast_type = "error";
                         } else {
                             $toast_message = "No changes detected (same value).";
                             $toast_type = "success";
                         }
-                        $chk->close();
                     }
                 } else {
                     throw new Exception("Execute failed: " . $stmt->error);
@@ -76,15 +166,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $toast_type = "error";
             }
         }
-    // --- New: Handle insertion of a new record ---
+    // --- Handle insertion of a new record (INSERT LOGGING) ---
     } elseif (isset($_POST['action']) && $_POST['action'] === 'add_new_consumption') {
         $c_type_raw   = trim($_POST['new_c_type'] ?? '');
         $distance_raw = $_POST['new_distance'] ?? '';
 
-        // Sanitize / validate
-        // Strip tags and ensure it's not empty for the type
         $c_type = filter_var($c_type_raw, FILTER_SANITIZE_STRING);
-        // Validate float for distance
         $distance = filter_var($distance_raw, FILTER_VALIDATE_FLOAT);
 
         if (empty($c_type) || $distance === false || $distance < 0) {
@@ -97,6 +184,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $chk_stmt->bind_param("s", $c_type);
                 $chk_stmt->execute();
                 $chk_stmt->store_result();
+                $chk_stmt->bind_result($existing_c_id);
 
                 if ($chk_stmt->num_rows > 0) {
                     $toast_message = "Vehicle Type '{$c_type}' already exists.";
@@ -110,10 +198,24 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     if (!$stmt) {
                         throw new Exception("Prepare failed: " . $conn->error);
                     }
-                    // c_type (string), distance (double)
                     $stmt->bind_param("sd", $c_type, $distance);
 
                     if ($stmt->execute()) {
+                        $new_c_id = $conn->insert_id; // Get the ID of the newly inserted row
+                        
+                        // 3. --- AUDIT LOG: Insertion ---
+                        log_general_audit_entry(
+                            $conn, 
+                            'consumption', 
+                            (string)$new_c_id, 
+                            'INSERT', 
+                            $logged_in_user_id,
+                            'new_record', // General field name for insert
+                            'N/A', 
+                            'Type: ' . $c_type . ' | Distance: ' . (string)$distance
+                        );
+                        // --- END AUDIT LOG ---
+
                         $toast_message = "New consumption rate for '{$c_type}' added successfully!";
                         $toast_type = "success";
                     } else {
@@ -202,18 +304,28 @@ include('../../includes/navbar.php');
 
     </style>
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100 text-gray-800 ">
+    <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-[5%]">
+        <div class="text-lg font-semibold ml-3">Fuel</div>
+        <div class="flex gap-4">
+            <a href="fuel.php" class="hover:text-yellow-600">Back</a>
+        </div>
+    </div>
     <div class="flex justify-center items-center w-[85%] ml-[15%] mt-3">
-        <div class="w-full max-w-xl mx-auto p-3 bg-white rounded-lg shadow-md">
+        <div class="w-full max-w-3xl mx-auto p-3 bg-white rounded-lg shadow-md">
             <h2 class="text-3xl font-bold mb-3 text-center text-blue-600">Update Distance Efficiency</h2>
-            <div class="flex justify-center gap-4 mb-4">
-                <a href="fuel.php" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-green-700 transition-colors flex items-center justify-center">
-                    View All Fuel Rates
-                </a>
-                <p  class="bg-gray-300 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors flex items-center justify-center">
-                    Update Distance
-                </p>
-            </div>
 
             <hr class="my-3">
 
@@ -291,6 +403,7 @@ include('../../includes/navbar.php');
                                                     type="number"
                                                     step="0.01"
                                                     name="distance"
+                                                    id="distance_<?php echo (int)$row['c_id']; ?>"
                                                     required
                                                     class="w-full px-2 py-2 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                     value="<?php echo htmlspecialchars((string)$row['distance']); ?>"
@@ -341,6 +454,12 @@ include('../../includes/navbar.php');
         document.addEventListener('DOMContentLoaded', function() {
             showToast("<?php echo htmlspecialchars($toast_message, ENT_QUOTES, 'UTF-8'); ?>",
                       "<?php echo htmlspecialchars($toast_type, ENT_QUOTES, 'UTF-8'); ?>");
+            
+            // Clean the URL parameters after showing the toast to prevent re-display on refresh
+            const url = new URL(window.location.href);
+            url.searchParams.delete('toast_message');
+            url.searchParams.delete('toast_type');
+            window.history.replaceState({}, document.title, url.toString());
         });
         <?php endif; ?>
     </script>

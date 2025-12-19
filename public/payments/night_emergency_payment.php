@@ -1,4 +1,14 @@
 <?php
+require_once '../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
 
 include('../../includes/db.php');
 include('../../includes/header.php');
@@ -18,14 +28,24 @@ $sql = "SELECT
             s.supplier,
             s.supplier_code,
             mpn.monthly_payment AS total_payment,
-            (SELECT COUNT(nea.date)
-             FROM night_emergency_attendance AS nea
-             WHERE nea.supplier_code = s.supplier_code
-               AND MONTH(nea.date) = ?
-               AND YEAR(nea.date) = ?) AS total_worked_days
-        FROM monthly_payment_ne AS mpn
-        JOIN supplier AS s
-            ON mpn.supplier_code = s.supplier_code
+            (
+                SELECT
+                    COUNT(DISTINCT nea.date) -- එක දිනකට එකම සැපයුම්කරුගෙන් වාර්තා කිහිපයක් තිබුණත්, වැඩ කළ දින ගණන නිවැරදිව ලබා ගැනීමට DISTINCT භාවිතා කරයි.
+                FROM
+                    night_emergency_attendance AS nea
+                JOIN
+                    op_services AS ops ON nea.op_code = ops.op_code
+                JOIN
+                    vehicle AS v ON ops.vehicle_no = v.vehicle_no
+                WHERE
+                    v.supplier_code = s.supplier_code -- මෙතැනදී ප්‍රධාන විමසුමේ (Outer Query) 's' ගේ supplier_code භාවිතා කරයි.
+                    AND MONTH(nea.date) = ?
+                    AND YEAR(nea.date) = ?
+            ) AS total_worked_days
+        FROM
+            monthly_payment_ne AS mpn
+        JOIN
+            supplier AS s ON mpn.supplier_code = s.supplier_code
         WHERE
             mpn.month = ?
             AND mpn.year = ?
@@ -62,17 +82,31 @@ $stmt->close();
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-50 text-gray-800 h-screen">
 
     <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-[5%]">
         <div class="text-lg font-semibold ml-3">Payments</div>
         <div class="flex gap-4">
-            <a href="payments_category.php?payment_type=1" class="hover:text-yellow-600">Staff</a>
-            <a href="" class="hover:text-yellow-600">Workers</a>
-            <a href="" class="hover:text-yellow-600">Day Heldup</a>
+            <a href="payments_category.php" class="hover:text-yellow-600">Staff</a>
+            <a href="factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
+            <a href="factory/sub/sub_route_payments.php" class="hover:text-yellow-600">Sub Route</a>
+            <a href="DH/day_heldup_payments.php" class="hover:text-yellow-600">Day Heldup</a>
             <a href="" class="hover:text-yellow-600">Night Heldup</a>
             <p class="hover:text-yellow-600 text-yellow-500 font-bold">Night Emergency</p>
             <a href="" class="hover:text-yellow-600">Extra Vehicle</a>
+            <a href="own_vehicle_payments.php" class="hover:text-yellow-600">Fuel Allowance</a>
         </div>
     </div>
 

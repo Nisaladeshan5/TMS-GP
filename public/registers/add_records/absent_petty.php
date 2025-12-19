@@ -1,4 +1,15 @@
 <?php
+require_once '../../../includes/session_check.php';
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../../includes/login.php");
+    exit();
+}
+
 // ***************************************************************
 // 1. CRITICAL FIX: Add Output Buffering at the very top 
 // ***************************************************************
@@ -88,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($check_result->num_rows > 0) {
             $row = $check_result->fetch_assoc();
             $source = ($row['source'] == 'staff_transport') ? 'Primary Vehicle Register' : (($row['source'] == 'extra_vehicle') ? 'Extra Vehicle Register' : 'Petty Cash Register');
-            throw new Exception("A record already exists for Route: $routeCode, Date: $date, Shift: $shift in the $source. Only one trip entry (Primary, Extra, or Petty Cash) is allowed per shift.");
+            throw new Exception("A record already exists.");
         }
         $stmt_check->close();
 
@@ -378,6 +389,18 @@ $routes = getRouteCodes($conn);
         }
     </style>
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100 font-sans">
     <div id="toast-container"></div>
     <div class="w-[85%] ml-[15%]">

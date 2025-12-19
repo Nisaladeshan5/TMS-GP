@@ -1,5 +1,14 @@
 <?php
 // export_employee_report.php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
 
 // 1. Include necessary files and initialize DB connection
 include('../../includes/db.php'); 

@@ -1,4 +1,14 @@
 <?php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 include('../../includes/db.php');
 require('fpdf.php');
 
@@ -35,7 +45,7 @@ class PDF extends FPDF
         $yc = $y+$r;
         $this->_out(sprintf('%.2F %.2F l', $x*$k, ($hp-$yc)*$k ));
         $this->_Arc($xc - $r, $yc - $r*$MyArc, $xc - $r*$MyArc, $yc - $r, $xc, $yc - $r);
-
+    
         $this->_out($op);
     }
 

@@ -1,16 +1,84 @@
 <?php
-session_start();
+require_once '../../includes/session_check.php';
+// Start the session (ensure it's started before accessing session variables)
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../../includes/login.php");
+    exit();
+}
+
 include('../../includes/db.php');
+
+// Get the logged-in user's ID
+$logged_in_user_id = $_SESSION['user_id'] ?? 0;
 
 // Disable error display in AJAX responses (log errors instead)
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
-ini_set('error_log', __DIR__ . '/error.log');
+// Ensure this path is writable
+// ini_set('error_log', __DIR__ . '/error.log'); 
 
 // Define a flag for AJAX requests
 $is_ajax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
 
-// Handle AJAX form submission
+// --- AUDIT LOG FUNCTION ---
+// 🎯 AUDIT LOG FUNCTION: Uses 7 columns
+function log_general_audit_entry(
+    $conn, 
+    $tableName, 
+    $recordId, 
+    $actionType, 
+    $userId, 
+    $fieldName = null,  
+    $oldValue = null,   
+    $newValue = null    
+) {
+    // Reopen connection if it was closed or not available (crucial for AJAX block where $conn is closed later)
+    if (!isset($conn) || $conn->connect_error) {
+         // Attempt a basic reconnection or rely on the caller to manage connection state
+         // For simplicity here, we assume the connection passed in is valid.
+         // If a reconnection mechanism is needed, it should be implemented here or in db.php.
+         error_log("Audit Log: Database connection is not valid.");
+         return;
+    }
+
+    $log_sql = "INSERT INTO audit_log (table_name, record_id, action_type, user_id, field_name, old_value, new_value, change_time) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+
+    $log_stmt = $conn->prepare($log_sql);
+
+    if ($log_stmt === false) {
+        error_log("General Audit Log Preparation Error: " . $conn->error);
+        return;
+    }
+    
+    // Binding parameters: 7 string/text fields
+    $log_stmt->bind_param(
+        "sssssss", // Using 's' for all for compatibility with string/text fields
+        $tableName, 
+        $recordId, 
+        $actionType,
+        $userId, 
+        $fieldName, 
+        $oldValue, 
+        $newValue
+    );
+    
+    if (!$log_stmt->execute()) {
+        error_log("General Audit Log Execution Error: " . $log_stmt->error);
+    }
+    $log_stmt->close();
+}
+// --- END AUDIT LOG FUNCTION ---
+
+
+// ---------------------------
+// PHP Logic: Handle AJAX Form Submission
+// ---------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
     if (!$is_ajax) {
         // Prevent direct POST access
@@ -25,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
     $vehicle_no = trim($_POST['vehicle_no']);
     $supplier = trim($_POST['supplier']); // This is the supplier_code
     $capacity = (int)$_POST['capacity'];
-    $km_per_liter = trim($_POST['km_per_liter']);
+    $km_per_liter = trim($_POST['km_per_liter']); // This is c_id (consumption ID)
     $type = trim($_POST['type']);
     $purpose = trim($_POST['purpose']);
     $license_expiry_date = trim($_POST['license_expiry_date']);
@@ -42,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
     // Check for duplicate vehicle number
     $stmt = $conn->prepare("SELECT vehicle_no FROM vehicle WHERE vehicle_no = ?");
     if ($stmt === false) {
-        echo json_encode(['status' => 'error', 'message' => 'Database prepare error: ' . $conn->error]);
+        echo json_encode(['status' => 'error', 'message' => 'Database prepare error (Check Duplicates): ' . $conn->error]);
         $conn->close();
         exit();
     }
@@ -59,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
 
     // Insert new vehicle
     $sql = "INSERT INTO vehicle (vehicle_no, supplier_code, capacity, fuel_efficiency, type, rate_id, purpose, license_expiry_date, insurance_expiry_date) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     try {
         $stmt = $conn->prepare($sql);
@@ -69,6 +137,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
         $stmt->bind_param('ssississs', $vehicle_no, $supplier, $capacity, $km_per_liter, $type, $fuel_rate_id, $purpose, $license_expiry_date, $insurance_expiry_date);
 
         if ($stmt->execute()) {
+            
+            // --- AUDIT LOG: Vehicle Insertion ---
+            // Log the vehicle creation. The primary key for the record is the vehicle_no.
+            log_general_audit_entry(
+                $conn, 
+                'vehicle', 
+                $vehicle_no, 
+                'INSERT', 
+                $logged_in_user_id,
+                'vehicle_no',   // Field name
+                'NULL',         // Old Value
+                $vehicle_no     // New Value (The primary key itself)
+            );
+            
             echo json_encode(['status' => 'success', 'message' => 'Vehicle added successfully!']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $stmt->error]);
@@ -77,14 +159,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_vehicle'])) {
         echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
     }
 
-    $stmt->close();
+    // Ensure the statement and connection are closed in the AJAX block
+    if (isset($stmt) && is_object($stmt)) {
+        $stmt->close();
+    }
     $conn->close();
     exit(); // important to prevent HTML leaking into JSON
 }
 
 // ---------------------------
-// Non-AJAX request: page load
+// PHP Logic: Fetch data for page load
 // ---------------------------
+// NOTE: Re-include db.php if connection was closed in the AJAX block above and we are now executing the page load logic.
+if (!isset($conn) || $conn->connect_error) {
+    include('../../includes/db.php');
+}
 
 // Fetch suppliers for dropdown
 $suppliers = [];
@@ -96,7 +185,8 @@ if ($supplier_result) {
     }
 }
 
-$fuel_efficiency = [];
+// Fetch fuel consumption types for dropdown (km_per_liter)
+$fuel_efficiencies = [];
 $fuel_efficiency_sql = "SELECT c_id, c_type FROM consumption ORDER BY c_id";
 $fuel_efficiency_result = $conn->query($fuel_efficiency_sql);
 if ($fuel_efficiency_result) {
@@ -105,9 +195,9 @@ if ($fuel_efficiency_result) {
     }
 }
 
-// Fetch fuel types and IDs for dropdown
+// Fetch fuel types and IDs for dropdown (fuel_rate_id)
 $fuel_types = [];
-$fuel_sql = "SELECT rate_id, type FROM fuel_rate ORDER BY type";
+$fuel_sql = "SELECT rate_id, type FROM fuel_rate GROUP BY type ORDER BY type";
 $fuel_result = $conn->query($fuel_sql);
 if ($fuel_result) {
     while ($row = $fuel_result->fetch_assoc()) {
@@ -115,7 +205,10 @@ if ($fuel_result) {
     }
 }
 
-// Standard page load
+// Close connection before HTML output
+$conn->close();
+
+// Standard page load HTML starts here
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 ?>
@@ -171,6 +264,18 @@ include('../../includes/navbar.php');
         }
     </style>
 </head>
+<script>
+    // 9 hours in milliseconds (32,400,000 ms)
+    const SESSION_TIMEOUT_MS = 32400000; 
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+
+    setTimeout(function() {
+        // Alert and redirect
+        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+        window.location.href = LOGIN_PAGE_URL; 
+        
+    }, SESSION_TIMEOUT_MS);
+</script>
 <body class="bg-gray-100 font-sans">
     <div class="w-[85%] ml-[15%]">
         <div class="container max-w-4xl p-6 md:p-10 bg-white shadow-lg rounded-lg mt-10">
@@ -245,8 +350,9 @@ include('../../includes/navbar.php');
                         <label for="purpose" class="block text-sm font-medium text-gray-700">Purpose:</label>
                         <select id="purpose" name="purpose" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
                             <option value="staff">Staff</option>
-                            <option value="workers">Workers</option>
+                            <option value="factory">Factory</option>
                             <option value="night_emergency">Night Emergency</option>
+                            <option value="sub_route">Sub Route</option>
                         </select>
                     </div>
                 </div>
@@ -262,7 +368,10 @@ include('../../includes/navbar.php');
                     </div>
                 </div>
 
-                <div class="flex justify-end mt-6">
+                <div class="flex justify-between mt-6 space-x-4">
+                    <a href="vehicle.php" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
+                        Cancel
+                    </a>
                     <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
                         Add Vehicle
                     </button>
@@ -319,13 +428,14 @@ include('../../includes/navbar.php');
 
                 if (result.status === 'success') {
                     showToast(result.message, 'success');
+                    // Redirect to vehicle.php after a 2-second delay
                     setTimeout(() => window.location.href = 'vehicle.php', 2000);
                 } else {
                     showToast(result.message, 'error');
                 }
             } catch (error) {
                 console.error('Submission error:', error);
-                showToast('An unexpected error occurred.', 'error');
+                showToast('An unexpected error occurred. Check the console for details.', 'error');
             }
         });
     </script>
