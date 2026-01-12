@@ -12,17 +12,42 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 
 include('../../includes/db.php');
 include('../../includes/header.php');
-include('../../includes/navbar.php'); // Assuming you want the header/navbar here
+include('../../includes/navbar.php'); 
 
-// --- 1. SETUP FILTERS ---
-// Get selected month and year, default to current month/year
-$selected_month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
-$selected_year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
+// --- 1. FETCH AVAILABLE HISTORY DATES (DISTINCT MONTHS) ---
+// Data තියෙන මාස සහ අවුරුදු පමණක් ගෙන්වා ගැනීම
+$dates_sql = "SELECT DISTINCT year, month FROM own_vehicle_payments ORDER BY year DESC, month DESC";
+$dates_result = $conn->query($dates_sql);
+
+$available_dates = [];
+if ($dates_result && $dates_result->num_rows > 0) {
+    while ($d = $dates_result->fetch_assoc()) {
+        $available_dates[] = $d;
+    }
+}
+
+// --- 2. SETUP FILTERS (LOGIC CHANGED) ---
+$selected_year = 0;
+$selected_month = 0;
+
+if (isset($_GET['period']) && !empty($_GET['period'])) {
+    // Filter එකෙන් තේරුවා නම්
+    list($selected_year, $selected_month) = explode('-', $_GET['period']);
+    $selected_year = (int)$selected_year;
+    $selected_month = (int)$selected_month;
+} elseif (!empty($available_dates)) {
+    // Default: අලුත්ම Data තියෙන මාසය
+    $selected_year = (int)$available_dates[0]['year'];
+    $selected_month = (int)$available_dates[0]['month'];
+} else {
+    // Data මුකුත් නැත්නම් අද දිනය
+    $selected_year = (int)date('Y');
+    $selected_month = (int)date('m');
+}
 
 $history_data = [];
 
-// --- 2. FETCH HISTORY DATA ---
-// Fetch data from own_vehicle_payments
+// --- 3. FETCH HISTORY DATA ---
 $history_sql = "
     SELECT 
         ovp.emp_id, 
@@ -60,10 +85,9 @@ if ($history_result && $history_result->num_rows > 0) {
 $history_stmt->close();
 $conn->close();
 
-// --- 3. TEMPLATE SETUP ---
+// --- 4. TEMPLATE SETUP ---
 $page_title = "Own Vehicle Payments History";
 
-// Updated headers for Own Vehicle data (PDF link removed)
 $table_headers = [
     "Employee (Vehicle No)", // Left Align
     "Attendance Days",       // Right Align
@@ -71,9 +95,6 @@ $table_headers = [
     "Fixed Amount",
     "Monthly Payment (LKR)"  // Right Align
 ];
-
-// Month name lookup for display in page title
-$month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
 
 ?>
 
@@ -86,9 +107,6 @@ $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Table Cell Alignment Classes (Ensures right alignment for numbers) */
-        .text-right-data { text-align: right; }
-        
         .overflow-x-auto::-webkit-scrollbar { height: 8px; }
         .overflow-x-auto::-webkit-scrollbar-thumb { background-color: #a0aec0; border-radius: 4px; }
         .overflow-x-auto::-webkit-scrollbar-track { background-color: #edf2f7; }
@@ -100,11 +118,13 @@ $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
         <div class="flex gap-4">
             <a href="payments_category.php" class="hover:text-yellow-600">Staff</a>
             <a href="factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
-            <a href="" class="hover:text-yellow-600">Day Heldup</a>
-            <a href="" class="hover:text-yellow-600">Night Heldup</a>
+            <a href="factory/sub/sub_route_payments.php" class="hover:text-yellow-600">Sub Route</a>
+            <a href="DH/day_heldup_payments.php" class="hover:text-yellow-600">Day Heldup</a>
+            <a href="NH/nh_payments.php" class="hover:text-yellow-600">Night Heldup</a>
             <a href="night_emergency_payment.php" class="hover:text-yellow-600">Night Emergency</a>
-            <a href="" class="hover:text-yellow-600">Extra Vehicle</a>
-            <p class="hover:text-yellow-600 text-yellow-500 font-bold">Own Vehicle</p>  
+            <a href="EV/ev_payments.php" class="hover:text-yellow-600">Extra Vehicle</a>
+            <p class="hover:text-yellow-600 text-yellow-500 font-bold">Fuel Allowance</p> 
+            <a href="all_payments_summary.php" class="hover:text-yellow-600">Summary</a> 
         </div>
     </div>
     
@@ -118,25 +138,23 @@ $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
                 <form method="get" action="own_vehicle_payments_history.php" class="flex flex-wrap gap-2 items-center">
                     
                     <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="month" id="month" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
-                            <?php for ($m=1; $m<=12; $m++): ?>
-                                <option value="<?php echo sprintf('%02d', $m); ?>" <?php echo ($selected_month == $m) ? 'selected' : ''; ?>>
-                                    <?php echo date('F', mktime(0, 0, 0, $m, 10)); ?>
+                        <select name="period" id="period" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white min-w-[200px]">
+                            <?php if (empty($available_dates)): ?>
+                                <option value="<?php echo date('Y-m'); ?>" selected>
+                                    <?php echo date('F Y'); ?> (No History)
                                 </option>
-                            <?php endfor; ?>
-                        </select>
-                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                            <i class="fas fa-chevron-down text-sm"></i>
-                        </div>
-                    </div>
-                    
-                    <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="year" id="year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
-                            <?php for ($y=date('Y'); $y>=2020; $y--): ?>
-                                <option value="<?php echo $y; ?>" <?php echo ($selected_year == $y) ? 'selected' : ''; ?>>
-                                    <?php echo $y; ?>
-                                </option>
-                            <?php endfor; ?>
+                            <?php else: ?>
+                                <?php foreach ($available_dates as $date): ?>
+                                    <?php 
+                                        $val = $date['year'] . '-' . str_pad($date['month'], 2, '0', STR_PAD_LEFT);
+                                        $display = date('F Y', mktime(0, 0, 0, $date['month'], 10, $date['year']));
+                                        $isSelected = ($selected_year == $date['year'] && $selected_month == $date['month']) ? 'selected' : '';
+                                    ?>
+                                    <option value="<?php echo $val; ?>" <?php echo $isSelected; ?>>
+                                        <?php echo $display; ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
                             <i class="fas fa-chevron-down text-sm"></i>
@@ -146,6 +164,7 @@ $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
                     <button type="submit" class="px-3 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-200" title="Filter">
                         <i class="fas fa-filter mr-1"></i> Filter 
                     </button>
+                    
                     <a href="own_vehicle_payments.php" 
                     class="px-3 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition duration-200 text-center"
                     title="Current Payments"> Current
@@ -193,7 +212,7 @@ $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
                                     <?php echo number_format($data['monthly_payment'], 2); ?>
                                 </td>
                                 
-                                </tr>
+                            </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>

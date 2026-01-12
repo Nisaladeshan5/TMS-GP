@@ -172,8 +172,8 @@ $conn->close();
                 Daily Breakdown: <?php echo htmlspecialchars($op_code); ?> (<?php echo htmlspecialchars($monthName . ", " . $filterYear); ?>)
             </h2>
             <a href="day_heldup_payments.php?month_num=<?php echo htmlspecialchars($filterMonthNum); ?>&year=<?php echo htmlspecialchars($filterYear); ?>" 
-               class="px-4 py-2 bg-gray-500 text-white font-semibold rounded-lg shadow-md hover:bg-gray-600 transition duration-200">
-               <i class="fas fa-arrow-left mr-2"></i>Back to Payments
+               class="px-3 py-2 bg-gray-500 text-white font-semibold rounded-lg shadow-md hover:bg-gray-600 transition duration-200">
+               <i class="fas fa-arrow-left "></i>
             </a>
         </div>
 

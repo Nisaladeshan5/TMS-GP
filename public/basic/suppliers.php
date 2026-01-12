@@ -4,7 +4,7 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
@@ -19,13 +19,11 @@ $message = null;
 if (isset($_GET['status']) && isset($_GET['message'])) {
     $message = [
         'status' => $_GET['status'],
-        // Decode the URL message and then sanitize for safety
         'text' => htmlspecialchars(urldecode($_GET['message']))
     ];
 }
 
-// --- API MODE (AJAX requests) for Toggle Status (Keep this here for AJAX) ---
-
+// --- API MODE (AJAX requests) for Toggle Status ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_status') {
     header('Content-Type: application/json');
 
@@ -49,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggl
     }
 }
 
-// --- NORMAL PAGE LOAD (HTML) ---
+// --- NORMAL PAGE LOAD ---
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
@@ -82,117 +80,119 @@ $suppliers_result = $stmt->get_result();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Supplier Details</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Only keep CSS for toast notifications and other general page styles */
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-        }
-
-        .toast {
-            display: none;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-        }
-
-        .toast.show {
-            display: flex;
-            align-items: center;
-            transform: translateY(0);
-            opacity: 1;
-        }
-
-        .toast.success {
-            background-color: #4CAF50;
-            color: white;
-        }
-
-        .toast.error {
-            background-color: #F44336;
-            color: white;
-        }
-
-        .toast-icon {
-            width: 1.5rem;
-            height: 1.5rem;
-            margin-right: 0.75rem;
-        }
-    </style>
-</head>
-<script>
-    // 9 hours in milliseconds (32,400,000 ms)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
-
-    setTimeout(function() {
-        // Alert and redirect
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
+        /* CSS for toast notifications */
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; min-width: 250px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background-color: #4CAF50; }
+        .toast.error { background-color: #F44336; }
+        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
         
-    }, SESSION_TIMEOUT_MS);
-</script>
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
+</head>
+
 <body class="bg-gray-100">
 
-<div class="container" style="width: 80%; margin-left: 17.5%; margin-right: 2.5%; display: flex; flex-direction: column; align-items: center;">
-    <p class="text-4xl font-bold text-gray-800 mt-6 mb-4">Supplier Details</p>
-    <div class="w-full flex justify-between items-center mb-6">
-        <a 
-            href="add_supplier.php" 
-            class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
-            title="Add New Supplier"
-        >
-            Add New Supplier
-        </a>
+<div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Suppliers
+        </div>
+    </div>
+
+    <div class="flex items-center gap-4 text-sm font-medium">
         
-        <div class="flex items-center space-x-2">
-            <select id="status-filter" onchange="filterStatus(this.value)" class="p-2 border rounded-md">
+        <div class="relative">
+            <input type="text" id="search-input" onkeyup="searchTable()" placeholder="Search Supplier..." 
+                   class="bg-gray-700 text-white text-sm rounded-lg pl-3 pr-8 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 w-48 transition-all focus:w-64 placeholder-gray-400 border border-gray-600">
+            <i class="fas fa-search absolute right-3 top-2 text-gray-400 text-xs"></i>
+        </div>
+
+        <span class="text-gray-400 mx-1">|</span>
+
+        <div class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
+            <select id="status-filter" onchange="filterStatus(this.value)" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-1 appearance-none hover:text-yellow-200 transition">
                 <option value="active" <?php echo (isset($status_filter) && $status_filter === 'active') ? 'selected' : ''; ?>>Active</option>
                 <option value="inactive" <?php echo (isset($status_filter) && $status_filter === 'inactive') ? 'selected' : ''; ?>>Inactive</option>
             </select>
         </div>
+
+        <span class="text-gray-600">|</span>
+
+        <a href="add_supplier.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+           Add Supplier
+        </a>
+
     </div>
-    <div class="overflow-x-auto bg-white shadow-md rounded-md w-full">
-        <table class="min-w-full table-auto">
-            <thead class="bg-blue-600 text-white">
+</div>
+
+<div class="w-[85%] ml-[15%] p-2 mt-1">
+    
+    <div class="overflow-x-auto bg-white shadow-lg rounded-lg border border-gray-200 w-full max-h-[88vh]">
+        <table class="w-full table-auto border-collapse" id="supplierTable">
+            <thead class="bg-blue-600 text-white text-sm">
                 <tr>
-                    <th class="px-4 py-2 text-left">Supplier Code</th>
-                    <th class="px-4 py-2 text-left">Supplier</th>
-                    <th class="px-4 py-2 text-left">Phone No</th>
-                    <th class="px-4 py-2 text-left">Email</th>
-                    <th class="px-4 py-2 text-left">Actions</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Supplier Code</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Supplier</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Phone No</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Email</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-center shadow-sm" style="min-width: 140px;">Actions</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody class="text-gray-700 divide-y divide-gray-200 text-sm">
                 <?php if ($suppliers_result && $suppliers_result->num_rows > 0): ?>
                     <?php while ($supplier = $suppliers_result->fetch_assoc()): ?>
-                        <tr class="hover:bg-gray-100">
-                            <td class="border px-4 py-2"><?php echo htmlspecialchars($supplier['supplier_code']); ?></td>
-                            <td class="border px-4 py-2"><?php echo htmlspecialchars($supplier['supplier']); ?></td>
-                            <td class="border px-4 py-2"><?php echo htmlspecialchars($supplier['s_phone_no']); ?></td>
-                            <td class="border px-4 py-2"><?php echo htmlspecialchars($supplier['email']); ?></td>
-                            <td class="border px-4 py-2">
-                                <a href="view_supplier.php?code=<?php echo urlencode($supplier['supplier_code']); ?>" class='bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 mr-2'>View</a>
-                                
-                                <a href="edit_supplier.php?code=<?php echo urlencode($supplier['supplier_code']); ?>" class='bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300'>Edit</a>
-                                
-                                <?php if ($supplier['is_active'] == 1): ?>
-                                    <button onclick='confirmToggleStatus("<?php echo htmlspecialchars($supplier['supplier_code']); ?>", 0)' class='bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 ml-2'>Disable</button>
-                                <?php else: ?>
-                                    <button onclick='confirmToggleStatus("<?php echo htmlspecialchars($supplier['supplier_code']); ?>", 1)' class='bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 ml-2'>Enable</button>
-                                <?php endif; ?>
+                        <tr class="hover:bg-indigo-50 border-b border-gray-100 transition duration-150">
+                            <td class="px-4 py-3 font-mono font-medium text-blue-600"><?php echo htmlspecialchars($supplier['supplier_code']); ?></td>
+                            <td class="px-4 py-3 font-medium text-gray-800"><?php echo htmlspecialchars($supplier['supplier']); ?></td>
+                            <td class="px-4 py-3 text-gray-600"><?php echo htmlspecialchars($supplier['s_phone_no']); ?></td>
+                            <td class="px-4 py-3 text-gray-600"><?php echo htmlspecialchars($supplier['email']); ?></td>
+                            
+                            <td class="px-4 py-3 text-center">
+                                <div class="flex justify-center gap-2">
+                                    <a href="view_supplier.php?code=<?php echo urlencode($supplier['supplier_code']); ?>" class='bg-green-500 hover:bg-green-600 text-white py-1 px-2 rounded-md shadow-sm transition' title='View'>
+                                        <i class='fas fa-eye text-xs'></i>
+                                    </a>
+                                    
+                                    <a href="edit_supplier.php?code=<?php echo urlencode($supplier['supplier_code']); ?>" class='bg-yellow-500 hover:bg-yellow-600 text-white py-1 px-2 rounded-md shadow-sm transition' title='Edit'>
+                                        <i class='fas fa-edit text-xs'></i>
+                                    </a>
+                                    
+                                    <?php if ($supplier['is_active'] == 1): ?>
+                                        <button onclick='confirmToggleStatus("<?php echo htmlspecialchars($supplier['supplier_code']); ?>", 0)' class='bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded-md shadow-sm transition' title="Disable">
+                                            <i class='fas fa-ban text-xs'></i>
+                                        </button>
+                                    <?php else: ?>
+                                        <button onclick='confirmToggleStatus("<?php echo htmlspecialchars($supplier['supplier_code']); ?>", 1)' class='bg-green-500 hover:bg-green-600 text-white py-1 px-2 rounded-md shadow-sm transition' title="Enable">
+                                            <i class='fas fa-check text-xs'></i>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                     <?php endwhile; ?>
                 <?php else: ?>
                     <tr>
-                        <td colspan="5" class="border px-4 py-2 text-center">No suppliers found</td>
+                        <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+                            No suppliers found
+                        </td>
                     </tr>
                 <?php endif; ?>
             </tbody>
@@ -204,28 +204,51 @@ $suppliers_result = $stmt->get_result();
 
 <script>
 function filterStatus(status) {
-    // Changed redirect to suppliers.php
     window.location.href = 'suppliers.php?status=' + status;
+}
+
+// Search Function
+function searchTable() {
+    const input = document.getElementById("search-input");
+    const filter = input.value.toUpperCase();
+    const table = document.getElementById("supplierTable");
+    const tr = table.getElementsByTagName("tr");
+
+    // Loop through all table rows, and hide those who don't match the search query
+    for (let i = 1; i < tr.length; i++) { // Start from 1 to skip header
+        // Column 0 is Code, Column 1 is Name
+        const tdCode = tr[i].getElementsByTagName("td")[0];
+        const tdName = tr[i].getElementsByTagName("td")[1];
+        
+        if (tdCode || tdName) {
+            const txtCode = tdCode.textContent || tdCode.innerText;
+            const txtName = tdName.textContent || tdName.innerText;
+            
+            if (txtCode.toUpperCase().indexOf(filter) > -1 || txtName.toUpperCase().indexOf(filter) > -1) {
+                tr[i].style.display = "";
+            } else {
+                tr[i].style.display = "none";
+            }
+        }       
+    }
 }
 
 function showToast(status, message) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
-    toast.className = 'toast ' + status;
-    toast.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="toast-icon" viewBox="0 0 20 20" fill="currentColor">
-        ${status === 'success' ? '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />' : 
-                          '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />'}
-    </svg>
-    <span>${message}</span>`;
+    toast.className = 'toast ' + status + ' show';
+    
+    const icon = status === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle';
+    
+    toast.innerHTML = `
+        <i class="fas ${icon} toast-icon"></i>
+        <span>${message}</span>`;
+    
     container.appendChild(toast);
 
-    // Show and hide logic
-    setTimeout(() => {
-        toast.classList.add('show');
-    }, 10);
     setTimeout(() => {
         toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 300); // Remove after transition
+        setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
 
@@ -237,7 +260,6 @@ function confirmToggleStatus(code, newStatus) {
 }
 
 function toggleStatus(code, newStatus) {
-    // Keeping the endpoint the same for toggle status (which is suppliers.php)
     fetch('suppliers.php', { 
         method: 'POST',
         headers: {
@@ -253,7 +275,6 @@ function toggleStatus(code, newStatus) {
     .then(data => {
         showToast(data.status, data.message);
         if (data.status === 'success') {
-            // Reload page or update table row if successful
             setTimeout(() => window.location.reload(), 500);
         }
     })
@@ -264,11 +285,8 @@ function toggleStatus(code, newStatus) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Check for success/error messages passed via URL from edit_supplier.php or toggleStatus
     const phpMessage = <?php echo json_encode($message ?? null); ?>;
-
     if (phpMessage && phpMessage.status && phpMessage.text) {
-        // Use the existing showToast function
         showToast(phpMessage.status, phpMessage.text);
     }
 });

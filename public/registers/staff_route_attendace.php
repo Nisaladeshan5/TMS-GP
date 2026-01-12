@@ -1,4 +1,6 @@
 <?php
+// staff_route_attendance.php
+
 require_once '../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -11,47 +13,48 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 }
 
 $is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
+$user_role = $_SESSION['role'] ?? ''; 
 
 include('../../includes/db.php'); 
-include('../../includes/header.php');
-include('../../includes/navbar.php');
+include('../../includes/header.php'); 
+include('../../includes/navbar.php'); 
 
-// --- 1. Get Filter Parameters ---
+// --- 1. Get Filter Parameters (Updated for GET/POST compatibility) ---
 
-$filterYear = date('Y');
-$filterMonth = date('m');
-$filterRouteCode = $_POST['route_code'] ?? null; // Null means All Routes
+// Check $_REQUEST to handle both POST (Form) and GET (Prev/Next buttons)
+$filterDate = $_REQUEST['month_year'] ?? date('Y-m'); // Default to current YYYY-MM
+$filterRouteCode = $_REQUEST['route_code'] ?? null;
 
-// If a form is submitted, update the filters
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $filterDate = $_POST['month_year'] ?? date('Y-m'); // Expected format: YYYY-MM
-    $filterRouteCode = $_POST['route_code'] ?? null;
-    
-    // Split the YYYY-MM into year and month
-    list($filterYear, $filterMonth) = explode('-', $filterDate);
-} else {
-    // Default filter date to YYYY-MM format
-    $filterDate = date('Y-m');
+// Handle empty string if passed via URL
+if ($filterRouteCode === '') {
+    $filterRouteCode = null;
 }
+
+// Split the YYYY-MM into year and month
+list($filterYear, $filterMonth) = explode('-', $filterDate);
+
+// Calculate Previous and Next Months for Navigation Buttons
+$prevDate = date('Y-m', strtotime($filterDate . " -1 month"));
+$nextDate = date('Y-m', strtotime($filterDate . " +1 month"));
 
 // Convert month name to full name for display
 $displayMonth = date('F', mktime(0, 0, 0, (int)$filterMonth, 10));
 $displayYear = $filterYear;
 
 
-// --- 2. Fetch Route List for Dropdown ---
+// --- 2. Fetch Route List for Dropdown (Logic Unchanged) ---
 $routes = [];
 $sql_routes = "SELECT route_code, route 
-               FROM route 
-               WHERE route_code LIKE '____S%'
-               ORDER BY route ASC";
+                FROM route 
+                WHERE route_code LIKE '____S%' AND is_active = 1
+                ORDER BY route ASC";
 $result_routes = $conn->query($sql_routes);
 while ($row = $result_routes->fetch_assoc()) {
     $routes[] = $row;
 }
 
 
-// --- 3. Fetch Attendance Data for Calendar (Only for a Selected Route) ---
+// --- 3. Fetch Attendance Data for Calendar (Logic Unchanged) ---
 
 $attendance_data = [];
 $selected_route_name = "All Routes";
@@ -99,29 +102,37 @@ if ($filterRouteCode) {
     $stmt_attendance->close();
 }
 
-// --- 4. Calendar Logic ---
+// --- 4. Calendar Logic (Logic Unchanged) ---
 $daysInMonth = cal_days_in_month(CAL_GREGORIAN, (int)$filterMonth, (int)$filterYear);
 $firstDayOfWeek = date('w', strtotime("{$filterYear}-{$filterMonth}-01"));
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Staff Route Attendance</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        /* ... (CSS styles remain the same) ... */
-        .day-cell { min-height: 80px; border: 1px solid #d1d5db; position: relative; transition: background-color 0.2s; }
-        .day-number { position: absolute; top: 5px; right: 5px; font-size: 0.875rem; font-weight: 700; color: #1f2937; }
-        .shift-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; display: inline-block; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.5); }
-        .shift-morning { background-color: #3b82f6; }
-        .shift-evening { background-color: #f59e0b; }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        /* Calendar Styles */
+        .day-cell { min-height: 75px; transition: background-color 0.2s; }
+        .shift-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+        .shift-morning { background-color: #3b82f6; /* Blue */ }
+        .shift-evening { background-color: #f59e0b; /* Amber */ }
         .empty-cell { background-color: #f9fafb; }
-        .current-day { background-color: #e0f2f1; border: 2px solid #2dd4bf; font-weight: 700; }
+        /* Highlight current day */
+        .current-day { background-color: #fffbeb; z-index: 10; outline: 2px solid #fbbf24; outline-offset: -2px; }
     </style>
 </head>
 <script>
-    // ... (Session timeout script remains the same) ...
     const SESSION_TIMEOUT_MS = 32400000; 
     const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php";
 
@@ -130,74 +141,106 @@ $firstDayOfWeek = date('w', strtotime("{$filterYear}-{$filterMonth}-01"));
         window.location.href = LOGIN_PAGE_URL; 
     }, SESSION_TIMEOUT_MS);
 </script>
-<body class="bg-gray-100">
-<div class="w-[85%] ml-[15%]">
-<div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg">
-    <div class="text-lg font-semibold ml-3">Registers</div>
-    <div class="flex gap-4"> 
-        <?php if ($is_logged_in): ?>
-            <a href="staff transport vehicle register.php" class="hover:text-yellow-600">Back</a>
-            <a href="unmark_staff_route_attendace.php" class="hover:text-yellow-600">Unmark Routes</a>
-            <p class="text-yellow-400 font-bold">Attendance</p>
-            <?php
-            // Now $user_role is safely defined
-            if ($user_role === 'manager' || $user_role === 'super admin' || $user_role === 'admin' || $user_role === 'developer') {
-            ?>
-            <a href="add_records/adjustment_staff.php" class="hover:text-yellow-600">Adjustments</a>
-            <a href="add_records/add_staff_record.php" class="hover:text-yellow-600">Add Record</a>
-            <?php
-            }
-            ?>
-        <?php endif; ?>
-    </div>
-</div>
 
-<div class="container " style="display: flex; flex-direction: column; align-items: center;">
-    <div class="p-4 bg-white shadow-xl rounded-xl border border-gray-200 mt-3">
-        <p class="text-3xl font-bold text-gray-800 mt-2 mb-4">Route Vehicle Attendance</p>
+<body class="bg-gray-100 font-sans text-gray-800">
 
-        <form method="POST" class="mb-6 flex justify-center items-center p-4 bg-white shadow-lg rounded-xl border border-gray-200">
-            <div class="flex items-center space-x-2">
-                <label for="route_code" class="text-lg font-medium">Select Route:</label>
-                <select id="route_code" name="route_code" class="border border-gray-300 p-2 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                    <option value="" <?php echo is_null($filterRouteCode) ? 'selected' : ''; ?>>-- All Routes --</option> 
-                    <?php foreach ($routes as $route): ?>
-                        <option value="<?php echo htmlspecialchars($route['route_code']); ?>" 
-                                <?php echo $filterRouteCode === $route['route_code'] ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($route['route']); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-
-                <label for="month_year" class="text-lg font-medium">Filter by Month:</label>
-                <input type="month" id="month_year" name="month_year" class="border border-gray-300 p-2 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    value="<?php echo htmlspecialchars($filterDate); ?>" required>
-                
-                <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-blue-700 transition duration-150 font-semibold">Generate Calendar</button>
-                <a href="all_routes_report_pdf.php?month_year=<?php echo htmlspecialchars($filterDate); ?>" 
-                    target="_blank" 
-                    class="bg-green-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-green-700 transition duration-150 font-semibold flex items-center">
-                    Attendance Report
-                </a>
-            </div>
-        </form>
+    <div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-2 sticky top-0 z-40 border-b border-gray-700">
         
-        <h2 class="text-2xl font-bold text-gray-700 mb-4 p-2 bg-white rounded shadow-sm">
-            Attendance for <?php echo htmlspecialchars($selected_route_name); ?> in <?php echo htmlspecialchars($displayMonth . ' ' . $displayYear); ?>
-        </h2>
+        <div class="flex items-center gap-3">
+            <div class="flex items-center space-x-2 p-3 w-fit">
+                <a href="staff transport vehicle register.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                    Staff Transport Vehicle Registers
+                </a>
 
-        <div class="w-full max-w-4xl mx-auto bg-white shadow-xl rounded-xl overflow-hidden mb-6 border border-gray-300">
-            <div class="grid grid-cols-7 text-center font-bold text-gray-800 bg-blue-100 border-b border-blue-200">
-                <div class="px-2 py-3">Sun</div>
-                <div class="px-2 py-3">Mon</div>
-                <div class="px-2 py-3">Tue</div>
-                <div class="px-2 py-3">Wed</div>
-                <div class="px-2 py-3">Thu</div>
-                <div class="px-2 py-3">Fri</div>
-                <div class="px-2 py-3">Sat</div>
+                <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+                <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                    Attendance Calendar
+                </span>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4 text-sm font-medium"> 
+            <?php if ($is_logged_in): ?>
+                <a href="staff transport vehicle register.php" class="hover:text-yellow-600">Register</a>
+            <?php endif; ?>
+        </div>
+    </div>
+    <main class="w-[85%] ml-[15%] p-6">
+
+        <div class="bg-white p-4 rounded-xl shadow-md border border-gray-200 mb-6 flex flex-col md:flex-row justify-between items-center min-h-[80%]">
+            
+            <div class="mb-4 md:mb-0">
+                <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <i class="far fa-calendar-check text-indigo-600"></i>
+                    Route Attendance
+                </h2>
+                <p class="text-sm text-gray-500 mt-1">
+                    Showing: <span class="font-semibold text-indigo-600"><?php echo htmlspecialchars($selected_route_name); ?></span> 
+                    for <span class="font-semibold text-gray-700"><?php echo htmlspecialchars($displayMonth . ' ' . $displayYear); ?></span>
+                </p>
             </div>
 
-            <div class="grid grid-cols-7">
+            <form method="POST" class="flex flex-wrap items-center gap-3">
+                
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                        <i class="fas fa-bus"></i>
+                    </div>
+                    <select id="route_code" name="route_code" onchange="this.form.submit()" class="pl-10 pr-8 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-gray-50">
+                        <option value="" <?php echo is_null($filterRouteCode) ? 'selected' : ''; ?>>-- All Routes --</option> 
+                        <?php foreach ($routes as $route): ?>
+                            <option value="<?php echo htmlspecialchars($route['route_code']); ?>" 
+                                    <?php echo $filterRouteCode === $route['route_code'] ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($route['route']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="flex items-center bg-white border border-gray-300 rounded-lg shadow-sm">
+                    <a href="?month_year=<?php echo $prevDate; ?>&route_code=<?php echo htmlspecialchars($filterRouteCode ?? ''); ?>" 
+                       class="px-3 py-2 text-gray-500 hover:bg-gray-100 hover:text-indigo-600 rounded-l-lg border-r border-gray-200 transition">
+                        <i class="fas fa-chevron-left"></i>
+                    </a>
+
+                    <input type="month" id="month_year" name="month_year" onchange="this.form.submit()"
+                        class="border-none py-2 px-2 text-sm font-semibold text-gray-700 focus:ring-0 bg-transparent cursor-pointer"
+                        value="<?php echo htmlspecialchars($filterDate); ?>" required>
+
+                    <a href="?month_year=<?php echo $nextDate; ?>&route_code=<?php echo htmlspecialchars($filterRouteCode ?? ''); ?>" 
+                       class="px-3 py-2 text-gray-500 hover:bg-gray-100 hover:text-indigo-600 rounded-r-lg border-l border-gray-200 transition">
+                        <i class="fas fa-chevron-right"></i>
+                    </a>
+                </div>
+
+                <a href="all_routes_report_excel.php?month_year=<?php echo htmlspecialchars($filterDate); ?>&route_code=<?php echo htmlspecialchars($filterRouteCode ?? ''); ?>" 
+                    target="_blank" 
+                    class="bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 transition font-medium text-sm flex items-center gap-2">
+                    <i class="fas fa-file-excel"></i> Excel
+                </a>
+                
+                <a href="all_routes_report_pdf.php?month_year=<?php echo htmlspecialchars($filterDate); ?>&route_code=<?php echo htmlspecialchars($filterRouteCode ?? ''); ?>" 
+                    target="_blank" 
+                    class="bg-red-600 text-white px-4 py-2 rounded-lg shadow hover:bg-red-700 transition font-medium text-sm flex items-center gap-2">
+                    <i class="fas fa-file-pdf"></i> Report
+                </a>
+            </form>
+        </div>
+
+        <div class="bg-white shadow-xl rounded-xl overflow-hidden border border-gray-200">
+            
+            <div class="grid grid-cols-7 text-center bg-gray-100 border-b border-gray-200">
+                <div class="py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Sun</div>
+                <div class="py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Mon</div>
+                <div class="py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Tue</div>
+                <div class="py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Wed</div>
+                <div class="py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Thu</div>
+                <div class="py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Fri</div>
+                <div class="py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Sat</div>
+            </div>
+
+            <div class="grid grid-cols-7 bg-gray-200 gap-px border-b border-gray-200">
                 <?php
                 $currentDay = date('j');
                 $currentMonthYear = date('Y-m');
@@ -213,29 +256,34 @@ $firstDayOfWeek = date('w', strtotime("{$filterYear}-{$filterMonth}-01"));
                     // Only display attendance if a route is selected
                     $isTripDay = $filterRouteCode && isset($attendance_data[$day]);
                     
-                    $cellClass = $isTripDay ? 'bg-green-50 hover:bg-green-100' : 'bg-white hover:bg-gray-50'; 
+                    $cellClass = 'bg-white hover:bg-blue-50'; 
                     
+                    // Style Current Day
                     if ($isCurrentMonth && (int)$day === (int)$currentDay) {
-                        $cellClass .= ' current-day';
+                        $cellClass .= ' current-day relative';
                     }
 
                     $morning_trip = $isTripDay && $attendance_data[$day]['morning'];
                     $evening_trip = $isTripDay && $attendance_data[$day]['evening'];
                     
-                    echo "<div class='day-cell {$cellClass} p-2 flex flex-col items-start'>";
-                    echo "<span class='day-number'>{$day}</span>";
+                    echo "<div class='day-cell {$cellClass} p-2 flex flex-col justify-between'>";
                     
-                    // Display shift indicators as colored dots
-                    echo "<div class='mt-5 flex items-center'>";
+                    // Date Number
+                    $dateColor = ($isCurrentMonth && (int)$day === (int)$currentDay) ? 'text-amber-600 font-extrabold' : 'text-gray-700 font-bold';
+                    echo "<span class='text-sm {$dateColor}'>{$day}</span>";
+                    
+                    // Dots container
+                    echo "<div class='flex items-center gap-1 mt-2'>";
                     if ($morning_trip) {
                         echo "<span class='shift-dot shift-morning' title='Morning Trip'></span>";
                     }
                     if ($evening_trip) {
                         echo "<span class='shift-dot shift-evening' title='Evening Trip'></span>";
                     }
-                    // If no route is selected, calendar will be empty
+                    
+                    // Prompt to select route if none selected
                     if (!$filterRouteCode) {
-                        echo "<span class='text-xs text-gray-400'>Select Route</span>";
+                        echo "<span class='text-[10px] text-gray-300 italic'>-</span>";
                     }
                     echo "</div>";
                     
@@ -250,27 +298,26 @@ $firstDayOfWeek = date('w', strtotime("{$filterYear}-{$filterMonth}-01"));
                 }
                 ?>
             </div>
+            
+            <div class="bg-gray-50 p-4 flex flex-wrap items-center justify-center gap-6 text-sm text-gray-600">
+                <div class="flex items-center">
+                    <span class="shift-dot shift-morning mr-2"></span>
+                    <span class="font-medium">Morning Trip</span>
+                </div>
+                <div class="flex items-center">
+                    <span class="shift-dot shift-evening mr-2"></span>
+                    <span class="font-medium">Evening Trip</span>
+                </div>
+                <?php if ($isCurrentMonth): ?>
+                <div class="flex items-center">
+                    <div class="w-3 h-3 border border-amber-500 bg-amber-50 rounded-sm mr-2"></div>
+                    <span class="font-medium">Current Day</span>
+                </div>
+                <?php endif; ?>
+            </div>
+
         </div>
-        
-        <div class="flex space-x-6 text-sm mt-6 p-3 bg-white shadow-lg rounded-lg border border-gray-200">
-            <span class="font-semibold text-gray-700">Legend:</span>
-            <div class="flex items-center">
-                <span class="shift-dot shift-morning mr-2"></span>
-                - Morning Trip (Blue)
-            </div>
-            <div class="flex items-center">
-                <span class="shift-dot shift-evening mr-2"></span>
-                - Evening Trip (Amber)
-            </div>
-            <?php if ($isCurrentMonth): ?>
-            <div class="flex items-center">
-                <div class="w-4 h-4 rounded-full mr-2 current-day border-2 border-teal-400"></div>
-                - Current Day
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
-</div>
-    </div>
+
+    </main>
 </body>
 </html>

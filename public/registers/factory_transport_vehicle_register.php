@@ -154,7 +154,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Vehicle Details</title>
+    <title>Factory Vehicle Details</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         /* CSS for toast */
@@ -173,46 +173,86 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
 </head>
 <body class="bg-gray-100">
 
-<div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
-    <div class="text-lg font-semibold ml-3">Registers</div>
-    <div class="flex gap-4">    
+<div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-50 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Factory Transport Vehicle Registers
+        </div>
+    </div>
+
+    <div class="flex items-center gap-4 text-sm font-medium"> 
+        <div class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
+        <a href="?date=<?php echo date('Y-m-d', strtotime($filterDate . ' -1 day')); ?>" 
+           class="p-2 text-gray-400 hover:text-white hover:bg-gray-600 rounded-md transition duration-150" 
+           title="Previous Day">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+        </a>
+
+        <form method="POST" class="flex items-center mx-1">
+            <input type="date" name="date" 
+                   value="<?php echo htmlspecialchars($filterDate); ?>" 
+                   onchange="this.form.submit()" 
+                   class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer text-center w-32 appearance-none">
+        </form>
+
+        <a href="?date=<?php echo date('Y-m-d', strtotime($filterDate . ' +1 day')); ?>" 
+           class="p-2 text-gray-400 hover:text-white hover:bg-gray-600 rounded-md transition duration-150" 
+           title="Next Day">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+        </a>
+    </div>
         <?php if ($is_logged_in): ?>
-            <a href="unmark_factory_route_attendace.php" class="hover:text-yellow-600">Unmark Routes</a>
-            <a href="factory_route_attendace.php" class="hover:text-yellow-600">Attendance</a> 
+            <a href="unmark_factory_route_attendace.php" class="text-gray-300 hover:text-red-400 transition" title="Unmark Routes">
+                Unmark Routes
+            </a>
+            
+            <a href="factory_route_attendace.php" class="text-gray-300 hover:text-white transition flex items-center gap-1">
+                <span>Attendance</span>
+            </a>
+            
             <?php if (isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])): ?>
-            <a href="add_records/factory/adjustment_factory.php" class="hover:text-yellow-600">Adjustments</a>
-            <a href="add_records/factory/add_factory_record.php" class="hover:text-yellow-600">Add Record</a>
+                <a href="add_records/factory/adjustment_factory.php" class="text-gray-300 hover:text-yellow-400 transition">
+                    Adjustments
+                </a>
+
+                <a href="add_records/factory/add_factory_record.php" 
+                   class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-md transition transform hover:scale-105">
+                    <span>Add Record</span>
+                </a>
             <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>
 
-<div class="container" style="width: 80%; margin-left: 18%; margin-right: 2.5%; display: flex; flex-direction: column; align-items: center;">
-    <p class="text-[48px] font-bold text-gray-800 mt-2">Factory Transport Vehicle Details</p>
+<div class="flex flex-col items-center mt-2 w-[85%] ml-[15%] p-2">
 
-    <form method="POST" class="mb-6 flex justify-center">
-        <div class="flex items-center">
-            <label for="date" class="text-lg font-medium mr-2">Filter by Date:</label>
-            <input type="date" id="date" name="date" class="border border-gray-300 p-2 rounded-md"
-                        value="<?php echo htmlspecialchars($filterDate); ?>" required>
-            <button type="submit" class="bg-blue-500 text-white px-3 py-2 rounded-md ml-2 hover:bg-blue-600">Filter</button>
-        </div>
-    </form>
-
-    <div class="overflow-x-auto bg-white shadow-md rounded-md mb-6 w-full">
+    <div class="overflow-x-auto overflow-y-auto bg-white shadow-md rounded-md mb-6 w-full max-h-[87vh] mx-auto">
         <table class="min-w-full table-auto">
             <thead class="bg-blue-600 text-white">
                 <tr>
-                    <th class="px-2 py-2 text-center w-12">St</th>
-                    <th class="px-4 py-2 text-left">Date</th>
-                    <th class="px-4 py-2 text-left">Route</th>
-                    <th class="px-4 py-2 text-left">Assigned Vehicle No</th>
-                    <th class="px-4 py-2 text-left">Vehicle No</th>
-                    <th class="px-4 py-2 text-left">Driver</th>
-                    <th class="px-4 py-2 text-left">Morning Time</th> 
-                    <th class="px-4 py-2 text-left">Evening Time</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-2 py-2 text-center w-12 shadow-md">St</th>
+                    
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Date</th>
+                    
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Route</th>
+                    
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Assigned Vehicle No</th>
+                    
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Vehicle No</th>
+                    
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Driver</th>
+                    
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Morning Time</th> 
+                    
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Evening Time</th>
+                    
                     <?php if ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])): ?>
-                    <th class="px-4 py-2 text-center">Action</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-center shadow-md">Action</th>
                     <?php endif; ?>
                 </tr>
             </thead>
@@ -258,8 +298,8 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                         $has_evening = $entry['evening_vehicle'] !== null || $entry['evening_driver'] !== null;
 
                         $is_full_match = $has_morning && $has_evening && 
-                                        ($entry['morning_actual_vehicle'] === $entry['evening_actual_vehicle']) && 
-                                        ($entry['morning_driver'] === $entry['evening_driver']);
+                                         ($entry['morning_actual_vehicle'] === $entry['evening_actual_vehicle']) && 
+                                         ($entry['morning_driver'] === $entry['evening_driver']);
 
                         $morning_vehicle_cell_class = ($entry['morning_vehicle_status'] == 0) ? 'bg-red-200' : '';
                         $morning_driver_cell_class = ($entry['morning_driver_status'] == 0) ? 'bg-red-200' : '';
@@ -280,7 +320,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                 $action_btn = "<td class='border px-2 py-2 text-center align-middle'>
                                     <button onclick=\"openModal('$js_date', '$js_route', $js_m_id, $js_m_stat, $js_e_id, $js_e_stat)\" 
                                     class='bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 font-bold py-1 px-3 rounded shadow-sm text-xs transition duration-150 ease-in-out'>
-                                        Manage
+                                            Manage
                                     </button>
                                 </td>";
                             } else {

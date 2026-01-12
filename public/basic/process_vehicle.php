@@ -23,6 +23,8 @@ try {
     $emp_id = $_POST['emp_id'] ?? '';
     $vehicle_no = $_POST['vehicle_no'] ?? '';
     $rate_id = $_POST['rate_id'] ?? '';
+    
+    // 0 අගයන් ලබා ගැනීමට පහත විදියට වෙනස් කරන ලදි
     $distance = $_POST['distance'] ?? '';
     $type = $_POST['type'] ?? '';
     $fixed_amount = $_POST['fixed_amount'] ?? '';
@@ -33,9 +35,10 @@ try {
     if ($action === 'add') {
         // --- ADD NEW VEHICLE ---
         
-        // Validation
-        if (empty($emp_id) || empty($vehicle_no) || empty($type) || empty($consumption) || empty($rate_id) || empty($distance) || $fixed_amount === '') {
-            throw new Exception("All fields, including Fixed Allowance, are required.");
+        // Validation - වෙනස් කරන ලදි
+        // empty() වෙනුවට === '' භාවිතා කලේ 0 අගයන් වලංගු කිරීමටයි
+        if (empty($emp_id) || empty($vehicle_no) || empty($type) || $consumption === '' || empty($rate_id) || $distance === '' || $fixed_amount === '') {
+            throw new Exception("All fields are required.");
         }
 
         // Check duplicates
@@ -63,17 +66,17 @@ try {
         $stmt->close();
 
     } elseif ($action === 'edit') {
-        // --- EDIT EXISTING VEHICLE (Corrected Logic) ---
+        // --- EDIT EXISTING VEHICLE ---
         
         $original_emp_id = $_POST['original_emp_id'] ?? $emp_id;
-        // මේක තමයි වැදගත්ම කොටස: අපි කලින් ෆෝම් එකෙන් එව්ව "පරණ නම්බර් එක"
         $original_vehicle_no = $_POST['original_vehicle_no'] ?? ''; 
 
         if (empty($original_emp_id) || empty($original_vehicle_no)) {
             throw new Exception("Missing original data for update (ID or Vehicle No).");
         }
         
-        if (empty($vehicle_no) || empty($type) || empty($consumption) || empty($rate_id) || empty($distance) || $fixed_amount === '') {
+        // Validation - වෙනස් කරන ලදි (Edit එකේදිත් 0 වලංගු විය යුතුයි)
+        if (empty($vehicle_no) || empty($type) || $consumption === '' || empty($rate_id) || $distance === '' || $fixed_amount === '') {
             throw new Exception("All fields are required.");
         }
 
@@ -90,7 +93,6 @@ try {
         }
 
         // 2. Update Query
-        // WHERE clause එකට original_vehicle_no පාවිච්චි කරන්න
         $sql = "UPDATE own_vehicle 
                 SET vehicle_no = ?, 
                     rate_id = ?, 
@@ -115,7 +117,6 @@ try {
     } elseif ($action === 'delete') {
         // --- DELETE VEHICLE ---
         
-        // Delete කරනකොටත් vehicle_no එක අනිවාර්යයි
         if (empty($emp_id) || empty($vehicle_no)) {
             throw new Exception("Employee ID and Vehicle Number are required for deletion.");
         }

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transport Allowance Request - Dec 2025</title>
+    <style>
+        /* General Styles */
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            color: #000;
+            line-height: 1.5;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9; /* Light gray only for screen view */
+        }
+
+        .page-container {
+            background-color: #fff;
+            width: 210mm; /* Exact A4 Width */
+            min-height: 297mm; /* Exact A4 Height */
+            margin: 20px auto;
+            padding: 20mm; /* Internal padding */
+            box-sizing: border-box;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1); /* Shadow only for screen view */
+        }
+
+        /* Header Styles */
+        .header {
+            margin-bottom: 10mm;
+        }
+        .sender-details p, .recipient-details p {
+            margin: 2px 0;
+            font-size: 12pt;
+        }
+        .date {
+            margin-top: 5mm;
+            font-weight: bold;
+        }
+        
+        .recipient-details {
+            margin-bottom: 10mm;
+        }
+
+        .subject {
+            font-weight: bold;
+            text-decoration: underline;
+            margin-bottom: 8mm;
+            font-size: 14pt;
+            text-transform: uppercase;
+        }
+
+        .content {
+            text-align: justify;
+            margin-bottom: 8mm;
+            font-size: 12pt;
+        }
+
+        /* Table Styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 5mm 0;
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+        }
+        table th, table td {
+            border: 1px solid #000; /* Solid black for sharp printing */
+            padding: 8px;
+            text-align: center;
+        }
+        table th {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
+        .total-row {
+            font-weight: bold;
+        }
+
+        /* Signature Styles */
+        .signature-section {
+            margin-top: 25mm; /* Space for signatures */
+            display: flex;
+            justify-content: space-between;
+        }
+        .signature-block {
+            text-align: center;
+            width: 200px;
+        }
+        .line {
+            border-top: 1px solid #000;
+            margin-bottom: 5px;
+            width: 100%;
+        }
+
+        /* PRINT SETTINGS (The most important part for A4) */
+        @media print {
+            @page {
+                size: A4;
+                margin: 0; /* Let the body/container handle margins */
+            }
+
+            body {
+                background-color: #fff;
+                margin: 0;
+                padding: 0;
+                -webkit-print-color-adjust: exact; /* Keeps colors if needed */
+            }
+
+            .page-container {
+                width: 100%;
+                margin: 0;
+                box-shadow: none; /* Remove shadow for print */
+                padding: 20mm 25mm; /* Top/Bottom: 20mm, Left/Right: 25mm margins */
+                page-break-after: always;
+            }
+
+            /* Hide browser header/footer visuals if possible, otherwise user disables in settings */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="page-container">
+        
+        <div class="header">
+            <div class="sender-details">
+                <p><strong>P D N D Sithumina</strong></p>
+                <p>IT Intern</p>
+                <p>0765529116</p>
+            </div>
+            <p class="date">January 07, 2026</p>
+        </div>
+
+        <div class="recipient-details">
+            <p><strong>To: Mr. Patrice Jermann</strong></p>
+            <p>GP Garments (Pvt) Ltd,</p>
+            <p>Seethawaka Export Processing Zone,</p>
+            <p>Awissawella, Sri Lanka.</p>
+        </div>
+
+        <div class="subject">
+            Request for Transport Allowance - December 2025
+        </div>
+
+        <div class="content">
+            <p>Dear Sir,</p>
+            <p>I am writing to formally request the transport allowance payment for the month of December 2025. Please find the calculation details below based on the number of working days.</p>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="text-align: left; padding-left: 15px;">Description</th>
+                    <th>Days</th>
+                    <th>Rate per Day (LKR)</th>
+                    <th>Total (LKR)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="text-align: left; padding-left: 15px;">Transport Allowance (Dec 2025)</td>
+                    <td>20</td>
+                    <td>1,150.00</td>
+                    <td>23,000.00</td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="3" style="text-align: right; padding-right: 15px;">Net Payable Amount</td>
+                    <td>23,000.00</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="signature-section">
+            <div class="signature-block">
+                <div style="height: 50px;"></div> 
+                <div class="line"></div>
+                <p>Requested By<br><strong>P D N D Sithumina</strong></p>
+            </div>
+            
+            <div class="signature-block">
+                <div style="height: 50px;"></div>
+                <div class="line"></div>
+                <p>Approved By<br><strong>Mr. Patrice Jermann</strong></p>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

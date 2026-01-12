@@ -1,52 +1,41 @@
 <?php
-// missing_routes.php - Dedicated page to show active routes with no entry for a selected date/shift
+// missing_routes.php
 
 require_once '../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
 }
-$is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true; // Added for navbar check
+$is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
 
 include('../../includes/db.php');
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
-// --- 1. Get Filter Parameters (Date and Shift) ---
+// --- 1. Get Filter Parameters ---
 
-// Set the filter date to today's date by default
-$filterDate = date('Y-m-d');
-// Set the filter shift default to 'morning'
-$filterShift = 'morning'; 
+// Use GET to allow link navigation (Arrows)
+$filterDate = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d'); 
+$filterShift = isset($_GET['shift']) ? $_GET['shift'] : 'morning';
 
-// If a date or shift is submitted via the form, use those values for the filter
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    // Note: Used 'date' for the input name here, matching the input field name
-    if (!empty($_POST['date'])) { 
-        $filterDate = $_POST['date'];
-    }
-    // Capture the selected shift
-    if (isset($_POST['shift'])) {
-        $filterShift = $_POST['shift'];
-    }
-}
+// Calculate Previous and Next Dates for navigation buttons
+$prevDate = date('Y-m-d', strtotime($filterDate . ' -1 day'));
+$nextDate = date('Y-m-d', strtotime($filterDate . ' +1 day'));
 
 $displayDate = date('F j, Y', strtotime($filterDate));
 
-// Initialize records to an empty array and an error message variable
+// --- 2. Fetch Missing Routes Logic ---
+// We need routes from `route` table that are ACTIVE but NOT in `cross_check` table for this date/shift
 $records = [];
 $connection_error = null;
 
-// CRITICAL FIX: Check if the connection object ($conn) is valid before using it
 if (isset($conn) && $conn instanceof mysqli && $conn->connect_error === null) {
-    // Connection is good, proceed with query
     
-    // SQL: Find active routes (is_active=1) that DO NOT have a cross_check record for the filtered date/shift
     $sql = "SELECT 
                 rm.route_code, 
                 rm.route AS route_name
@@ -60,34 +49,23 @@ if (isset($conn) && $conn instanceof mysqli && $conn->connect_error === null) {
                 AND r.shift = ? 
             WHERE 
                 rm.is_active = 1 
-                AND r.id IS NULL"; // CRITICAL: This condition finds the MISSING entries
-    
-    // NEW SORTING LOGIC: Order by the 7th, 8th, and 9th characters of the route code
-    $sql .= " ORDER BY CAST(SUBSTR(rm.route_code, 7, 3) AS UNSIGNED) ASC";
-    
+                AND r.id IS NULL -- This finds the MISSING entries
+            ORDER BY CAST(SUBSTR(rm.route_code, 7, 3) AS UNSIGNED) ASC"; // Sort by numeric part of code
+
     $stmt = $conn->prepare($sql);
     
-    if ($stmt === false) {
-        $connection_error = "Database query failed to prepare. Check SQL syntax or table name: " . $conn->error;
-    } else {
-        // Bind the two required parameters: date and shift
-        $param_types = 'ss';
-        $param_values = [&$filterDate, &$filterShift];
-        
-        // Use call_user_func_array to bind parameters
-        if (!empty($param_values)) {
-            call_user_func_array([$stmt, 'bind_param'], array_merge([$param_types], $param_values));
-        }
-
+    if ($stmt) {
+        $stmt->bind_param('ss', $filterDate, $filterShift);
         $stmt->execute();
         $result = $stmt->get_result();
-        // The result set contains only route_code and route_name
-        $records = $result->fetch_all(MYSQLI_ASSOC); 
+        $records = $result->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
+    } else {
+        $connection_error = "Database Error: " . $conn->error;
     }
 
 } else {
-    $connection_error = "FATAL: Database connection failed. Please check `db_public.php` configuration and server status.";
+    $connection_error = "Database Connection Failed.";
 }
 ?>
 
@@ -97,168 +75,197 @@ if (isset($conn) && $conn instanceof mysqli && $conn->connect_error === null) {
     <meta charset="UTF-8">
     <title>Missing Route Verification</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        
+        .route-F { background-color: #d1fae5 !important; border-color: #34d399; }
+        .route-S { background-color: #fff3da !important; border-color: #fcd34d; }
+    </style>
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php";
+
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
 </head>
 
-<style>
-    /* CSS for toast - copied from original file (kept for completeness) */
-    #toast-container {
-        position: fixed;
-        top: 1rem;
-        right: 1rem;
-        z-index: 2000;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-    }
-    /* Toast styles omitted for brevity but remain in the <style> block */
-    .toast { /* ... styles ... */ }
-    .toast.show { /* ... styles ... */ }
-    .toast.success { background-color: #4CAF50; }
-    .toast.error { background-color: #F44336; }
-    .toast-icon { /* ... styles ... */ }
-    
-    /* Custom CSS for highlighting the missing routes */
-    .route-F { background-color: #d1fae5 !important; font-weight: 500; }
-    .route-S { background-color: #fff3da !important; font-weight: 500; }
-    
-</style>
-<script>
-    // Session Timeout Logic (9 hours)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+<body class="bg-gray-100 font-sans text-gray-800">
 
-    setTimeout(function() {
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
-    }, SESSION_TIMEOUT_MS);
-</script>
+    <div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
+        
+        <div class="flex items-center gap-3">
+            <div class="flex items-center space-x-2 w-fit">
+                <a href="varification.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                    Varification
+                </a>
 
-<body class="bg-gray-100">
+                <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
 
-<div class="w-[85%] ml-[15%]">
-    <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg">
-        <div class="text-lg font-semibold ml-3">Verify</div>
-        <div class="flex gap-4"> 
+                <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                    Missing Routes
+                </span>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4 text-sm font-medium">
+            
+            <form method="GET" class="flex items-center bg-gray-700/50 backdrop-blur-sm rounded-lg p-1 border border-gray-600 shadow-inner">
+                
+                <a href="?date=<?php echo $prevDate; ?>&shift=<?php echo $filterShift; ?>" 
+                   class="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition duration-150" 
+                   title="Previous Day">
+                    <i class="fas fa-chevron-left"></i>
+                </a>
+
+                <input type="date" name="date" 
+                       value="<?php echo htmlspecialchars($filterDate); ?>" 
+                       onchange="this.form.submit()" 
+                       class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer px-2 appearance-none text-center h-8 font-mono">
+                
+                <a href="?date=<?php echo $nextDate; ?>&shift=<?php echo $filterShift; ?>" 
+                   class="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition duration-150" 
+                   title="Next Day">
+                    <i class="fas fa-chevron-right"></i>
+                </a>
+
+                <span class="text-gray-500 mx-1">|</span>
+
+                <div class="relative group">
+                    <select name="shift" onchange="this.form.submit()" class="bg-transparent text-yellow-300 text-sm font-bold border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-6 appearance-none uppercase tracking-wide">
+                        <option value="morning" <?php echo $filterShift === 'morning' ? 'selected' : ''; ?> class="text-gray-900 bg-white">Morning</option>
+                        <option value="evening" <?php echo $filterShift === 'evening' ? 'selected' : ''; ?> class="text-gray-900 bg-white">Evening</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1 text-yellow-300">
+                        <i class="fas fa-caret-down text-xs"></i>
+                    </div>
+                </div>
+
+            </form>
+
+            <span class="text-gray-600">|</span>
+
+            <a href="download_full_month_report.php?date=<?php echo $filterDate; ?>" 
+               class="group relative inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-lg shadow-emerald-900/20 border border-emerald-500 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0">
+                
+                <i class="fas fa-file-csv text-lg group-hover:scale-110 transition-transform duration-200 text-emerald-100"></i>
+                
+                <div class="flex flex-col items-start leading-none">
+                    <span class="text-[10px] text-emerald-200 font-medium">Export</span>
+                    <span>Monthly Report</span>
+                </div>
+                
+                <div class="absolute inset-0 rounded-lg ring-2 ring-white/20 group-hover:ring-white/40 transition-all"></div>
+            </a>
+
+            <!-- <a href="export_own_vehicle.php" 
+   class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition flex items-center gap-2">
+    <i class="fas fa-file-excel"></i>
+    Export to Excel
+</a> -->
+
             <?php if ($is_logged_in): ?>
-                <a href="varification.php" class="hover:text-yellow-600">Back</a>
+                <span class="text-gray-600">|</span>
+                <a href="varification.php" class="text-gray-400 hover:text-white transition flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
+                    <span>Back</span>
+                </a>
             <?php endif; ?>
         </div>
+
     </div>
-</div>
 
-<div class="container" style="display: flex; flex-direction: column; align-items: center; width: 85%; margin-left: 15%;">
-    <div class="p-4 bg-white shadow-xl rounded-xl border border-gray-200 mt-3 w-full max-w-5xl">
-
-        <p class="text-3xl font-bold text-red-700 mt-2 text-center">Missing Route List</p>
-        <p class="text-xl text-gray-800 mb-4 text-center">Active routes with NO entry in the Cross-Check</p>
+    <main class="w-[85%] ml-[15%] p-6">
 
         <?php if ($connection_error): ?>
-            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 w-full" role="alert">
-                <strong class="font-bold">Database Error!</strong>
-                <span class="block sm:inline"><?php echo htmlspecialchars($connection_error); ?></span>
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded shadow-sm" role="alert">
+                <p class="font-bold">Database Error</p>
+                <p><?php echo htmlspecialchars($connection_error); ?></p>
             </div>
         <?php endif; ?>
 
-        <form method="POST" class="mb-6 flex justify-center items-center p-4 bg-gray-50 shadow-inner rounded-xl border border-gray-200">
-            <div class="flex items-center space-x-4">
+        <div class="w-full">
+            
+            <?php if (!empty($records)): ?>
                 
-                <label for="date" class="text-lg font-medium">Select Date:</label>
-                <input type="date" id="date" name="date" class="border border-gray-300 p-2 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    value="<?php echo htmlspecialchars($filterDate); ?>" required>
-                
-                <label for="shift" class="text-lg font-medium">Select Shift:</label>
-                <select id="shift" name="shift" class="border border-gray-300 p-2 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                    <option value="morning" <?php echo $filterShift === 'morning' ? 'selected' : ''; ?>>Morning</option>
-                    <option value="evening" <?php echo $filterShift === 'evening' ? 'selected' : ''; ?>>Evening</option>
-                </select>
-
-                <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-red-700 transition duration-150 font-semibold">Show Missing Routes</button>
-            </div>
-        </form>
-
-        <h3 class="text-2xl font-bold text-red-700 mb-4 p-3 bg-red-100 border border-red-300 rounded-lg shadow-md text-center">
-            ❌ Missing Routes (<?php echo htmlspecialchars(ucfirst($filterShift)); ?> Shift) on <?php echo htmlspecialchars($displayDate); ?>
-        </h3>
-        
-        <p class="text-xl font-semibold text-gray-800 mb-4 text-center">Total Missing Routes: <span class="text-red-600 font-extrabold"><?php echo count($records); ?></span></p>
-
-        <?php if (!empty($records)): ?>
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-5 bg-white shadow-inner rounded-lg border border-gray-200">
-                <?php 
-                // Since the SQL already sorts it, we just iterate through $records
-                foreach ($records as $row): 
-                    $route_code = htmlspecialchars($row['route_code']);
-                    $route_name = htmlspecialchars($row['route_name']);
-                    $highlight_class = '';
-
-                    // Highlighting logic based on 5th character (using F or S for class)
-                    if (strlen($route_code) >= 5) {
-                        $fifth_char = strtoupper($route_code[4]); 
-                        if ($fifth_char === 'F') {
-                            $highlight_class = 'route-F'; 
-                        } elseif ($fifth_char === 'S') {
-                            $highlight_class = 'route-S';
-                        }
-                    }
-                ?>
-                    <div class="p-3 border border-red-300 rounded-lg text-base font-medium text-gray-900 shadow-sm transition duration-150 hover:bg-red-100 <?php echo $highlight_class; ?>">
-                        <span class="text-red-600 font-bold"><?php echo $route_code; ?>:</span> <?php echo $route_name; ?>
+                <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r-lg shadow-sm flex justify-between items-center transition hover:shadow-md">
+                    <div>
+                        <h3 class="text-lg font-bold text-red-800 flex items-center gap-2">
+                            <i class="fas fa-exclamation-triangle text-red-600"></i> Missing Routes Found
+                        </h3>
+                        <p class="text-sm text-red-600 mt-1">
+                            Shift: <span class="font-semibold uppercase tracking-wide"><?php echo $filterShift; ?></span> | 
+                            Date: <span class="font-semibold"><?php echo $displayDate; ?></span>
+                        </p>
                     </div>
-                <?php endforeach; ?>
-            </div>
-        <?php else: ?>
-            <p class="p-6 bg-green-100 text-green-700 text-xl font-semibold border-2 border-green-400 rounded-xl mb-6 text-center shadow-lg">
-                ✅ සියලුම Active Routes සදහා දත්ත ඇතුලත් කර ඇත. (All Active Routes have entries.)
-            </p>
-        <?php endif; ?>
-    </div>
-</div>
+                    <div class="flex flex-col items-center justify-center bg-white px-5 py-2 rounded-lg shadow-sm border border-red-100">
+                        <span class="text-xs text-gray-400 uppercase font-bold">Total</span>
+                        <span class="text-3xl font-extrabold text-red-600 leading-none"><?php echo count($records); ?></span>
+                    </div>
+                </div>
 
-<div id="toast-container"></div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    <?php foreach ($records as $row): 
+                        $code = $row['route_code'];
+                        $name = $row['route_name'];
+                        
+                        // Determine styling based on 5th character (F/S)
+                        $card_class = "bg-white border-red-200"; // Default
+                        if (strlen($code) >= 5) {
+                            $fifth_char = strtoupper($code[4]);
+                            if ($fifth_char === 'F') {
+                                $card_class = "route-F border-green-200";
+                            } elseif ($fifth_char === 'S') {
+                                $card_class = "route-S border-yellow-200";
+                            }
+                        }
+                    ?>
+                        <div class="<?php echo $card_class; ?> p-4 rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 relative group overflow-hidden">
+                            <div class="absolute left-0 top-0 bottom-0 w-1 bg-red-400 group-hover:bg-red-500 transition-colors"></div>
+                            
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <span class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Route Code</span>
+                                    <span class="text-lg font-bold text-gray-800 font-mono tracking-tight"><?php echo htmlspecialchars($code); ?></span>
+                                </div>
+                                <div class="bg-red-50 text-red-600 w-8 h-8 flex items-center justify-center rounded-full text-xs shadow-inner">
+                                    <i class="fas fa-times"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3 pt-2 border-t border-gray-100/50">
+                                <span class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Route Name</span>
+                                <span class="text-sm font-medium text-gray-700 truncate block" title="<?php echo htmlspecialchars($name); ?>">
+                                    <?php echo htmlspecialchars($name); ?>
+                                </span>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
 
-<script>
-    // Toast Function (Included for completeness and error handling)
-    function showToast(message, type) {
-        const toastContainer = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        
-        let iconPath;
-        switch (type) {
-            case 'success':
-                iconPath = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="toast-icon"><path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.23a.75.75 0 00-1.06 1.06l2.036 2.036a.75.75 0 001.06 0l3.86-5.404z" clip-rule="evenodd" /></svg>';
-                break;
-            case 'warning':
-            case 'error':
-                iconPath = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="toast-icon"><path fill-rule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.75c1.154 2-.287 4.5-2.599 4.5H4.645c-2.312 0-3.753-2.5-2.598-4.5l7.355-12.75zM12 9a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9.75A.75.75 0 0112 9zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd" /></svg>';
-                break;
-            default:
-                iconPath = '';
-        }
+            <?php else: ?>
+                
+                <div class="bg-white p-10 rounded-xl shadow-lg border border-green-100 text-center max-w-2xl mx-auto mt-10">
+                    <div class="inline-flex p-4 rounded-full bg-green-50 text-green-500 mb-4 shadow-sm">
+                        <i class="fas fa-check-circle text-5xl"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-gray-800 mb-2">All Active Routes Verified!</h3>
+                    <p class="text-gray-500 leading-relaxed">
+                        Great job! There are no missing route entries for the 
+                        <span class="font-bold text-green-600 uppercase"><?php echo $filterShift; ?></span> shift on 
+                        <span class="font-bold text-gray-800"><?php echo $displayDate; ?></span>.
+                    </p>
+                </div>
 
-        toast.innerHTML = `
-            ${iconPath}
-            <span>${message}</span>
-        `;
-        
-        toastContainer.appendChild(toast);
-        setTimeout(() => toast.classList.add('show'), 10);
-        setTimeout(() => {
-            toast.classList.remove('show');
-            toast.addEventListener('transitionend', () => toast.remove(), { once: true });
-        }, 5000);
-    }
+            <?php endif; ?>
+        </div>
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const status = urlParams.get('status');
-    const message = urlParams.get('message');
-    
-    if (status && message) {
-        showToast(decodeURIComponent(message), status);
-        window.history.replaceState(null, null, window.location.pathname);
-    }
-</script>
-
+    </main>
 </body>
-</html>
+</html>     

@@ -1,4 +1,6 @@
 <?php
+// own_vehicle_payments.php - Fuel Allowance Payments (Single Dropdown Updated)
+
 require_once '../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -14,11 +16,70 @@ include('../../includes/db.php');
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
-$selected_month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
-$selected_year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
-
-$payment_data = [];
 $page_title = "Fuel Allowance Payments Summary";
+
+// =======================================================================
+// 1. FILTER LOGIC (DATE RANGE CALCULATION)
+// =======================================================================
+
+// A. Get the Last Finalized Payment Month/Year from own_vehicle_payments
+$max_payments_sql = "SELECT MAX(month) AS max_month, MAX(year) AS max_year FROM own_vehicle_payments";
+$max_payments_result = $conn->query($max_payments_sql);
+
+$db_max_month = 0;
+$db_max_year = 0;
+
+if ($max_payments_result && $max_payments_result->num_rows > 0) {
+    $max_data = $max_payments_result->fetch_assoc();
+    $db_max_month = (int)($max_data['max_month'] ?? 0);
+    $db_max_year = (int)($max_data['max_year'] ?? 0);
+}
+
+// B. Calculate the STARTING point (Next Due Month)
+$start_month = 0;
+$start_year = 0;
+
+if ($db_max_month === 0 && $db_max_year === 0) {
+    // Case 1: No data, start from current year Jan or specific default
+    $start_month = 1;
+    $start_year = 0; // 0 means no limit yet
+} elseif ($db_max_month == 12) {
+    // Case 2: Max month is Dec, start from Jan next year
+    $start_month = 1;        
+    $start_year = $db_max_year + 1; 
+} else {
+    // Case 3: Start from next month same year
+    $start_month = $db_max_month + 1;
+    $start_year = $db_max_year;
+}
+
+// C. Determine the ENDING point (Current System Date)
+$current_month_sys = (int)date('n');
+$current_year_sys = (int)date('Y');
+
+
+// =======================================================================
+// 2. HELPER FUNCTIONS & SELECTION LOGIC
+// =======================================================================
+
+// --- [CHANGED] NEW LOGIC FOR HANDLING SINGLE DROPDOWN INPUT ---
+$selected_month = $current_month_sys;
+$selected_year = $current_year_sys;
+
+// Check if 'month_year' is passed (e.g., "2025-12")
+if (isset($_GET['month_year']) && !empty($_GET['month_year'])) {
+    $parts = explode('-', $_GET['month_year']);
+    if (count($parts) == 2) {
+        $selected_year = (int)$parts[0];
+        $selected_month = (int)$parts[1];
+    }
+} elseif (isset($_GET['month']) && isset($_GET['year'])) {
+    // Fallback for old links
+    $selected_month = (int)$_GET['month'];
+    $selected_year = (int)$_GET['year'];
+}
+// -------------------------------------------------------------
+
 
 // --- Database Functions ---
 
@@ -65,26 +126,9 @@ function get_monthly_extra_records($conn, $emp_id, $vehicle_no, $month, $year) {
     return $records;
 }
 
-function get_latest_finalized_date($conn) {
-    $sql = "SELECT MAX(year) as max_year, MAX(month) as max_month FROM own_vehicle_payments WHERE year = (SELECT MAX(year) FROM own_vehicle_payments)";
-    $result = $conn->query($sql);
-    $row = $result->fetch_assoc();
-
-    $max_month = (int)($row['max_month'] ?? 0);
-    $max_year = (int)($row['max_year'] ?? date('Y'));
-    
-    if ($max_month === 0) {
-        return ['month' => 1, 'year' => date('Y')];
-    }
-
-    if ($max_month == 12) {
-        return ['month' => 1, 'year' => $max_year + 1];
-    } else {
-        return ['month' => $max_month + 1, 'year' => $max_year];
-    }
-}
-
 // --- MAIN DATA FETCH ---
+$payment_data = [];
+
 // This query selects ALL vehicles assigned to employees.
 // If an employee has 2 vehicles, this returns 2 rows (correct behavior).
 $employees_sql = "
@@ -157,11 +201,10 @@ if ($result && $result->num_rows > 0) {
             }
         }
 
-        // Store Data (Only show if there's payment/activity OR fixed amount)
-        // If you want to show all vehicles even if unused, remove the check.
+        // Store Data
         $payment_data[] = [
             'emp_id' => $emp_id,
-            'vehicle_no' => $vehicle_no, // Store vehicle no separately for PDF link if needed
+            'vehicle_no' => $vehicle_no, 
             'display_name' => $emp_id . ' - ' . $employee_row['calling_name'] . " (" . $vehicle_no . ")",
             'fixed_amount' => $fixed_amount_display,
             'attendance_days' => $total_attendance_days,
@@ -171,8 +214,7 @@ if ($result && $result->num_rows > 0) {
     }
 }
 
-// ... Rest of the HTML code remains exactly the same ...
-// ... Table Headers ...
+// Table Headers
 $table_headers = [
     "Employee (Vehicle No)",
     "Attendance Days",
@@ -182,23 +224,6 @@ $table_headers = [
     "PDF"
 ];
 
-$current_date = new DateTime();
-$start_filter_date_arr = get_latest_finalized_date($conn);
-$start_month = $start_filter_date_arr['month'];
-$start_year = $start_filter_date_arr['year'];
-
-$is_selected_date_valid = (
-    $selected_year > $start_year || 
-    ($selected_year == $start_year && $selected_month >= $start_month)
-) && (
-    $selected_year < (int)date('Y') ||
-    ($selected_year == (int)date('Y') && $selected_month <= (int)date('m'))
-);
-
-if (!$is_selected_date_valid) {
-    $selected_month = $start_month;
-    $selected_year = $start_year;
-}
 ?>
 
 <!DOCTYPE html>
@@ -233,10 +258,11 @@ if (!$is_selected_date_valid) {
             <a href="factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
             <a href="factory/sub/sub_route_payments.php" class="hover:text-yellow-600">Sub Route</a>
             <a href="DH/day_heldup_payments.php" class="hover:text-yellow-600">Day Heldup</a>
-            <a href="" class="hover:text-yellow-600">Night Heldup</a>
+            <a href="NH/nh_payments.php" class="hover:text-yellow-600">Night Heldup</a>
             <a href="night_emergency_payment.php" class="hover:text-yellow-600">Night Emergency</a>
-            <a href="" class="hover:text-yellow-600">Extra Vehicle</a>
+            <a href="EV/ev_payments.php" class="hover:text-yellow-600">Extra Vehicle</a>
             <p class="hover:text-yellow-600 text-yellow-500 font-bold">Fuel Allowance</p> 
+            <a href="all_payments_summary.php" class="hover:text-yellow-600">Summary</a>
         </div>
     </div>
     
@@ -245,46 +271,53 @@ if (!$is_selected_date_valid) {
             <h2 class="text-3xl font-extrabold text-gray-800 mb-4 sm:mb-0"><?php echo htmlspecialchars($page_title); ?></h2>
             
             <div class="w-full sm:w-auto">
-                <form method="get" action="<?php echo htmlspecialchars($_SERVER['PHP_SELF']); ?>" class="flex flex-wrap gap-2 items-center">
-                    
+                <form method="get" action="own_vehicle_payments.php" class="flex flex-wrap gap-2 items-center">
+                    <a href="own_vehicle_excel.php?month_year=<?php echo sprintf('%04d-%02d', $selected_year, $selected_month); ?>" 
+                       target="_blank" 
+                       class="px-3 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-200 text-center"
+                       title="Export Excel">
+                       <i class="fas fa-file-excel fa-lg"></i>
+                    </a>
                     <a href="download_own_vehicle_excel.php?month=<?php echo htmlspecialchars($selected_month); ?>&year=<?php echo htmlspecialchars($selected_year); ?>" 
                         class="px-3 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-200 text-center"
                         title="Download Monthly Report">
                         <i class="fas fa-download"></i>
                     </a>
                     
-                    <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="month" id="month" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
+                    <div class="relative border border-gray-300 rounded-lg shadow-sm min-w-[200px]">
+                        <select name="month_year" id="month_year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
                             <?php 
-                            $loop_date = DateTime::createFromFormat('Y-m-d', "$start_year-$start_month-01");
-                            $current_loop_date = clone $current_date;
+                            // 1. Loop setup
+                            $loop_curr_year = $current_year_sys;
+                            $loop_curr_month = $current_month_sys;
 
-                            while ($loop_date <= $current_loop_date) {
-                                $m = (int)$loop_date->format('m');
-                                $y = (int)$loop_date->format('Y');
-                                $is_selected = ($selected_month == $m);
-                                echo "<option value=\"" . sprintf('%02d', $m) . "\" data-year=\"{$y}\"";
-                                echo $is_selected ? ' selected' : '';
-                                echo ">" . $loop_date->format('F') . "</option>";
-                                $loop_date->modify('+1 month');
+                            // 2. Limit Setup
+                            $limit_year = ($start_year > 0) ? $start_year : $current_year_sys - 2;
+                            $limit_month = ($start_year > 0) ? $start_month : 1;
+
+                            // 3. Loop Backwards
+                            while (true) {
+                                if ($loop_curr_year < $limit_year) break;
+                                if ($loop_curr_year == $limit_year && $loop_curr_month < $limit_month) break;
+
+                                $option_value = sprintf('%04d-%02d', $loop_curr_year, $loop_curr_month);
+                                $option_label = date('F Y', mktime(0, 0, 0, $loop_curr_month, 10, $loop_curr_year));
+                                
+                                $is_selected = ($selected_year == $loop_curr_year && $selected_month == $loop_curr_month) ? 'selected' : '';
+                                ?>
+                                
+                                <option value="<?php echo $option_value; ?>" <?php echo $is_selected; ?>>
+                                    <?php echo $option_label; ?>
+                                </option>
+
+                                <?php
+                                $loop_curr_month--;
+                                if ($loop_curr_month == 0) {
+                                    $loop_curr_month = 12;
+                                    $loop_curr_year--;
+                                }
                             }
                             ?>
-                        </select>
-                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                            <i class="fas fa-chevron-down text-sm"></i>
-                        </div>
-                    </div>
-                    
-                    <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="year" id="year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
-                            <?php 
-                            $min_year_to_show = 2020;
-                            if ($start_year > $min_year_to_show) $min_year_to_show = $start_year;
-                            for ($y = $current_date->format('Y'); $y >= $min_year_to_show; $y--): ?>
-                                <option value="<?php echo $y; ?>" <?php echo ($selected_year == $y) ? 'selected' : ''; ?>>
-                                    <?php echo $y; ?>
-                                </option>
-                            <?php endfor; ?>
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
                             <i class="fas fa-chevron-down text-sm"></i>
@@ -359,8 +392,8 @@ if (!$is_selected_date_valid) {
                                 
                                 <td class="py-3 px-6 whitespace-nowrap text-center"> 
                                     <a href="download_own_vehicle_payments_pdf.php?emp_id=<?php echo htmlspecialchars($data['emp_id']); ?>&vehicle_no=<?php echo htmlspecialchars($data['vehicle_no']); ?>&month=<?php echo htmlspecialchars($selected_month); ?>&year=<?php echo htmlspecialchars($selected_year); ?>"
-                                        class="text-red-500 hover:text-red-700 transition duration-150"
-                                        title="Download Detailed PDF" target="_blank">
+                                       class="text-red-500 hover:text-red-700 transition duration-150"
+                                       title="Download Detailed PDF" target="_blank">
                                         <i class="fas fa-file-pdf fa-lg"></i>
                                     </a>
                                 </td>

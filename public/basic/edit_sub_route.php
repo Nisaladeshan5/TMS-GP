@@ -43,7 +43,7 @@ $stmt->close();
 // 3. Fetch Dropdown Data
 // Routes
 $routes = [];
-$routes_result = $conn->query("SELECT route_code, route FROM route ORDER BY route");
+$routes_result = $conn->query("SELECT route_code, route FROM route WHERE is_active = 1 ORDER BY route");
 if ($routes_result) while ($row = $routes_result->fetch_assoc()) $routes[] = $row;
 
 // Suppliers
@@ -111,7 +111,7 @@ if ($vehicle_result) while ($row = $vehicle_result->fetch_assoc()) $vehicles[] =
                         <?php foreach ($routes as $route): ?>
                             <option value="<?= htmlspecialchars($route['route_code']) ?>" 
                                 <?= ($route['route_code'] == $current_data['route_code']) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($route['route']) ?>
+                                <?= htmlspecialchars($route['route']) ?> (<?= htmlspecialchars($route['route_code']) ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>

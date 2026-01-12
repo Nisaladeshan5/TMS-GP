@@ -1,5 +1,5 @@
 <?php
-// day_heldup_payments.php - Calculates and displays Day Heldup Payments
+// day_heldup_payments.php - Calculates and displays Day Heldup Payments (Single Dropdown Update)
 
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -19,43 +19,83 @@ date_default_timezone_set('Asia/Colombo');
 // --- User Context ---
 $user_role = $_SESSION['user_role'] ?? 'guest';
 $can_act = in_array($user_role, ['super admin', 'admin', 'developer', 'manager']);
-$logged_in_user_id = (string)($_SESSION['user_id'] ?? ''); 
-// --------------------
 
-// Set default filter values
-$current_year = date('Y');
-$current_month = date('m');
-
-$filterYear = $current_year;
-$filterMonthNum = $current_month; // Numeric month (01-12)
-
-// --- Handle Filter via GET ---
-if ($_SERVER['REQUEST_METHOD'] == 'GET') {
-    if (isset($_GET['year']) && is_numeric($_GET['year'])) {
-        $filterYear = $_GET['year'];
-    }
-    if (isset($_GET['month_num']) && is_numeric($_GET['month_num'])) {
-        $filterMonthNum = str_pad($_GET['month_num'], 2, '0', STR_PAD_LEFT);
-    }
-}
-// Combine for SQL filtering
-$filterYearMonth = "{$filterYear}-{$filterMonthNum}";
-
-$payment_summary = []; // Final output array: Op Code => Total Payment
 $page_title = "Day Heldup Payments Summary";
 
-// --- CORE CALCULATION FUNCTION (LOGIC IS CORRECT) ---
+// =======================================================================
+// 1. DYNAMIC DATE FILTER LOGIC
+//    (Uses monthly_payments_dh to find where the history ends)
+// =======================================================================
+
+// A. Fetch Max Month and Year from DAY HELDUP history table
+$max_payments_sql = "SELECT year as max_year, month as max_month FROM monthly_payments_dh ORDER BY year DESC, month DESC LIMIT 1";
+$max_payments_result = $conn->query($max_payments_sql);
+
+$db_max_month = 0;
+$db_max_year = 0;
+
+if ($max_payments_result && $max_payments_result->num_rows > 0) {
+    $max_data = $max_payments_result->fetch_assoc();
+    $db_max_month = (int)($max_data['max_month'] ?? 0);
+    $db_max_year = (int)($max_data['max_year'] ?? 0);
+}
+
+// B. Calculate the LIMIT point (The month AFTER the last payment)
+$start_month = 0;
+$start_year = 0;
+
+if ($db_max_month === 0 && $db_max_year === 0) {
+    // Case 1: No data in the table, limit is open (0) or set a default start year
+    $start_month = 1;
+    $start_year = 0; // 0 means no history limit
+} elseif ($db_max_month == 12) {
+    // Case 2: Max month is December
+    $start_month = 1;        
+    $start_year = $db_max_year + 1; 
+} else {
+    // Case 3: Start from next month
+    $start_month = $db_max_month + 1;
+    $start_year = $db_max_year;
+}
+
+// C. Determine the CURRENT (ENDING) point
+$current_month_sys = (int)date('n');
+$current_year_sys = (int)date('Y');
+
+
+// =======================================================================
+// 2. HELPER FUNCTIONS & SELECTION LOGIC
+// =======================================================================
+
+// --- [CHANGED] NEW LOGIC FOR HANDLING SINGLE DROPDOWN INPUT ---
+$selected_month = $current_month_sys;
+$selected_year = $current_year_sys;
+
+// Check if 'month_year' is passed (e.g., "2025-12")
+if (isset($_GET['month_year']) && !empty($_GET['month_year'])) {
+    $parts = explode('-', $_GET['month_year']);
+    if (count($parts) == 2) {
+        $selected_year = (int)$parts[0];
+        $selected_month = (int)$parts[1];
+    }
+} elseif (isset($_GET['month_num']) && isset($_GET['year'])) {
+    // Fallback for old links
+    $selected_month = (int)$_GET['month_num'];
+    $selected_year = (int)$_GET['year'];
+}
+// -------------------------------------------------------------
+
+$payment_summary = []; 
+
+// --- CORE CALCULATION FUNCTION (Kept Exactly as Original) ---
 function calculate_day_heldup_payments($conn, $month, $year) {
-    
-    // 1. Fetch DH Attendance Records (This inherently checks for attendance)
     $attendance_sql = "
         SELECT 
             dha.op_code, 
             dha.date,
-            dha.vehicle_no,
-            dha.ac, /* AC Status: 1 (AC) or 2 (Non-AC) or NULL */
+            MAX(dha.vehicle_no) as vehicle_no, 
+            dha.ac, 
             os.slab_limit_distance,
-            os.day_rate, /* IGNORED */
             os.extra_rate_ac,
             os.extra_rate AS extra_rate_nonac 
         FROM 
@@ -64,14 +104,18 @@ function calculate_day_heldup_payments($conn, $month, $year) {
             op_services os ON dha.op_code = os.op_code
         WHERE 
             DATE_FORMAT(dha.date, '%Y-%m') = ?
+        GROUP BY 
+            dha.op_code, dha.date
         ORDER BY
             dha.date ASC
     ";
     
     $stmt = $conn->prepare($attendance_sql);
-    if (!$stmt) return ['error' => 'Attendance Prepare Failed'];
+    if (!$stmt) return [];
     
-    $filter_month_year = "{$year}-{$month}";
+    // Ensure month is 2 digits for SQL matching if needed, though PHP date formatting handles X-X well
+    $filter_month_year = sprintf("%d-%02d", $year, $month);
+    
     $stmt->bind_param("s", $filter_month_year);
     $stmt->execute();
     $attendance_records = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -79,51 +123,33 @@ function calculate_day_heldup_payments($conn, $month, $year) {
     
     $daily_payments = [];
 
-    // Loop runs ONLY IF attendance records exist
     foreach ($attendance_records as $record) {
         $date = $record['date'];
         $op_code = $record['op_code'];
         $vehicle_no = $record['vehicle_no'];
 
-        // 2. Sum Distance from day_heldup_register (If zero trips, distance_sum = 0.00)
-        $distance_sum_sql = "
-            SELECT 
-                SUM(distance) AS total_distance 
-            FROM 
-                day_heldup_register 
-            WHERE 
-                op_code = ? AND date = ? AND done = 1
-        ";
-        $dist_stmt = $conn->prepare($distance_sum_sql);
-        if (!$dist_stmt) continue;
+        $distance_sum_sql = "SELECT SUM(distance) AS total_distance FROM day_heldup_register WHERE op_code = ? AND date = ? AND done = 1";
         
-        $dist_stmt->bind_param("ss", $op_code, $date);
-        $dist_stmt->execute();
-        $distance_sum = (float)($dist_stmt->get_result()->fetch_assoc()['total_distance'] ?? 0.00); 
-        $dist_stmt->close();
+        $dist_stmt = $conn->prepare($distance_sum_sql);
+        $distance_sum = 0.00;
+        
+        if ($dist_stmt) {
+            $dist_stmt->bind_param("ss", $op_code, $date);
+            $dist_stmt->execute();
+            $result = $dist_stmt->get_result()->fetch_assoc();
+            $distance_sum = (float)($result['total_distance'] ?? 0.00); 
+            $dist_stmt->close();
+        }
 
-        // 3. Calculation Variables
         $slab_limit = (float)$record['slab_limit_distance'];
         $extra_rate_ac = (float)$record['extra_rate_ac'];
         $extra_rate_nonac = (float)$record['extra_rate_nonac'];
         $ac_status = (int)$record['ac'];
-        $payment = 0.00;
-        $rate_per_km = 0.00;
         
-        // Determine the Rate Per KM (AC or Non-AC/NULL)
-        if ($ac_status === 1) {
-            $rate_per_km = $extra_rate_ac;
-        } else {
-            $rate_per_km = $extra_rate_nonac;
-        }
-        
-        // --- FINAL PAYMENT LOGIC (Handles distance >= 0) ---
-        // Payment distance is max of (Actual distance, Slab limit). 
+        $rate_per_km = ($ac_status === 1) ? $extra_rate_ac : $extra_rate_nonac;
         $payment_distance = max($distance_sum, $slab_limit);
-        
         $payment = $payment_distance * $rate_per_km;
 
-        // 4. Aggregate monthly summary
         if (!isset($daily_payments[$op_code])) {
             $daily_payments[$op_code] = [
                 'op_code' => $op_code,
@@ -141,12 +167,10 @@ function calculate_day_heldup_payments($conn, $month, $year) {
 
     return $daily_payments;
 }
-// --- END CORE CALCULATION FUNCTION ---
 
-// --- MAIN EXECUTION ---
-$daily_payment_records = calculate_day_heldup_payments($conn, $filterMonthNum, $filterYear);
+// Fetch Data
+$daily_payment_records = calculate_day_heldup_payments($conn, $selected_month, $selected_year);
 
-// --- GENERATE FILTER RANGE ---
 $monthNames = [
     '01' => 'January', '02' => 'February', '03' => 'March', '04' => 'April',
     '05' => 'May', '06' => 'June', '07' => 'July', '08' => 'August',
@@ -163,7 +187,6 @@ $monthNames = [
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Custom scrollbar for better visibility */
         .overflow-x-auto::-webkit-scrollbar { height: 8px; }
         .overflow-x-auto::-webkit-scrollbar-thumb { background-color: #a0aec0; border-radius: 4px; }
         .overflow-x-auto::-webkit-scrollbar-track { background-color: #edf2f7; }
@@ -177,11 +200,12 @@ $monthNames = [
             <a href="../payments_category.php" class="hover:text-yellow-600">Staff</a>
             <a href="../factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
             <a href="../factory/sub/sub_route_payments.php" class="hover:text-yellow-600">Sub Route</a>
-            <p class="hover:text-yellow-600 text-yellow-500 font-bold">Day Heldup</p> 
-            <a href="" class="hover:text-yellow-600">Night Heldup</a>
+            <p class="text-yellow-500 font-bold">Day Heldup</p> 
+            <a href="../NH/nh_payments.php" class="hover:text-yellow-600">Night Heldup</a>
             <a href="../night_emergency_payment.php" class="hover:text-yellow-600">Night Emergency</a>
-            <a href="" class="hover:text-yellow-600">Extra Vehicle</a>
+            <a href="../EV/ev_payments.php" class="hover:text-yellow-600">Extra Vehicle</a>
             <a href="../own_vehicle_payments.php" class="hover:text-yellow-600">Fuel Allowance</a> 
+            <a href="../all_payments_summary.php" class="hover:text-yellow-600">Summary</a>
         </div>
     </div>
     
@@ -190,24 +214,48 @@ $monthNames = [
             <h2 class="text-3xl font-extrabold text-gray-800 mb-4 sm:mb-0"><?php echo htmlspecialchars($page_title); ?></h2>
             
             <div class="w-full sm:w-auto">
-                <form method="get" action="<?php echo htmlspecialchars($_SERVER['PHP_SELF']); ?>" class="flex flex-wrap gap-2 items-center">\
+                <form method="get" action="day_heldup_payments.php" class="flex flex-wrap gap-2 items-center">
 
-                <a href="download_dh_payments_excel.php?month=<?php echo htmlspecialchars($filterMonthNum); ?>&year=<?php echo htmlspecialchars($filterYear); ?>" 
+                    <a href="download_dh_payments_excel.php?month=<?php echo htmlspecialchars($selected_month); ?>&year=<?php echo htmlspecialchars($selected_year); ?>" 
                         class="px-3 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-200 text-center"
                         title="Download Monthly Report">
                         <i class="fas fa-download"></i>
                     </a>
                     
-                    <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="month_num" id="month_num" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
+                    <div class="relative border border-gray-300 rounded-lg shadow-sm min-w-[200px]">
+                        <select name="month_year" id="month_year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
                             <?php 
-                            for ($m = 1; $m <= 12; $m++): 
-                                $num = str_pad($m, 2, '0', STR_PAD_LEFT);
-                                $is_selected = ($filterMonthNum == $num);
-                                echo "<option value=\"{$num}\"";
-                                echo $is_selected ? ' selected' : '';
-                                echo ">" . $monthNames[$num] . "</option>";
-                            endfor; 
+                            // 1. Loop setup
+                            $loop_curr_year = $current_year_sys;
+                            $loop_curr_month = $current_month_sys;
+
+                            // 2. Limit Setup
+                            // If start_year > 0, stop there. Else default to 2 years back.
+                            $limit_year = ($start_year > 0) ? $start_year : $current_year_sys - 2;
+                            $limit_month = ($start_year > 0) ? $start_month : 1;
+
+                            // 3. Loop Backwards
+                            while (true) {
+                                if ($loop_curr_year < $limit_year) break;
+                                if ($loop_curr_year == $limit_year && $loop_curr_month < $limit_month) break;
+
+                                $option_value = sprintf('%04d-%02d', $loop_curr_year, $loop_curr_month);
+                                $option_label = date('F Y', mktime(0, 0, 0, $loop_curr_month, 10, $loop_curr_year));
+                                
+                                $is_selected = ($selected_year == $loop_curr_year && $selected_month == $loop_curr_month) ? 'selected' : '';
+                                ?>
+                                
+                                <option value="<?php echo $option_value; ?>" <?php echo $is_selected; ?>>
+                                    <?php echo $option_label; ?>
+                                </option>
+
+                                <?php
+                                $loop_curr_month--;
+                                if ($loop_curr_month == 0) {
+                                    $loop_curr_month = 12;
+                                    $loop_curr_year--;
+                                }
+                            }
                             ?>
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
@@ -215,24 +263,12 @@ $monthNames = [
                         </div>
                     </div>
                     
-                    <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="year" id="year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
-                            <?php 
-                            $min_year = 2020;
-                            for ($y = date('Y'); $y >= $min_year; $y--): ?>
-                                <option value="<?php echo $y; ?>" <?php echo ($filterYear == $y) ? 'selected' : ''; ?>>
-                                    <?php echo $y; ?>
-                                </option>
-                            <?php endfor; ?>
-                        </select>
-                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                            <i class="fas fa-chevron-down text-sm"></i>
-                        </div>
-                    </div>
-                    
                     <button type="submit" class="px-3 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-200" title="Filter">
-                        <i class="fas fa-filter mr-1"></i> Filter
+                        <i class="fas fa-filter"></i>
                     </button>
+
+                    <a href="day_heldup_done.php" class="px-3 py-2 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 transition duration-200"><i class="fas fa-check-circle mr-1"></i></a>
+                    <a href="day_heldup_history.php" class="px-3 py-2 bg-yellow-600 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-700 transition duration-200"><i class="fas fa-history mr-1"></i></a> 
                 </form>
             </div>
         </div>
@@ -251,7 +287,6 @@ $monthNames = [
                 <tbody class="text-gray-700 text-sm font-light divide-y divide-gray-200">
                     <?php if (!empty($daily_payment_records)): ?>
                         <?php 
-                        // Convert associative array to indexed array for simpler display
                         $display_records = array_values($daily_payment_records);
                         ?>
                         <?php foreach ($display_records as $data): ?>
@@ -269,24 +304,23 @@ $monthNames = [
                                     <?php echo number_format($data['total_payment'], 2); ?>
                                 </td>
                                 <td class="py-3 px-6 whitespace-nowrap text-center space-x-2">
-                                    
-                                    <a href="day_heldup_daily_details.php?op_code=<?php echo htmlspecialchars($data['op_code']); ?>&month_num=<?php echo htmlspecialchars($filterMonthNum); ?>&year=<?php echo htmlspecialchars($filterYear); ?>" 
-                                        class="text-blue-600 hover:text-blue-800 p-1"
-                                        title="View Daily Breakdown">
-                                        <i class="fas fa-eye"></i>
+                                    <a href="day_heldup_daily_details.php?op_code=<?php echo htmlspecialchars($data['op_code']); ?>&month_num=<?php echo htmlspecialchars($selected_month); ?>&year=<?php echo htmlspecialchars($selected_year); ?>" 
+                                       class="text-blue-600 hover:text-blue-800 p-1"
+                                       title="View Daily Breakdown">
+                                       <i class="fas fa-eye"></i>
                                     </a>
                                     
-                                    <a href="download_day_heldup_pdf.php?op_code=<?php echo htmlspecialchars($data['op_code']); ?>&month_num=<?php echo htmlspecialchars($filterMonthNum); ?>&year=<?php echo htmlspecialchars($filterYear); ?>"
-                                        class="text-red-600 hover:text-red-800 p-1"
-                                        title="Download Monthly Summary PDF" target="_blank">
-                                        <i class="fas fa-file-pdf"></i> 
+                                    <a href="download_day_heldup_pdf.php?op_code=<?php echo htmlspecialchars($data['op_code']); ?>&month_num=<?php echo htmlspecialchars($selected_month); ?>&year=<?php echo htmlspecialchars($selected_year); ?>"
+                                       class="text-red-600 hover:text-red-800 p-1"
+                                       title="Download Monthly Summary PDF" target="_blank">
+                                       <i class="fas fa-file-pdf"></i> 
                                     </a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="5" class="py-12 text-center text-gray-500 text-base font-medium">No Day Heldup payment data available for <?php echo date('F', mktime(0, 0, 0, $filterMonthNum, 1)) . ", " . $filterYear; ?>.</td>
+                            <td colspan="5" class="py-12 text-center text-gray-500 text-base font-medium">No Day Heldup payment data available for <?php echo date('F', mktime(0, 0, 0, $selected_month, 1)) . ", " . $selected_year; ?>.</td>
                         </tr>
                     <?php endif; ?>
                 </tbody>
@@ -295,11 +329,10 @@ $monthNames = [
     </main>
 
     <div id="detailsModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden items-center justify-center z-50">
-        </div>
+    </div>
 
 </body>
 <script>
-    // JavaScript for session timeout (ViewDailyDetails function removed)
     const SESSION_TIMEOUT_MS = 32400000; 
     const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
 

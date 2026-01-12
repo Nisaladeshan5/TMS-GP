@@ -7,191 +7,195 @@ if (session_status() == PHP_SESSION_NONE) {
 // Check if the user is currently logged in
 $is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
 
-// 🟢 FIX: Define $user_role from the session to prevent "Undefined variable" error.
-// Assuming 'user_role' is set in the session upon successful login.
+// Define $user_role
 $user_role = $is_logged_in && isset($_SESSION['user_role']) ? $_SESSION['user_role'] : '';
 
 if ($is_logged_in) {
     $button_text = "Logout";
-    // Logout URL for the final confirmation button inside the modal
     $button_href = "/TMS/includes/logout.php"; 
-    $button_color = "bg-[#6C757D] hover:bg-[#5A6268]"; // Gray for logout
 } else {
     $button_text = "Login";
     $button_href = "/TMS/includes/login.php"; 
-    $button_color = "bg-blue-500 hover:bg-blue-600"; // Blue for login
 }
 
-// NOTE: I'm assuming 'config.php' and 'BASE_URL' are defined correctly here.
-// Please ensure 'config.php' is available for this to work.
 include('config.php'); 
 date_default_timezone_set('Asia/Colombo');
 $page = substr($_SERVER['SCRIPT_NAME'], strrpos($_SERVER['SCRIPT_NAME'],"/")+1);
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
-        /* Global styling fixes */
-        a {
-            text-decoration: none !important;
+        /* Custom Styles for Active State */
+        .active-nav-item {
+            background: linear-gradient(90deg, #4f46e5 0%, #3730a3 100%); /* Indigo-600 to Indigo-800 */
+            color: white !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-left: 4px solid #818cf8; /* Indigo-400 accent */
         }
-        /* Applied to the button/link structure */
-        .nav-button {
-            border-radius: 0.6rem !important;
-        }
-        /* Custom style for active link highlighting */
-        .active-link {
-            background-color: #351FFB; /* Custom blue from your original code */
-            color: white; /* Ensure text is white for contrast against blue */
-        }
+        
+        /* Custom Scrollbar for Sidebar */
+        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+        /* General Link Resets */
+        a { text-decoration: none !important; }
     </style>
-    <title>Side Navbar with Tailwind CSS</title>
+    <title>Side Navbar</title>
 </head>
 <body class="bg-gray-100">
-    <div class="fixed top-0 left-0 h-screen w-[15%] bg-[#1B0E8C] p-3 pt-0 flex flex-col justify-between">
-        <div class="p-2">
-            <a href="#" class="text-4xl font-extrabold text-blue-400 hover:scale-105 transition-all duration-300 block mb-6">
+    
+    <div class="fixed top-0 left-0 h-screen w-[15%] bg-gradient-to-b from-gray-900 via-[#1e1b4b] to-indigo-950 text-white flex flex-col shadow-2xl z-50">
+        
+        <div class="h-16 flex items-center justify-center border-b border-white/10 bg-black/10 shrink-0">
+            <a href="#" class="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 hover:scale-105 transition-transform duration-300 drop-shadow-md">
                 TMS
             </a>
+        </div>
+
+        <div class="flex-1 overflow-y-auto sidebar-scroll py-4 px-3 space-y-1">
 
             <?php 
-            $active_home = ($page == "index.php" || strpos($_SERVER['REQUEST_URI'], '/registers/') !== false) ? 'active-link' : '';
-            $active_qr = ($page == "qr.php" || strpos($_SERVER['REQUEST_URI'], '/qr/') !== false) ? 'active-link' : '';
-            $active_basic = strpos($_SERVER['REQUEST_URI'], '/basic/') !== false ? 'active-link' : '';
-            $active_payments = strpos($_SERVER['REQUEST_URI'], '/payments/') !== false ? 'active-link' : '';
-            $active_report = strpos($_SERVER['REQUEST_URI'], '/report/') !== false ? 'active-link' : '';
-            $active_checkUp = strpos($_SERVER['REQUEST_URI'], '/checkUp/') !== false ? 'active-link' : '';
-            $active_notice = strpos($_SERVER['REQUEST_URI'], '/notice/') !== false ? 'active-link' : '';
-            $active_user = strpos($_SERVER['REQUEST_URI'], '/user/') !== false ? 'active-link' : '';
-            $active_admin = strpos($_SERVER['REQUEST_URI'], '/admin/') !== false ? 'active-link' : '';
-            $active_audit = strpos($_SERVER['REQUEST_URI'], '/audit/') !== false ? 'active-link' : '';
+            // Logic to determine active state
+            $is_home = ($page == "index.php" || strpos($_SERVER['REQUEST_URI'], '/registers/') !== false);
+            $is_qr = ($page == "qr.php" || strpos($_SERVER['REQUEST_URI'], '/qr/') !== false);
+            $is_basic = strpos($_SERVER['REQUEST_URI'], '/basic/') !== false;
+            $is_payments = strpos($_SERVER['REQUEST_URI'], '/payments/') !== false;
+            $is_report = strpos($_SERVER['REQUEST_URI'], '/report/') !== false;
+            $is_checkUp = strpos($_SERVER['REQUEST_URI'], '/checkUp/') !== false;
+            $is_notice = strpos($_SERVER['REQUEST_URI'], '/notice/') !== false;
+            $is_user = strpos($_SERVER['REQUEST_URI'], '/user/') !== false;
+            $is_admin = strpos($_SERVER['REQUEST_URI'], '/admin/') !== false;
+            $is_audit = strpos($_SERVER['REQUEST_URI'], '/audit/') !== false;
+
+            // Helper function for classes - Reduced padding to py-2.5
+            function getNavClass($isActive) {
+                return $isActive 
+                    ? 'active-nav-item flex items-center gap-3 px-4 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200' 
+                    : 'flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all duration-200 group';
+            }
             ?>
 
-            <a href="/TMS/index.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-30 rounded block transition duration-300 transform <?= $active_home; ?>">
-                Home
+            <a href="/TMS/index.php" class="<?= getNavClass($is_home); ?>">
+                <i class="fas fa-home w-5 text-center text-lg <?= $is_home ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                <span>Home</span>
             </a>
+
             <?php if (!$is_logged_in): ?>
-            <a href="<?= BASE_URL ?>qr/qr.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-30 rounded block transition duration-300 transform <?= $active_qr; ?>">
-                QR Scanner
+            <a href="<?= BASE_URL ?>qr/qr.php" class="<?= getNavClass($is_qr); ?>">
+                <i class="fas fa-qrcode w-5 text-center text-lg <?= $is_qr ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                <span>QR Scanner</span>
             </a>
             <?php endif; ?>
             
             <?php if ($is_logged_in): ?>
-                <?php
-                // Now $user_role is safely defined
-                if ($user_role === 'manager' || $user_role === 'super admin' || $user_role === 'admin' || $user_role === 'developer') {
-                ?>
-                <a href="<?= BASE_URL ?>basic/basic_category.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_basic; ?>">
-                    Basic Data
+                
+                <?php if (in_array($user_role, ['manager', 'super admin', 'admin', 'developer'])) { ?>
+                <div class="pt-3 pb-1 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Management</div>
+                
+                <a href="<?= BASE_URL ?>basic/basic_category.php" class="<?= getNavClass($is_basic); ?>">
+                    <i class="fas fa-database w-5 text-center text-lg <?= $is_basic ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Basic Data</span>
                 </a>
-                <a href="<?= BASE_URL ?>payments/payments_category.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_payments; ?>">
-                    Payments
+                <a href="<?= BASE_URL ?>payments/payments_category.php" class="<?= getNavClass($is_payments); ?>">
+                    <i class="fas fa-file-invoice-dollar w-5 text-center text-lg <?= $is_payments ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Payments</span>
                 </a>
-                <?php
-                }
-                ?>
-                <?php
-                // Now $user_role is safely defined
-                if ($user_role === 'developer') {
-                ?>
-                <a href="<?= BASE_URL ?>report/report_main.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_report; ?>">
-                    Report
+                <?php } ?>
+                
+                <?php if ($user_role === 'developer') { ?>
+                <a href="<?= BASE_URL ?>report/report_main.php" class="<?= getNavClass($is_report); ?>">
+                    <i class="fas fa-chart-pie w-5 text-center text-lg <?= $is_report ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Report</span>
                 </a>
-                <?php
-                }
-                ?>
-                <?php
-                // Now $user_role is safely defined
-                if ($user_role === 'manager' || $user_role === 'super admin' || $user_role === 'admin' || $user_role === 'developer') {
-                ?>
-                <a href="<?= BASE_URL ?>checkUp/checkUp_category.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_checkUp; ?>">
-                    Inspection
+                <?php } ?>
+                
+                <?php if (in_array($user_role, ['manager', 'super admin', 'admin', 'developer'])) { ?>
+                <a href="<?= BASE_URL ?>checkUp/checkUp_category.php" class="<?= getNavClass($is_checkUp); ?>">
+                    <i class="fas fa-clipboard-check w-5 text-center text-lg <?= $is_checkUp ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Inspection</span>
                 </a>
-                <?php
-                }
-                ?>
-                <?php
-                // Now $user_role is safely defined
-                if ($user_role === 'viewer' || $user_role === 'manager' || $user_role === 'super admin' || $user_role === 'admin' || $user_role === 'developer') {
-                ?>
-                <a href="<?= BASE_URL ?>notice/notice.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_notice; ?>">
-                    Notice
+                <?php } ?>
+                
+                <?php if (in_array($user_role, ['viewer', 'manager', 'super admin', 'admin', 'developer'])) { ?>
+                <div class="pt-3 pb-1 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Communication</div>
+                <a href="<?= BASE_URL ?>notice/notice.php" class="<?= getNavClass($is_notice); ?>">
+                    <i class="fas fa-bullhorn w-5 text-center text-lg <?= $is_notice ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Notice</span>
                 </a>
-                <?php
-                }
-                ?>
-                <?php
-                // Now $user_role is safely defined
-                if ($user_role === 'viewer' || $user_role === 'super admin' || $user_role === 'admin' || $user_role === 'developer') {
-                ?>
-                <a href="<?= BASE_URL ?>user/user.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_user; ?>">
-                    Bus Leaders
+                <?php } ?>
+                
+                <?php if (in_array($user_role, ['viewer', 'super admin', 'admin', 'developer'])) { ?>
+                <a href="<?= BASE_URL ?>user/user.php" class="<?= getNavClass($is_user); ?>">
+                    <i class="fas fa-users w-5 text-center text-lg <?= $is_user ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Bus Leaders</span>
                 </a>
-                 <?php
-                }
-                ?>
-                <?php
-                // Now $user_role is safely defined
-                if ($user_role === 'super admin' || $user_role === 'manager' || $user_role === 'developer') {
-                ?>
-                <a href="<?= BASE_URL ?>admin/admin.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_admin; ?>">
-                    Admin
+                <?php } ?>
+                
+                <?php if (in_array($user_role, ['super admin', 'manager', 'developer'])) { ?>
+                <div class="pt-3 pb-1 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">System</div>
+                <a href="<?= BASE_URL ?>admin/admin.php" class="<?= getNavClass($is_admin); ?>">
+                    <i class="fas fa-cogs w-5 text-center text-lg <?= $is_admin ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Admin</span>
                 </a>
-                    <?php
-                }
-                ?>
-                <?php
-                // Now $user_role is safely defined
-                if ($user_role === 'manager' || $user_role === 'developer') {
-                ?>
-                <a href="<?= BASE_URL ?>audit/view_audit_log.php" class="text-lg py-2 text-white px-4 hover:bg-gray-700 hover:bg-opacity-10 rounded block transition duration-300 transform <?= $active_audit; ?>">
-                    Audit
+                <?php } ?>
+                
+                <?php if (in_array($user_role, ['manager', 'developer'])) { ?>
+                <a href="<?= BASE_URL ?>audit/view_audit_log.php" class="<?= getNavClass($is_audit); ?>">
+                    <i class="fas fa-history w-5 text-center text-lg <?= $is_audit ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
+                    <span>Audit</span>
                 </a>
-                    <?php
-                }
-                ?>
-            <?php endif; ?>
-            </div>
+                <?php } ?>
 
-        <div class="flex flex-col items-center pb-4">
+            <?php endif; ?>
+        </div>
+
+        <div class="p-3 border-t border-white/10 bg-black/20 backdrop-blur-sm shrink-0">
             <a href="<?= $button_href; ?>"
-               class="nav-button text-white py-2 px-4 w-3/5 text-center
-                      <?= $button_color; ?> 
-                      transition duration-300 focus:outline-none font-semibold"
+               class="flex items-center justify-center w-full py-2 px-4 rounded-lg font-bold shadow-md transition-all duration-300 transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 
+               <?= $is_logged_in ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500' : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'; ?>"
                <?php if ($is_logged_in): ?>
                onclick="showLogoutModal(event, '<?= $button_href; ?>')"
                <?php endif; ?>
             >
+                <i class="fas <?= $is_logged_in ? 'fa-sign-out-alt' : 'fa-sign-in-alt'; ?> mr-2"></i>
                 <?= $button_text; ?>
             </a>
-            <div class="text-xs text-white mx-auto mt-2">GP Garments (Pvt) Ltd</div>
+            
+            <div class="text-[10px] text-gray-500 text-center mt-2 font-medium tracking-wide uppercase">
+                GP Garments (Pvt) Ltd
+            </div>
         </div>
     </div>
 
-    <div id="logoutModal" class="fixed inset-0 bg-gray-600 bg-opacity-75 hidden flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl w-96 p-6 transform transition-all duration-300 scale-100">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Confirm Logout</h3>
-                <button onclick="hideLogoutModal()" class="text-gray-400 hover:text-gray-600 focus:outline-none">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
+    <div id="logoutModal" class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm hidden flex items-center justify-center z-[100] transition-opacity duration-300">
+        <div class="bg-white rounded-xl shadow-2xl w-96 p-6 transform transition-all duration-300 scale-100 border border-gray-200">
+            <div class="flex items-center gap-3 mb-4 text-gray-800">
+                <div class="bg-red-100 p-2 rounded-full">
+                    <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <h3 class="text-xl font-bold">Confirm Logout</h3>
             </div>
             
-            <p class="text-gray-600 mb-6">Are you sure you want to log out from the system?</p>
+            <p class="text-gray-600 mb-6 text-sm leading-relaxed ml-1">
+                Are you sure you want to log out? <br>You will be returned to the login screen.
+            </p>
             
             <div class="flex justify-end space-x-3">
                 <button onclick="hideLogoutModal()"
-                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500">
+                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition focus:outline-none focus:ring-2 focus:ring-gray-300">
                     Cancel
                 </button>
                 <a id="confirmLogoutButton" href="#"
-                   class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 text-center">
-                    Logout
+                   class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition focus:outline-none focus:ring-2 focus:ring-red-500 shadow-md">
+                    Yes, Logout
                 </a>
             </div>
         </div>
@@ -201,27 +205,29 @@ $page = substr($_SERVER['SCRIPT_NAME'], strrpos($_SERVER['SCRIPT_NAME'],"/")+1);
         const logoutModal = document.getElementById('logoutModal');
         const confirmLogoutButton = document.getElementById('confirmLogoutButton');
 
-        // Function to show the modal
         function showLogoutModal(event, logoutUrl) {
-            // Prevent the default link action (immediate logout)
             event.preventDefault(); 
-            
-            // Show the modal
             logoutModal.classList.remove('hidden');
-
-            // Set the correct logout URL for the confirmation button
+            // Small animation for modal entrance
+            logoutModal.firstElementChild.classList.add('scale-100');
+            logoutModal.firstElementChild.classList.remove('scale-95');
             confirmLogoutButton.href = logoutUrl;
         }
 
-        // Function to hide the modal
         function hideLogoutModal() {
-            // Hide the modal
             logoutModal.classList.add('hidden');
         }
         
-        // Close the modal when the ESC key is pressed
+        // Close on Escape key
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
+                hideLogoutModal();
+            }
+        });
+
+        // Close when clicking outside the modal
+        logoutModal.addEventListener('click', function(e){
+            if(e.target === logoutModal){
                 hideLogoutModal();
             }
         });

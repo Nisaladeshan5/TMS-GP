@@ -4,7 +4,7 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
@@ -12,12 +12,11 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 
 include('../../includes/db.php');
 
-// Ensure db connection is available before proceeding
 if (!$conn) {
     die("Database connection failed.");
 }
 
-// 1. Fetch Employee Count per Route Code (Remains the same)
+// 1. Fetch Employee Count per Route Code
 $sql_route_summary = "
     SELECT 
         SUBSTRING(route, 1, 10) AS route_code, 
@@ -25,38 +24,45 @@ $sql_route_summary = "
     FROM employee 
     WHERE route IS NOT NULL AND LENGTH(route) >= 10
     GROUP BY route_code
-    ORDER BY employee_count DESC, route_code ASC";
+    ORDER BY CAST(SUBSTRING(route_code, 7, 3) AS UNSIGNED) ASC"; 
 
 $result_route_summary = $conn->query($sql_route_summary);
 $route_summary_data = $result_route_summary ? $result_route_summary->fetch_all(MYSQLI_ASSOC) : [];
 
 
-// 2. Fetch Detailed Sub-Route Counts (Remains the same)
+// 2. Fetch Detailed Sub-Route Counts + JOIN with sub_route table
 $sql_subroute_summary = "
     SELECT 
-        SUBSTRING(route, 1, 10) AS route_code, 
-        CASE 
-            WHEN near_bus_stop IS NOT NULL 
-                AND LENGTH(near_bus_stop) >= 2 
-                AND SUBSTRING(near_bus_stop, 1, 1) REGEXP '^[0-9]'
-            THEN CONCAT(
-                SUBSTRING(route, 1, 10), 
-                '-', 
-                SUBSTRING(near_bus_stop, 1, 1), 
-                SUBSTRING(near_bus_stop, 2, 2)
-            )
-            ELSE 'No Sub-Route' 
-        END AS sub_route_derived,
-        COUNT(emp_id) AS sub_route_count
-    FROM employee 
-    WHERE route IS NOT NULL AND LENGTH(route) >= 10
-    GROUP BY route_code, sub_route_derived
-    ORDER BY route_code ASC, sub_route_derived ASC";
+        main.route_code,
+        main.sub_route_derived_code,
+        sr.sub_route AS sub_route_name,
+        main.sub_route_count
+    FROM (
+        SELECT 
+            SUBSTRING(route, 1, 10) AS route_code, 
+            CASE 
+                WHEN near_bus_stop IS NOT NULL 
+                    AND LENGTH(near_bus_stop) >= 6 
+                    AND SUBSTRING(near_bus_stop, 1, 1) REGEXP '^[0-9]'
+                THEN CONCAT(
+                    SUBSTRING(route, 1, 10), 
+                    '-', 
+                    SUBSTRING(near_bus_stop, 1, 6)
+                )
+                ELSE 'No Sub-Route' 
+            END AS sub_route_derived_code,
+            COUNT(emp_id) AS sub_route_count
+        FROM employee 
+        WHERE route IS NOT NULL AND LENGTH(route) >= 10
+        GROUP BY route_code, sub_route_derived_code
+    ) AS main
+    LEFT JOIN sub_route sr ON main.sub_route_derived_code = sr.sub_route_code
+    ORDER BY main.route_code ASC, main.sub_route_derived_code ASC";
 
 $result_subroute_summary = $conn->query($sql_subroute_summary);
 $subroute_summary_data = $result_subroute_summary ? $result_subroute_summary->fetch_all(MYSQLI_ASSOC) : [];
 
-// Reorganize Sub-Route data (Remains the same)
+// Reorganize Sub-Route data
 $subroutes_by_route = [];
 foreach ($subroute_summary_data as $row) {
     $code = $row['route_code'];
@@ -66,34 +72,27 @@ foreach ($subroute_summary_data as $row) {
     $subroutes_by_route[$code][] = $row;
 }
 
-// --- UPDATED SECTION: Fetch Vehicle Capacity and Route Name ---
-
-// 3. Fetch Vehicle Capacity and Route Name for each Route Code
-// New field: r.route_name
+// 3. Fetch Vehicle Capacity and Route Name
 $sql_vehicle_capacity_and_name = "
     SELECT 
         r.route_code, 
         r.route,
         v.capacity
     FROM route r
-    LEFT JOIN vehicle v ON r.vehicle_no = v.vehicle_no"; // Using LEFT JOIN to still show routes without vehicles
+    LEFT JOIN vehicle v ON r.vehicle_no = v.vehicle_no"; 
 
 $result_capacity_and_name = $conn->query($sql_vehicle_capacity_and_name);
 $route_details = [];
 
 if ($result_capacity_and_name) {
-    // Reorganize capacity data for easy lookup by Route Code
     while ($row = $result_capacity_and_name->fetch_assoc()) {
         $route_details[$row['route_code']] = [
             'capacity' => (int)$row['capacity'],
-            'name' => htmlspecialchars($row['route'] ?? 'N/A') // Handle potential null route name
+            'name' => htmlspecialchars($row['route'] ?? 'N/A') 
         ];
     }
 }
-// -----------------------------------------------------------
 
-
-// NOTE: Placeholder includes are kept, assuming they define the structure.
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 ?>
@@ -104,213 +103,251 @@ include('../../includes/navbar.php');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Route Employee Overview</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <style>
-        /* Ensures the sidebar gap and height are respected */
-        .main-content {
-            height: calc(100vh - 3rem); /* Adjust based on top bar height */
-        }
-    </style>
-</head>
-<script>
-    // 9 hours in milliseconds (32,400,000 ms)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-    setTimeout(function() {
-        // Alert and redirect
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
+    <style>
+        body { font-family: 'Inter', sans-serif; }
         
-    }, SESSION_TIMEOUT_MS);
-</script>
-<body class="bg-gray-100">
-    <div class="h-screen flex flex-col">
-        
-        <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-12 flex-shrink-0">
-            <div class="text-lg font-semibold ml-3">Employee</div>
-            <div class="flex gap-4">
-                <a href="employee.php" class="hover:text-yellow-600">Employee Details</a>
-                <p class="hover:text-yellow-600 text-yellow-500 font-bold">Overview</p>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
+</head>
+
+<body class="bg-slate-100 overflow-hidden">
+
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+                <a href="employee.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                    Employee
+                </a>
+
+                <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+                <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                    Overview
+                </span>
             </div>
+    </div>
+    
+    <div class="flex items-center gap-4 text-sm font-medium">
+        
+        <div class="relative group">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <i class="fas fa-search text-gray-400 group-focus-within:text-blue-400 transition-colors"></i>
+            </div>
+            <input type="text" id="routeSearchInput" 
+                   class="bg-gray-700 text-white text-sm rounded-full pl-10 pr-4 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64 transition-all focus:w-80 placeholder-gray-400 border border-gray-600 focus:bg-gray-800" 
+                   placeholder="Search Route Code or Name...">
         </div>
 
-        <div class="flex items-start shadow-lg w-[85%] ml-[15%] flex-col overflow-hidden flex-grow main-content">
+        <span class="text-gray-600 text-lg font-thin">|</span>
+
+        <a href="employee.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            Employee List
+        </a>
+    </div>
+</div>
+
+<div class="w-[85%] ml-[15%] pt-16 h-screen flex flex-col relative">
+    
+    <div class="flex-grow overflow-y-auto p-8 bg-slate-100">
+        <div id="routeSummaryContainer" class="max-w-7xl mx-auto pb-12">
             
-            <div class="container p-4 w-full h-full flex flex-col">
-                <p class="text-center text-4xl font-bold text-gray-800 mt-1 mb-4 flex-shrink-0">Route Employee Overview</p>
-                
-                <div class="w-full bg-white p-4 rounded-md shadow-md mb-6 flex-shrink-0">
-                    <h4 class="text-xl font-semibold mb-3 text-blue-600">Search Route Code</h4>
-                    <input 
-                        type="text" 
-                        id="routeSearchInput" 
-                        placeholder="Start typing a route code (e.g., MIN-S-003V)" 
-                        class="mt-1 p-2 block w-full border rounded-md shadow-sm border-gray-300 focus:ring-blue-500 focus:border-blue-500"
-                    >
+            <?php if (empty($route_summary_data)): ?>
+                <div class="flex flex-col items-center justify-center h-[60vh] text-gray-400">
+                    <div class="bg-white p-6 rounded-full shadow-sm mb-4">
+                        <i class="fas fa-route text-4xl text-gray-300"></i>
+                    </div>
+                    <p class="text-lg font-medium text-gray-500">No route data available for analysis.</p>
                 </div>
+            <?php else: ?>
+                
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                    <?php foreach ($route_summary_data as $route_data): ?>
+                        <?php 
+                        $route_code = htmlspecialchars($route_data['route_code']); 
+                        $employee_count = (int)$route_data['employee_count'];
 
-                <div class="bg-white shadow-md rounded-md w-full overflow-y-auto flex-grow p-6">
-                    
-                    <h2 class="text-2xl font-bold text-blue-600 mb-4 border-b pb-2">Employee Count by Route Code</h2>
-                    
-                    <div id="routeSummaryContainer">
-                        <?php if (empty($route_summary_data)): ?>
-                            <p class="text-gray-600">No route data available for analysis.</p>
-                        <?php else: ?>
+                        $details = $route_details[$route_code] ?? ['capacity' => 0, 'name' => 'Name N/A'];
+                        $capacity = $details['capacity'];
+                        $route_name = $details['name'];
+
+                        $availability = $capacity - $employee_count;
+                        
+                        // Status Logic
+                        $status_badge_class = 'bg-gray-100 text-gray-600 border-gray-200';
+                        $status_icon = 'fa-question-circle';
+                        $status_text = 'Unknown';
+                        $card_border_top = 'border-t-4 border-t-gray-400';
+
+                        if ($capacity > 0) {
+                            if ($availability > 0) {
+                                $status_badge_class = 'bg-green-100 text-green-700 border-green-200';
+                                $status_icon = 'fa-check-circle';
+                                $status_text = $availability . ' Seats Left';
+                                $card_border_top = 'border-t-4 border-t-green-500';
+                            } elseif ($availability < 0) {
+                                $status_badge_class = 'bg-red-100 text-red-700 border-red-200';
+                                $status_icon = 'fa-exclamation-circle';
+                                $status_text = 'Overloaded by ' . abs($availability);
+                                $card_border_top = 'border-t-4 border-t-red-500';
+                            } else {
+                                $status_badge_class = 'bg-yellow-100 text-yellow-700 border-yellow-200';
+                                $status_icon = 'fa-lock';
+                                $status_text = 'Full Capacity';
+                                $card_border_top = 'border-t-4 border-t-yellow-500';
+                            }
+                        }
+                        ?>
+                        
+                        <div class="route-item bg-white rounded-xl shadow-md border border-gray-200 hover:shadow-xl transition-all duration-300 group overflow-hidden flex flex-col <?php echo $card_border_top; ?>" 
+                             data-route-code="<?php echo $route_code; ?>" 
+                             data-route-name="<?php echo $route_name; ?>">
                             
-                            <?php foreach ($route_summary_data as $route_data): ?>
-                                <?php 
-                                $route_code = htmlspecialchars($route_data['route_code']); 
-                                $employee_count = (int)$route_data['employee_count'];
-
-                                // Get capacity and name, default capacity to 0 if not found
-                                $details = $route_details[$route_code] ?? ['capacity' => 0, 'name' => 'Name N/A'];
-                                $capacity = $details['capacity'];
-                                $route_name = $details['name'];
-
-                                // Calculate availability/overload
-                                $availability = $capacity - $employee_count;
-                                $availability_text_color = 'text-gray-600'; 
-                                $availability_bg_color = 'bg-gray-100';
-                                $availability_display = 'N/A'; // Default display text
-
-                                if ($capacity > 0) {
-                                    if ($availability > 0) {
-                                        // Available slots (Green)
-                                        $availability_text_color = 'text-green-700';
-                                        $availability_bg_color = 'bg-green-100';
-                                        $availability_display = "+" . $availability;
-                                    } elseif ($availability < 0) {
-                                        // Overloaded (Red) - Display negative value
-                                        $availability_text_color = 'text-red-700';
-                                        $availability_bg_color = 'bg-red-100';
-                                        $availability_display = $availability; // This will show as e.g., -5
-                                    } else {
-                                        // Exactly full (Yellow)
-                                        $availability_text_color = 'text-yellow-700';
-                                        $availability_bg_color = 'bg-yellow-100';
-                                        $availability_display = "FULL (0)";
-                                    }
-                                } else {
-                                    // Capacity Unknown (Gray)
-                                    $availability_text_color = 'text-gray-600';
-                                    $availability_bg_color = 'bg-gray-200';
-                                    $availability_display = "Capacity Unknown";
-                                }
-                                ?>
-                                
-                                <div class="route-item mb-6 p-4 border rounded-lg bg-blue-50" data-route-code="<?php echo $route_code; ?>">
-                                    
-                                    <div class="flex justify-between items-start mb-3 border-b pb-2">
-                                        
-                                        <div class="flex flex-col">
-                                            <div class="flex items-center gap-3">
-                                                <h3 class="text-xl font-semibold text-gray-800">
-                                                    Code: <span class="text-blue-700"><?php echo $route_code; ?></span>
-                                                </h3>
-                                                
-                                                <span class="px-3 py-1 rounded-full font-bold text-lg <?php echo $availability_text_color; ?> <?php echo $availability_bg_color; ?> shadow-md">
-                                                    <?php echo $availability_display; ?>
-                                                </span>
-                                            </div>
-
-                                            <p class="text-lg font-medium text-gray-600 mt-1">
-                                                Name: <?php echo $route_name; ?>
-                                            </p>
+                            <div class="p-6">
+                                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-4">
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-3 mb-1">
+                                            <h3 class="text-2xl font-bold text-gray-800 font-mono tracking-tight group-hover:text-blue-600 transition-colors"><?php echo $route_code; ?></h3>
                                         </div>
-                                        
-                                        <div class="flex flex-col items-end gap-1">
-                                            <span class="text-sm font-medium text-gray-600">
-                                                Vehicle Capacity: <?php echo $capacity > 0 ? $capacity : 'N/A'; ?>
-                                            </span>
-                                            <span class="text-2xl font-bold text-blue-900">
-                                                Employees: <?php echo $employee_count; ?>
-                                            </span>
+                                        <div class="flex items-center text-gray-500 font-medium text-sm">
+                                            <i class="fas fa-map-marker-alt text-gray-400 mr-2"></i>
+                                            <span class="truncate max-w-xs"><?php echo $route_name; ?></span>
                                         </div>
                                     </div>
-                                    
-                                    <h4 class="text-lg font-medium text-gray-700 mt-3">Sub-Route Breakdown:</h4>
-                                    
+
+                                    <div class="px-3 py-1.5 rounded-full text-xs font-bold border <?php echo $status_badge_class; ?> flex items-center gap-2 shadow-sm whitespace-nowrap">
+                                        <i class="fas <?php echo $status_icon; ?>"></i> <?php echo $status_text; ?>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-px bg-gray-200 rounded-lg overflow-hidden border border-gray-200">
+                                    <div class="bg-gray-50 p-3 text-center hover:bg-white transition-colors">
+                                        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-0.5">Employees</p>
+                                        <p class="text-xl font-bold text-gray-800"><?php echo $employee_count; ?></p>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 text-center hover:bg-white transition-colors">
+                                        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-0.5">Capacity</p>
+                                        <p class="text-xl font-bold text-gray-500"><?php echo $capacity > 0 ? $capacity : '-'; ?></p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="h-px w-full bg-gray-200"></div>
+
+                            <div class="p-5 bg-gray-50/80 flex-grow">
+                                <h4 class="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <i class="fas fa-project-diagram text-gray-300"></i> Sub-Route Breakdown
+                                </h4>
+                                
+                                <div class="grid grid-cols-2 gap-3">
                                     <?php 
                                     $subroutes = $subroutes_by_route[$route_code] ?? [];
                                     $subroute_found = false;
+                                    
+                                    foreach ($subroutes as $sub_data): 
+                                        if ($sub_data['sub_route_derived_code'] !== 'No Sub-Route'):
+                                            $subroute_found = true;
+                                            $display_name = !empty($sub_data['sub_route_name']) ? htmlspecialchars($sub_data['sub_route_name']) : "Unknown Loc";
+                                            $display_code = htmlspecialchars($sub_data['sub_route_derived_code']);
                                     ?>
-
-                                    <ul class="list-disc ml-6 space-y-1 mt-2">
-                                        <?php foreach ($subroutes as $sub_data): ?>
-                                            <?php if ($sub_data['sub_route_derived'] !== 'No Sub-Route'): ?>
-                                                <?php $subroute_found = true; ?>
-                                                <li class="text-gray-700">
-                                                    <span class="font-mono text-sm bg-gray-200 px-2 py-1 rounded">
-                                                        <?php echo htmlspecialchars($sub_data['sub_route_derived']); ?>
-                                                    </span> 
-                                                    <span class="text-sm">
-                                                        (Employees: <strong><?php echo $sub_data['sub_route_count']; ?></strong>)
+                                            <div class="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm hover:border-blue-400 hover:shadow-md transition-all duration-200 flex justify-between items-center group/item">
+                                                <div class="flex flex-col overflow-hidden mr-2">
+                                                    <span class="text-xs font-semibold text-gray-700 truncate max-w-[100px]" title="<?php echo $display_name; ?>">
+                                                        <?php echo $display_name; ?>
                                                     </span>
-                                                </li>
-                                            <?php endif; ?>
-                                        <?php endforeach; ?>
-
-                                        <?php 
-                                        $no_subroute_entry = array_filter($subroutes, fn($r) => $r['sub_route_derived'] === 'No Sub-Route');
-                                        $no_subroute_count = !empty($no_subroute_entry) ? $no_subroute_entry[array_key_first($no_subroute_entry)]['sub_route_count'] : 0;
-                                        
-                                        if ($no_subroute_count > 0 || !$subroute_found): 
-                                        ?>
-                                            <li class="text-gray-500 italic">
-                                                No specific sub-route defined: 
-                                                <span class="text-sm">
-                                                    (Employees: <strong><?php echo $no_subroute_count; ?></strong>)
+                                                    <span class="font-mono text-[9px] text-gray-400 mt-0.5 truncate">
+                                                        <?php echo $display_code; ?>
+                                                    </span>
+                                                </div>
+                                                
+                                                <span class="flex items-center justify-center w-6 h-6 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-full border border-indigo-100 shrink-0">
+                                                    <?php echo $sub_data['sub_route_count']; ?>
                                                 </span>
-                                            </li>
-                                        <?php endif; ?>
-                                    </ul>
+                                            </div>
+                                    <?php 
+                                        endif; 
+                                    endforeach; 
+                                    
+                                    // Handle "No Sub-Route" entries
+                                    $no_subroute_entry = array_filter($subroutes, fn($r) => $r['sub_route_derived_code'] === 'No Sub-Route');
+                                    $no_subroute_count = !empty($no_subroute_entry) ? $no_subroute_entry[array_key_first($no_subroute_entry)]['sub_route_count'] : 0;
+                                    
+                                    if ($no_subroute_count > 0 || !$subroute_found): 
+                                    ?>
+                                        <div class="bg-white/50 p-2.5 rounded-lg border border-gray-300 border-dashed flex justify-between items-center opacity-70">
+                                            <div class="flex flex-col">
+                                                <span class="text-xs font-medium text-gray-500 italic">Direct / Other</span>
+                                                <span class="text-[9px] text-gray-400">Unspecified</span>
+                                            </div>
+                                            <span class="flex items-center justify-center w-6 h-6 bg-gray-200 text-gray-500 text-[10px] font-bold rounded-full border border-gray-300">
+                                                <?php echo $no_subroute_count; ?>
+                                            </span>
+                                        </div>
+                                    <?php endif; ?>
                                 </div>
-                            <?php endforeach; ?>
-                            
-                        <?php endif; ?>
-                    </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
-            </div>
+            <?php endif; ?>
         </div>
     </div>
-
-<div id="toast-container"></div>
+</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('routeSearchInput');
     const container = document.getElementById('routeSummaryContainer');
-    // Get all route items once on page load
     const routeItems = container.querySelectorAll('.route-item');
     
-    // Create the "No results" message element
-    const noResultsMessage = document.createElement('p');
-    noResultsMessage.textContent = 'No routes found matching your search criteria.';
-    noResultsMessage.className = 'text-lg text-red-500 mt-4 hidden';
+    // No results message setup
+    const noResultsMessage = document.createElement('div');
+    noResultsMessage.innerHTML = `
+        <div class="flex flex-col items-center justify-center mt-20 text-gray-400">
+            <i class="fas fa-search-minus text-5xl mb-4 text-gray-300"></i>
+            <p class="text-lg font-medium">No routes found matching your search.</p>
+        </div>`;
+    noResultsMessage.className = 'hidden';
     noResultsMessage.id = 'noResults';
     container.appendChild(noResultsMessage);
 
-    // Function to filter the route blocks
     function filterRoutes() {
         const searchText = searchInput.value.trim().toUpperCase();
         let found = false;
 
         routeItems.forEach(item => {
-            // Get the route code from the data attribute
+            // Get Route Code
             const routeCode = item.getAttribute('data-route-code').toUpperCase();
-            
-            // Show the item if its route code CONTAINS the search text
-            if (routeCode.includes(searchText)) {
-                item.style.display = 'block';
+            // Get Route Name (Description) - Handle nulls safely
+            const routeNameAttr = item.getAttribute('data-route-name');
+            const routeName = routeNameAttr ? routeNameAttr.toUpperCase() : "";
+
+            // Check if Search Text is inside Route Code OR Route Name
+            if (routeCode.includes(searchText) || routeName.includes(searchText)) {
+                item.style.display = ''; // Show
                 found = true;
             } else {
-                item.style.display = 'none';
+                item.style.display = 'none'; // Hide
             }
         });
 
-        // Toggle the "No results" message based on the search
         if (found) {
             noResultsMessage.classList.add('hidden');
         } else {
@@ -318,7 +355,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Attach the filter function to the 'input' event (updates on every key stroke)
     searchInput.addEventListener('input', filterRoutes);
 });
 </script>
@@ -327,15 +363,8 @@ document.addEventListener('DOMContentLoaded', function() {
 </html>
 
 <?php 
-// Close the statement and connection at the very end
-if (isset($result_route_summary)) {
-    $result_route_summary->free(); 
-}
-if (isset($result_subroute_summary)) {
-    $result_subroute_summary->free(); 
-}
-if (isset($result_capacity_and_name)) { // Changed variable name
-    $result_capacity_and_name->free(); 
-}
+if (isset($result_route_summary)) { $result_route_summary->free(); }
+if (isset($result_subroute_summary)) { $result_subroute_summary->free(); }
+if (isset($result_capacity_and_name)) { $result_capacity_and_name->free(); }
 $conn->close(); 
 ?>

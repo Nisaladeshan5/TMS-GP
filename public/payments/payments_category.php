@@ -30,41 +30,51 @@ if ($max_payments_result && $max_payments_result->num_rows > 0) {
     $db_max_year = (int)($max_data['max_year'] ?? 0);
 }
 
-// B. Calculate the STARTING point for the dropdowns (Month after the Max Payment)
+// B. Calculate the LIMIT point (The month AFTER the last payment)
+// This tells us where to STOP the dropdown (don't show already paid months)
 $start_month = 0;
 $start_year = 0;
 
 if ($db_max_month === 0 && $db_max_year === 0) {
-    // Case 1: No data in the table, start from the current month/year
-    $start_month = (int)date('n');
-    $start_year = (int)date('Y');
+    // Case 1: No data in the table, limit is open (0)
+    $start_month = 1;
+    $start_year = 0; 
 } elseif ($db_max_month == 12) {
-    // Case 2: Max month is December, start from January of the next year
+    // Case 2: Max month is December, limit starts next year Jan
     $start_month = 1;        
     $start_year = $db_max_year + 1; 
 } else {
-    // Case 3: Start from the next month in the same year
+    // Case 3: Limit starts next month
     $start_month = $db_max_month + 1;
     $start_year = $db_max_year;
 }
 
-// C. Determine the CURRENT (ENDING) point for the dropdowns
+// C. Determine the CURRENT point (Today)
 $current_month = (int)date('n');
 $current_year = (int)date('Y');
-
-// D. Set the variables for the HTML loops
-$year_loop_start = $current_year;
-$year_loop_end = $start_year; 
-$month_loop_end = $current_month;
 
 
 // =======================================================================
 // 2. HELPER FUNCTIONS & SETUP
 // =======================================================================
 
-// Get selected month and year, default to current month/year
-$selected_month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
-$selected_year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
+// --- [CHANGED] NEW LOGIC FOR HANDLING SINGLE DROPDOWN INPUT ---
+$selected_month = (int)date('m');
+$selected_year = (int)date('Y');
+
+// Check if 'month_year' is passed (e.g., "2025-12")
+if (isset($_GET['month_year']) && !empty($_GET['month_year'])) {
+    $parts = explode('-', $_GET['month_year']);
+    if (count($parts) == 2) {
+        $selected_year = (int)$parts[0];
+        $selected_month = (int)$parts[1];
+    }
+} elseif (isset($_GET['month']) && isset($_GET['year'])) {
+    // Fallback for old links or manual URL typing
+    $selected_month = (int)$_GET['month'];
+    $selected_year = (int)$_GET['year'];
+}
+// -------------------------------------------------------------
 
 $payment_data = [];
 
@@ -353,15 +363,16 @@ include('../../includes/navbar.php');
             <a href="factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
             <a href="factory/sub/sub_route_payments.php" class="hover:text-yellow-600">Sub Route</a>
             <a href="DH/day_heldup_payments.php" class="hover:text-yellow-600">Day Heldup</a>
-            <a href="" class="hover:text-yellow-600">Night Heldup</a>
+            <a href="NH/nh_payments.php" class="hover:text-yellow-600">Night Heldup</a>
             <a href="night_emergency_payment.php" class="hover:text-yellow-600">Night Emergency</a>
-            <a href="" class="hover:text-yellow-600">Extra Vehicle</a>
+            <a href="EV/ev_payments.php" class="hover:text-yellow-600">Extra Vehicle</a>
             <a href="own_vehicle_payments.php" class="hover:text-yellow-600">Fuel Allowance</a>
+            <a href="all_payments_summary.php" class="hover:text-yellow-600">Summary</a>
         </div>
     </div>
     
-    <main class="w-[85%] ml-[15%] p-4 mt-[1%]">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 mt-4">
+    <main class="w-[85%] ml-[15%] p-4 mt-[2%]">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2">
             <h2 class="text-3xl font-extrabold text-gray-800 mb-4 sm:mb-0"><?php echo htmlspecialchars($page_title); ?></h2>
             
             <div class="w-full sm:w-auto">
@@ -372,44 +383,45 @@ include('../../includes/navbar.php');
                         <i class="fas fa-download"></i>
                     </a>
                     
-                    <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="month" id="month" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
+                    <div class="relative border border-gray-300 rounded-lg shadow-sm min-w-[200px]">
+                        <select name="month_year" id="month_year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
                             <?php 
-                            // Dynamic Month Dropdown Logic
-                            $min_month_to_show = 1;
-                            if ($start_year == $selected_year) {
-                                $min_month_to_show = $start_month;
-                            }
-                            if ($selected_year < $start_year) {
-                                $min_month_to_show = 13; 
-                            }
+                            // 1. Start from Today
+                            $loop_curr_year = $current_year;
+                            $loop_curr_month = $current_month;
 
-                            $max_month_to_show = 12;
-                            if ($selected_year == $current_year) {
-                                $max_month_to_show = $month_loop_end;
-                            }
+                            // 2. Stop at the Start Date (History Limit)
+                            // If no history exists (start_year=0), show last 24 months default
+                            $limit_year = ($start_year > 0) ? $start_year : $current_year - 2;
+                            $limit_month = ($start_year > 0) ? $start_month : 1;
 
-                            for ($m = $min_month_to_show; $m <= $max_month_to_show; $m++): 
+                            // 3. Loop Backwards
+                            while (true) {
+                                // Break conditions
+                                if ($loop_curr_year < $limit_year) break;
+                                if ($loop_curr_year == $limit_year && $loop_curr_month < $limit_month) break;
+
+                                // Format Value: YYYY-MM
+                                $option_value = sprintf('%04d-%02d', $loop_curr_year, $loop_curr_month);
+                                // Format Label: Month Year
+                                $option_label = date('F Y', mktime(0, 0, 0, $loop_curr_month, 10, $loop_curr_year));
+                                
+                                $is_selected = ($selected_year == $loop_curr_year && $selected_month == $loop_curr_month) ? 'selected' : '';
+                                ?>
+                                
+                                <option value="<?php echo $option_value; ?>" <?php echo $is_selected; ?>>
+                                    <?php echo $option_label; ?>
+                                </option>
+
+                                <?php
+                                // Decrement Month
+                                $loop_curr_month--;
+                                if ($loop_curr_month == 0) {
+                                    $loop_curr_month = 12;
+                                    $loop_curr_year--;
+                                }
+                            }
                             ?>
-                                <option value="<?php echo sprintf('%02d', $m); ?>" <?php echo ($selected_month == $m) ? 'selected' : ''; ?>>
-                                    <?php echo date('F', mktime(0, 0, 0, $m, 10)); ?>
-                                </option>
-                            <?php endfor; ?>
-                        </select>
-                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                            <i class="fas fa-chevron-down text-sm"></i>
-                        </div>
-                    </div>
-                    
-                    <div class="relative border border-gray-300 rounded-lg shadow-sm">
-                        <select name="year" id="year" class="w-full pl-3 pr-10 py-2 text-base rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none bg-white">
-                            <?php 
-                            // Dynamic Year Dropdown Logic
-                            for ($y=$year_loop_start; $y>=$year_loop_end; $y--): ?>
-                                <option value="<?php echo $y; ?>" <?php echo ($selected_year == $y) ? 'selected' : ''; ?>>
-                                    <?php echo $y; ?>
-                                </option>
-                            <?php endfor; ?>
                         </select>
                         <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
                             <i class="fas fa-chevron-down text-sm"></i>

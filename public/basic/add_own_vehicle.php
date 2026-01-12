@@ -128,7 +128,7 @@ $vehicle_types = ['Car', 'Van', 'Motorbike', 'Other'];
                     </div>
                     <div>
                         <label for="consumption" class="block text-sm font-medium text-gray-700">Fuel Efficiency (L/100km)</label>
-                        <input type="number" step="0.01" id="consumption" name="consumption" required 
+                        <input type="number" step="0.01" min="0" id="consumption" name="consumption" required 
                             class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2" 
                             placeholder="e.g., 8.5 (Liters per 100km)">
                     </div>
@@ -149,7 +149,7 @@ $vehicle_types = ['Car', 'Van', 'Motorbike', 'Other'];
                     </div>
                     <div>
                         <label for="distance" class="block text-sm font-medium text-gray-700">Daily Base Distance (km)</label>
-                        <input type="number" step="0.01" id="distance" name="distance" required 
+                        <input type="number" step="0.01" min="0" id="distance" name="distance" required 
                             class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2" 
                             placeholder="e.g., 50.5 (Daily base travel)">
                     </div>
@@ -216,10 +216,17 @@ $vehicle_types = ['Car', 'Van', 'Motorbike', 'Other'];
                         if (element.value.trim() === '') {
                             allFieldsFilled = false;
                         } 
-                        // Additionally check that distance and consumption are > 0
-                        if ((element.id === 'distance' || element.id === 'consumption') && parseFloat(element.value) <= 0) {
+                        
+                        // Distance validation: Can be 0, but cannot be negative (< 0)
+                        if (element.id === 'distance' && parseFloat(element.value) < 0) {
                             allFieldsFilled = false;
                         }
+
+                        // Consumption validation: Can be 0, but cannot be negative (< 0)
+                        if (element.id === 'consumption' && parseFloat(element.value) < 0) {
+                            allFieldsFilled = false;
+                        }
+
                     } else if (element.value.trim() === '') {
                         allFieldsFilled = false;
                     }

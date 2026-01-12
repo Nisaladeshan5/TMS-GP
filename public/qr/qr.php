@@ -1,48 +1,82 @@
 <?php
-// Start the session if it hasn't been started already (Best Practice)
+// Start the session if it hasn't been started already
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-
-// Check if the user is logged in. This relies on $_SESSION['loggedin'] being set.
-// *** You must ensure your login process sets this variable: $_SESSION['loggedin'] = true; ***
-// $is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
 
 // Include necessary files
 include('../../includes/db.php');
 include('../../includes/header.php');
 include('../../includes/navbar.php'); 
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Button Navigation</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <title>QR Scanners</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    
+    <style>
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
 </head>
-<body class="bg-gray-100" >
+<body class="bg-gray-50">
 
-    <div class="h-screen flex justify-center items-center w-[85%] ml-[15%]">
-        <div class="w-3xl text-center p-6 bg-white rounded-xl shadow-lg">
+    <div class="min-h-screen w-[85%] ml-[15%] p-10 flex flex-col justify-center items-center">
+        
+        <div class="text-center mb-10 fade-in">
+            <h2 class="text-4xl font-extrabold text-gray-800 tracking-tight">
+                <span class="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+                    QR Code Scanners
+                </span>
+            </h2>
+            <p class="text-gray-500 mt-2 font-medium">Select a module to start scanning</p>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-8 w-full max-w-4xl fade-in">
             
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6 ">
-                <a href="staff/barcode_reader.php" class="bg-blue-500 text-white py-12 px-10 rounded-lg text-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl font-semibold">Staff transport vehicle Scanner</a>
-                <a href="factory/f_barcode_reader.php" class="bg-gray-500 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Factory transport vehicle Scanner</a>
-                <!-- <a href="public/registers/DH/day_heldup_register.php" class="bg-green-500 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Day time vehicle register</a> -->
-                <!-- <a href="" class="bg-red-500 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Night time vehicle register</a> -->
-                <a href="NE/night_emergency_barcode.php" class="bg-yellow-500 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Night emergency vehicle Scanner</a>
-                <!-- <a href="public/registers/extra_vehicle.php" class="bg-teal-500 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Extra vehicle register</a> -->
+            <a href="staff/barcode_reader.php" 
+               class="group relative overflow-hidden bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-4 border border-white/10">
+                <div class="p-5 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                    <i class="fas fa-qrcode text-4xl"></i>
+                </div>
+                <span class="text-2xl font-bold text-white tracking-wide">Staff Transport Scanner</span>
+                <div class="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+            </a>
 
-                
-                <!-- <a href="public/registers/petty_cash.php" class="bg-[oklch(60.6%_0.25_292.717)] text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Petty cash</a> -->
-                <a href="manager/add_own_vehicle_extra_qr.php" class="bg-green-800 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Manager Vehicle Scanner</a>
-                <!-- <a href="public/registers/varification.php" class="bg-pink-800 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Varification</a> -->
-                
-                
-            </div>
+            <a href="factory/f_barcode_reader.php" 
+               class="group relative overflow-hidden bg-gradient-to-br from-gray-600 to-gray-700 rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-4 border border-white/10">
+                <div class="p-5 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                    <i class="fas fa-truck-loading text-4xl"></i>
+                </div>
+                <span class="text-2xl font-bold text-white tracking-wide">Factory Transport Scanner</span>
+                <div class="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+            </a>
+
+            <a href="NE/night_emergency_barcode.php" 
+               class="group relative overflow-hidden bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-4 border border-white/10">
+                <div class="p-5 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                    <i class="fas fa-ambulance text-4xl"></i>
+                </div>
+                <span class="text-2xl font-bold text-white tracking-wide">Night Emergency Scanner</span>
+                <div class="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+            </a>
+
+            <a href="manager/own_vehicle_attendance_qr.php" 
+               class="group relative overflow-hidden bg-gradient-to-br from-green-600 to-green-700 rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-4 border border-white/10">
+                <div class="p-5 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                    <i class="fas fa-user-tie text-4xl"></i>
+                </div>
+                <span class="text-2xl font-bold text-white tracking-wide">Manager Vehicle Scanner</span>
+                <div class="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+            </a>
+
         </div>
     </div>
+
 </body>
 </html>

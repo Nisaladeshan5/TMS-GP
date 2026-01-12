@@ -140,9 +140,6 @@ while ($row = $result->fetch_assoc()) {
 $stmt->close();
 $conn->close();
 
-// Includes moved here to ensure $conn is closed before they run
-// NOTE: These includes must handle a user being logged out.
-// For the navbar, you may need a separate check inside navbar.php.
 include('../../../includes/header.php');
 include('../../../includes/navbar.php');
 ?>
@@ -179,182 +176,208 @@ include('../../../includes/navbar.php');
     .reason-modal-content, .complete-modal-content {
         background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 800px; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
     }
+    /* Scrollbar for table */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
 </style>
 <body class="bg-gray-100 ">
 
-<div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
-    <div class="text-lg font-semibold ml-3">Registers</div>
-    <div class="flex gap-4">
-        <a href="dh_attendance.php" class="hover:text-yellow-600">Attendance</a>
+<div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Day Heldup Register
+        </div>
+    </div>
+
+    <div class="flex items-center gap-4 text-sm font-medium">
+        
+        <div class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
+        <a href="?date=<?php echo date('Y-m-d', strtotime($filterDate . ' -1 day')); ?>" 
+           class="p-2 text-gray-400 hover:text-white hover:bg-gray-600 rounded-md transition duration-150" 
+           title="Previous Day">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+        </a>
+
+        <form method="GET" class="flex items-center mx-1">
+            <input type="date" name="date" 
+                   value="<?php echo htmlspecialchars($filterDate); ?>" 
+                   onchange="this.form.submit()" 
+                   class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer text-center w-32 appearance-none">
+        </form>
+
+        <a href="?date=<?php echo date('Y-m-d', strtotime($filterDate . ' +1 day')); ?>" 
+           class="p-2 text-gray-400 hover:text-white hover:bg-gray-600 rounded-md transition duration-150" 
+           title="Next Day">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+        </a>
+    </div>
+
+        <span class="text-gray-600">|</span>
+
+        <a href="dh_attendance.php" class="text-gray-300 hover:text-white transition">Attendance</a>
+
         <?php if ($can_act): ?>
-            <a href="day_heldup_add.php" class="hover:text-yellow-600">Add Trip</a>
+            <a href="day_heldup_add.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+                Add Trip
+            </a>
         <?php endif; ?>
-        <?php if (!$can_act): // Allow unprivileged users to see the add trip link if not an admin ?>
-            <a href="day_heldup_add_trip.php" class="hover:text-yellow-600">Add Trip</a>
+        
+        <?php if (!$can_act): ?>
+            <a href="day_heldup_add_trip.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+                Add Trip
+            </a>
         <?php endif; ?>
-          
 
     </div>
 </div>
 
-<div class="w-[85%] ml-[15%] " style="display: flex; flex-direction: column; align-items: center;">
-    <p class="text-[32px] font-bold text-gray-800 mt-2">Day Heldup Trip Register</p>
-
-    <form method="GET" class="mb-6 flex justify-center">
-        <div class="flex items-center">
-            <label for="date" class="text-lg font-medium mr-2">Filter by Date:</label>
-            <input type="date" id="date" name="date" class="border border-gray-300 p-2 rounded-md"
-                    value="<?php echo htmlspecialchars($filterDate); ?>" required>
-            <button type="submit" class="bg-blue-500 text-white px-3 py-2 rounded-md ml-2 hover:bg-blue-600">Filter</button>
-        </div>
-    </form>
-
-    <div class="overflow-x-auto bg-white shadow-md rounded-md mb-6">
-        <table class="w-full table-auto p-2">
+<div class="w-[85%] ml-[15%] p-2 mt-1">
+    
+    <div class="overflow-x-auto bg-white shadow-lg rounded-lg border border-gray-200">
+        <table class="w-full table-auto">
             <thead class="bg-blue-600 text-white text-sm">
                 <tr>
-                    <th class="px-4 py-2 text-left">Trip ID</th>
-                    <th class="px-4 py-2 text-left">Vehicle No</th>
-                    <th class="px-4 py-2 text-left">Op Code</th>
-                    <th class="px-4 py-2 text-left">Out Time</th>
-                    <th class="px-4 py-2 text-left">In Time</th>
-                    <th class="px-4 py-2 text-right">Distance (km)</th>
-                    <th class="px-4 py-2 text-left">Employees (Count)</th>
-                    <th class="px-4 py-2 text-left">Done By</th>
-                    <th class="px-4 py-2 text-center">Reasons</th>
-                    <th class="px-4 py-2 text-center" style="min-width: 150px;">Action</th>
+                    <th class="px-4 py-3 text-left">Trip ID</th>
+                    <th class="px-4 py-3 text-left">Vehicle No</th>
+                    <th class="px-4 py-3 text-left">Op Code</th>
+                    <th class="px-4 py-3 text-left">Out Time</th>
+                    <th class="px-4 py-3 text-left">In Time</th>
+                    <th class="px-4 py-3 text-right">Distance (km)</th>
+                    <th class="px-4 py-3 text-left">Employees</th>
+                    <th class="px-4 py-3 text-left">Done By</th>
+                    <th class="px-4 py-3 text-center">Reasons</th>
+                    <th class="px-4 py-3 text-center" style="min-width: 150px;">Action</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody class="text-sm">
                 <?php
                 if (empty($heldup_records)) {
-                    // Colspan is now fixed at 10 (since the Action column is always visible)
-                    echo "<tr><td colspan='10' class='border px-4 py-2 text-center text-gray-500'>No Day Heldup Trip records available for " . htmlspecialchars($filterDate) . ".</td></tr>";
+                    echo "<tr><td colspan='10' class='px-6 py-4 text-center text-gray-500'>
+                            No Day Heldup Trip records available for " . htmlspecialchars($filterDate) . ".
+                          </td></tr>";
                 } else {
                     foreach ($heldup_records as $entry) {
                         
                         $is_done = $entry['heldup_done_status'] == 1;
                         $employee_count = (int)$entry['employee_count'];
                         $trip_id = $entry['trip_id'];
-                        $trip_user_id = $entry['user_id']; // Integer ID of the user who completed the trip
+                        $trip_user_id = $entry['user_id']; 
                         $trip_user_id_is_null = $entry['user_id'] === 0 && $entry['done_by_user_display'] === null; 
 
-                        $status_text = $is_done ? 'DONE' : 'PENDING';
-                        $row_class = $is_done ? 'heldup-done' : 'heldup-pending';
+                        // Determine row color
+                        $row_class = $is_done ? 'bg-green-50 hover:bg-green-100' : 'bg-red-50 hover:bg-red-100';
+                        // Status badge (optional visual helper)
+                        $status_badge = $is_done 
+                            ? '<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-200 text-green-800">DONE</span>' 
+                            : '<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-200 text-red-800">PENDING</span>';
                         
                         $out_time = htmlspecialchars($entry['out_time'] ?? '---');
                         $in_time = htmlspecialchars($entry['in_time'] ?? '---');
                         $distance = number_format($entry['distance'] ?? 0, 2);
                         
-                        // FIX: Ensure $done_by_display is always defined
                         $done_by_display = htmlspecialchars($entry['done_by_user_display'] ?? '---');
                         
-                        // Check ownership/permissions
-                        // $is_owner is TRUE if the current logged-in user (ID) matches the user_id saved on the trip record.
+                        // Permissions
                         $is_owner = ($current_session_user_id !== 0 && $current_session_user_id === $trip_user_id);
-                        $is_super_admin = $user_role === 'super admin' || $user_role === 'developer';
-                        
                         $can_edit_done_distance = $is_owner; 
                         
-                        // Render Row
-                        echo "<tr class='{$row_class}'>
-                            <td class='border px-4 py-2'>{$trip_id}</td>
-                            <td class='border px-4 py-2'>{$entry['vehicle_no']}</td>
-                            <td class='border px-4 py-2'>{$entry['op_code']}</td>
-                            <td class='border px-4 py-2'>{$out_time}</td>
-                            <td class='border px-4 py-2'>{$in_time}</td>
-                            <td class='border px-4 py-2 text-right'>{$distance}</td>
-                            <td class='border px-4 py-2'>{$employee_count}</td>
-                            <td class='border px-4 py-2 text-sm'>{$done_by_display}</td>
+                        echo "<tr class='{$row_class} border-b border-gray-100 transition duration-150'>
+                            <td class='px-4 py-3 font-medium text-gray-700'>{$trip_id}</td>
+                            <td class='px-4 py-3'>{$entry['vehicle_no']}</td>
+                            <td class='px-4 py-3'>{$entry['op_code']}</td>
+                            <td class='px-4 py-3'>{$out_time}</td>
+                            <td class='px-4 py-3'>{$in_time}</td>
+                            <td class='px-4 py-3 text-right font-mono'>{$distance}</td>
+                            <td class='px-4 py-3 text-center'>
+                                <span class='bg-gray-200 text-gray-700 py-0.5 px-2 rounded-full text-xs font-bold'>{$employee_count}</span>
+                            </td>
+                            <td class='px-4 py-3 text-xs text-gray-600'>{$done_by_display}</td>
                             
-                            <td class='border px-4 py-2 text-center'>
+                            <td class='px-4 py-3 text-center'>
                                 <button data-trip-id='{$trip_id}' 
-                                        class='view-reasons-btn bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-1 px-2 rounded text-xs'>
+                                        class='view-reasons-btn bg-indigo-100 hover:bg-indigo-200 text-indigo-700 p-1.5 rounded-full transition' title='View Reasons'>
                                     <i class='fas fa-eye'></i>
                                 </button>
                             </td>";
 
-                        // ACTION CELL (Always visible now since session lock is removed)
-                        echo "<td class='border px-4 py-2 text-center space-x-1'>";
+                        echo "<td class='px-4 py-3 text-center flex justify-center gap-1'>";
                         
                         if ($is_done) {
-                            // DONE Trip Logic (ONLY owner can edit distance, and ONLY if logged in - enforced by $is_owner)
-                            
+                            // DONE Actions
                             if ($can_edit_done_distance) {
-                                // Action 1: Completed BY THIS USER - Allow distance edit
                                 echo "<button data-trip-id='{$trip_id}' 
-                                            data-distance='{$distance}'
-                                            class='edit-distance-btn bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded text-xs'>
-                                            <i class='fas fa-pencil-alt'></i>
-                                        </button>";
+                                              data-distance='{$distance}'
+                                              class='edit-distance-btn bg-blue-500 hover:bg-blue-600 text-white p-1.5 rounded-md text-xs shadow-sm transition' title='Edit Distance'>
+                                        <i class='fas fa-pencil-alt'></i>
+                                      </button>";
                             } else {
-                                // Completed by OTHERS - No action allowed
-                                echo "---"; 
+                                echo "<span class='text-gray-400 text-xs italic'>Locked</span>"; 
                             }
                         } else {
-                            // PENDING ACTIONS (done = 0)
+                            // PENDING Actions
                             $in_time_is_null = empty($entry['in_time']) || $entry['in_time'] === '---';
                             
-                            // 1. Set In Time Button (If In Time is NULL) - **LOGGED OUT ONLY**
+                            // Set In Time (Logged Out Only)
                             if ($in_time_is_null) {
-                                // NEW RULE IMPLEMENTED HERE: Show Set In Time ONLY if trip is UNCLAIMED AND user is NOT logged in
                                 if ($trip_user_id === 0 && !$is_logged_in) { 
                                     echo "<button data-trip-id='{$trip_id}' 
-                                                class='set-in-time-btn bg-yellow-800 hover:bg-yellow-900 text-white font-bold py-1 px-2 rounded text-xs mr-1'>
-                                                <i class='fas fa-clock'></i>
-                                            </button>";
+                                                  class='set-in-time-btn bg-yellow-600 hover:bg-yellow-700 text-white p-1.5 rounded-md text-xs shadow-sm transition' title='Set In Time'>
+                                            <i class='fas fa-clock'></i>
+                                          </button>";
                                 } 
                             } 
                             
-                            // --- LOGGED IN USER ACTIONS (ALL OTHER ACTIONS) ---
+                            // Logged In Actions
                             if ($is_logged_in) {
-
-                                // Delete Button logic setup (Moved inside the logged-in check)
+                                // Delete Logic
                                 $show_delete = false;
                                 $delete_security_type = '';
 
-                                if ($trip_user_id === 0) { // Unclaimed trip
+                                if ($trip_user_id === 0) { 
                                     $show_delete = true;
-                                    $delete_security_type = 'PIN_REQUIRED'; // Requires PIN for anyone with access
-                                } elseif ($is_owner) { // Claimed by current user
+                                    $delete_security_type = 'PIN_REQUIRED';
+                                } elseif ($is_owner) { 
                                     $show_delete = true;
                                     $delete_security_type = 'OWNER';
                                 }
 
-                                // 2. Complete Trip Button (If In Time is SET)
-                                
-                                    // Can complete if owner OR if unclaimed (user_id === 0)
+                                // Complete Trip
                                 $can_complete = ($trip_user_id >= 0); 
-                                    
                                 if ($can_complete) {
                                     echo "<button data-trip-id='{$trip_id}' 
-                                                data-op-code='{$entry['op_code']}'
-                                                class='complete-trip-btn bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs'>
-                                                <i class='fas fa-check'></i>
-                                            </button>";
+                                                  data-op-code='{$entry['op_code']}'
+                                                  class='complete-trip-btn bg-green-500 hover:bg-green-600 text-white p-1.5 rounded-md text-xs shadow-sm transition' title='Complete Trip'>
+                                            <i class='fas fa-check'></i>
+                                          </button>";
                                 }
                                 
-                                // 3. Edit Reasons Link (Available if trip is pending, usually only to Admins/Managers)
+                                // Edit Reasons
                                 if ($can_act) { 
                                     echo "<a href='day_heldup_process.php?trip_id={$trip_id}&action=edit_reasons' 
-                                            class='bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-2 rounded text-xs'>
+                                             class='bg-yellow-500 hover:bg-yellow-600 text-white p-1.5 rounded-md text-xs shadow-sm transition block' title='Edit Reasons'>
                                             <i class='fas fa-edit'></i>
-                                        </a>";
+                                          </a>";
                                 }
 
-
-                                // 4. Delete Button
+                                // Delete Button
                                 if ($show_delete) {
                                    echo "<button data-trip-id='{$trip_id}' 
-                                                data-security-type='{$delete_security_type}'
-                                                class='delete-trip-btn bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs mr-1'>
-                                                <i class='fas fa-trash-alt'></i>
-                                            </button>";
+                                                 data-security-type='{$delete_security_type}'
+                                                 class='delete-trip-btn bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-md text-xs shadow-sm transition' title='Delete Trip'>
+                                            <i class='fas fa-trash-alt'></i>
+                                         </button>";
                                 }
-                            } // End if ($is_logged_in)
+                            } // End logged in
                         }
-                        echo "</td>"; // Close Action Cell
-                        echo "</tr>"; // Close Row
+                        echo "</td>"; 
+                        echo "</tr>";
                     }
                 }
                 ?>
@@ -442,7 +465,7 @@ include('../../../includes/navbar.php');
             </div>
         </form>
     </div>
-
+</div>
 
 <script>
     // Global variables for modals/forms

@@ -213,7 +213,7 @@ include('../../includes/navbar.php');
 <body class="bg-gray-100 font-sans">
 
 <div class="w-[85%] ml-[15%]">
-    <div class="w-2xl p-6 md:p-10 bg-white shadow-lg rounded-lg mt-10 mx-auto">
+    <div class="max-w-4xl p-6 md:p-10 bg-white shadow-lg rounded-lg mt-10 mx-auto">
         <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-6 pb-2 flex justify-between items-center">
             Route Details: <?= htmlspecialchars($route_data['route_code']) ?>
             <span class="text-sm font-semibold py-1 px-3 rounded-full <?= $status_color_class ?> text-white"><?= $status_text ?></span>

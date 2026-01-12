@@ -22,16 +22,13 @@ ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
 // --- New Database Function: Get Pending Count ---
-function get_pending_trip_count($conn) { // Month and Year parameters removed
-    // *** MODIFICATION: Removed date filters ***
+function get_pending_trip_count($conn) { 
     $sql = "SELECT COUNT(id) FROM own_vehicle_extra WHERE done = 0"; 
     $stmt = $conn->prepare($sql);
     if ($stmt === false) {
         error_log("Pending Count Prepare Failed: " . $conn->error);
         return 0;
     }
-    
-    // $stmt->bind_param("ii", $month, $year); // Bind params removed
     $stmt->execute();
     $stmt->bind_result($count);
     $stmt->fetch();
@@ -106,8 +103,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['complete_trip']) && i
 $filter_month = isset($_GET['month']) ? $_GET['month'] : date('m');
 $filter_year = isset($_GET['year']) ? $_GET['year'] : date('Y'); 
 
-// Fetch the total pending count for the selected month/year
-$pending_count = get_pending_trip_count($conn, $filter_month, $filter_year);
+// Fetch the total pending count
+$pending_count = get_pending_trip_count($conn);
 
 // Base SQL query (UNCHANGED)
 $sql = "
@@ -169,6 +166,7 @@ $months = [
     '01' => 'January', '02' => 'February', '03' => 'March', '04' => 'April', '05' => 'May', '06' => 'June',
     '07' => 'July', '08' => 'August', '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
 ];
+$current_year_sys = date('Y');
 
 include('../../../includes/header.php');
 include('../../../includes/navbar.php');
@@ -180,192 +178,175 @@ include('../../../includes/navbar.php');
     <meta charset="UTF-8">
     <title>Own Vehicle Extra Travel Register</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         /* Toast Notification Styling */
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-        }
-        .toast {
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            color: white;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-            min-width: 250px;
-        }
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; min-width: 250px; }
         .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
-        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
         
         /* Modal Styling */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            display: none; 
-            justify-content: center;
-            align-items: center;
-            z-index: 3000;
-        }
-        .modal-content {
-            background-color: white;
-            padding: 2rem;
-            border-radius: 0.5rem;
-            width: 90%;
-            max-width: 400px;
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
-        }
-        /* Style for the fixed count badge relative to the container */
-        /* .count-badge {
-            position: absolute;
-            top: -15px; /* Adjust vertical position above the table box */
-            right: 10px;
-            z-index: 10;
-        } */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); display: none; justify-content: center; align-items: center; z-index: 3000; }
+        .modal-content { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 400px; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2); }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
     </style>
 </head>
 <body class="bg-gray-100">
 
-<div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
-    <div class="text-lg font-semibold ml-3">Registers</div>
-    <div class="flex gap-4"> 
-        <?php if ($is_logged_in): ?>
-            <a href="add_own_vehicle_extra.php" class="hover:text-yellow-600">Add Extra Record</a>
-        <?php endif; ?>
+<div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="own_vehicle_attendance.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+                Own Vehicle Register
+            </a>
+
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                Extra
+            </span>
+        </div>
     </div>
+
+    <div class="flex items-center gap-4 text-sm font-medium">
+        
+        <?php if ($pending_count > 0): ?>
+            <div class="bg-red-600 text-white px-3 py-1 rounded-full shadow-lg text-xs font-bold animate-pulse flex items-center gap-1">
+                <i class="fas fa-exclamation-circle"></i> PENDING: <?php echo $pending_count; ?>
+            </div>
+        <?php endif; ?>
+
+        <form method="GET" action="" class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
+            
+            <select name="month" onchange="this.form.submit()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-1 appearance-none hover:text-yellow-200 transition">
+                <?php foreach ($months as $num => $name): 
+                    $selected = ($num == $filter_month) ? 'selected' : '';
+                ?>
+                    <option value="<?php echo $num; ?>" <?php echo $selected; ?> class="text-gray-900 bg-white">
+                        <?php echo $name; ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            
+            <span class="text-gray-400 mx-1">|</span>
+
+            <select name="year" onchange="this.form.submit()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-1 pr-2 appearance-none hover:text-yellow-200 transition">
+                <?php 
+                for ($y = $current_year_sys; $y >= 2020; $y--): 
+                    $selected = ($y == $filter_year) ? 'selected' : '';
+                ?>
+                    <option value="<?php echo $y; ?>" <?php echo $selected; ?> class="text-gray-900 bg-white">
+                        <?php echo $y; ?>
+                    </option>
+                <?php endfor; ?>
+            </select>
+
+        </form>
+
+        <span class="text-gray-600">|</span>
+
+        <a href="own_vehicle_attendance.php" class="text-gray-300 hover:text-white transition">Attendance</a>
+        
+        <?php if ($is_logged_in): ?>
+            <a href="add_own_vehicle_extra.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+                Add Extra
+            </a>
+        <?php endif; ?>
+
     </div>
 </div>
 
-<div class="w-[85%] ml-[15%] p-2" style="display: flex; flex-direction: column; align-items: center;">
-    <p class="text-[36px] font-bold text-gray-800 ">Own Vehicle Extra Travel Register</p>
-
-    <form method="GET" action="" class="mb-6 flex justify-center mt-1">
-        <div class="flex items-center">
-            <label for="month" class="text-lg font-medium mr-2">Filter by:</label>
-            
-            <select id="month" name="month" class="border border-gray-300 p-2 rounded-md">
-                <?php
-                foreach ($months as $num => $name) {
-                    $selected = ($num == $filter_month) ? 'selected' : '';
-                    echo "<option value='{$num}' {$selected}>{$name}</option>";
-                }
-                ?>
-            </select>
-            
-            <select id="year" name="year" class="border border-gray-300 p-2 rounded-md ml-2">
-                <?php
-                $current_year = date('Y');
-                for ($y = $current_year; $y >= 2020; $y--) {
-                    $selected = ($y == $filter_year) ? 'selected' : '';
-                    echo "<option value='{$y}' {$selected}>{$y}</option>";
-                }
-                ?>
-            </select>
-
-            <button type="submit" class="bg-blue-500 text-white px-3 py-2 rounded-md ml-2 hover:bg-blue-600">Filter</button>
-            <?php if ($pending_count > 0): ?>
-                <div class="count-badge">
-                    <div class="px-3 py-1 bg-red-600 text-white rounded-full shadow-lg text-sm font-bold ml-2">
-                        PENDING: <?php echo $pending_count; ?>
-                    </div>
-                </div>
-            <?php endif; ?>
-        </div>
-    </form>
+<div class="w-[85%] ml-[15%] p-2 mt-1">
     
-    <div class="relative w-full">
-        <div class="overflow-x-auto bg-white shadow-md rounded-md mb-6 w-full border border-gray-200">
-            <table class="min-w-full table-auto">
-                <thead class="bg-blue-600 text-white">
-                    <tr>
-                        <th class="px-4 py-2 text-left">Employee ID</th>
-                        <th class="px-4 py-2 text-left">Employee Name</th>
-                        <th class="px-4 py-2 text-left">Vehicle No</th>
-                        <th class="px-4 py-2 text-left">Date</th>
-                        <th class="px-4 py-2 text-left">Out Time</th>
-                        <th class="px-4 py-2 text-left">In Time</th>
-                        <th class="px-4 py-2 text-left">Distance (km)</th>
-                        <th class="px-4 py-2 text-left">Done By</th> 
-                        <th class="px-4 py-2 text-left">Action</th> 
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    if ($result->num_rows > 0) {
-                        while ($row = $result->fetch_assoc()) {
-                            
-                            $record_id = htmlspecialchars($row['id']); 
+    <div class="overflow-x-auto bg-white shadow-lg rounded-lg border border-gray-200 w-full mx-auto">
+        <table class="w-full table-auto">
+            <thead class="bg-blue-600 text-white text-sm">
+                <tr>
+                    <th class="px-6 py-3 text-left">Employee ID</th>
+                    <th class="px-6 py-3 text-left">Employee Name</th>
+                    <th class="px-6 py-3 text-left">Vehicle No</th>
+                    <th class="px-6 py-3 text-left">Date</th>
+                    <th class="px-6 py-3 text-left">Out Time</th>
+                    <th class="px-6 py-3 text-left">In Time</th>
+                    <th class="px-6 py-3 text-left">Distance (km)</th>
+                    <th class="px-6 py-3 text-left">Done By</th> 
+                    <th class="px-6 py-3 text-center">Action</th> 
+                </tr>
+            </thead>
+            <tbody class="text-gray-700 divide-y divide-gray-200 text-sm">
+                <?php
+                if ($result->num_rows > 0) {
+                    while ($row = $result->fetch_assoc()) {
+                        
+                        $record_id = htmlspecialchars($row['id']); 
 
-                            // FIX for NULL/Deprecated values
-                            $out_time_display = htmlspecialchars($row['out_time'] ?? '---');
-                            $in_time_display = htmlspecialchars($row['in_time'] ?? '---');
-                            
-                            $distance_display = $row['distance'] !== NULL 
-                                                ? number_format($row['distance'], 2) 
-                                                : '---';
+                        // FIX for NULL/Deprecated values
+                        $out_time_display = htmlspecialchars($row['out_time'] ?? '---');
+                        $in_time_display = htmlspecialchars($row['in_time'] ?? '---');
+                        
+                        $distance_display = $row['distance'] !== NULL 
+                                            ? number_format($row['distance'], 2) 
+                                            : '---';
 
-                            // Determine display value for "Done By" column
-                            $done_by_display = '---';
-                            if ($row['done'] == 1) {
-                                $done_by_name = htmlspecialchars($row['done_by_user_display'] ?? 'N/A');
-                                $done_by_display = "<span class='text-green-600 font-semibold'>{$done_by_name}</span>";
-                            } elseif ($row['done'] == 0) {
-                                $done_by_display = '<span class="text-red-600 font-semibold">Pending</span>';
-                            }
-                            
-                            echo "<tr class='hover:bg-gray-100' id='row-{$record_id}'>";
-                            echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['emp_id']) . "</td>";
-                            echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['calling_name']) . "</td>";
-                            echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['vehicle_no']) . "</td>";
-                            echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['date']) . "</td>";
-                            echo "<td class='border px-4 py-2 out-time-cell-{$record_id}'>" . $out_time_display . "</td>";
-                            echo "<td class='border px-4 py-2 in-time-cell-{$record_id}'>" . $in_time_display . "</td>";
-                            echo "<td class='border px-4 py-2 text-right distance-cell-{$record_id}'>" . $distance_display . "</td>";
-                            
-                            // Display "Done By" column
-                            echo "<td class='border px-4 py-2 done-by-cell-{$record_id}'>{$done_by_display}</td>";
-                            
-                            // Action Button Column
-                            echo "<td class='border px-4 py-2 action-cell-{$record_id}'>";
-                            if ($row['done'] == 0) {
-                                echo "<button data-id='{$record_id}' 
-                                               class='complete-trip-btn bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-3 rounded text-xs transition duration-150'>
-                                        Complete Trip
-                                      </button>";
-                            } else {
-                                echo "---";
-                            }
-                            echo "</td>";
-                            // End Action Column
+                        // Determine display value for "Done By" column
+                        $done_by_display = '---';
+                        $row_bg = 'hover:bg-red-50'; // Default pending highlight
 
-                            echo "</tr>";
+                        if ($row['done'] == 1) {
+                            $done_by_name = htmlspecialchars($row['done_by_user_display'] ?? 'N/A');
+                            $done_by_display = "<span class='text-green-600 font-semibold'>{$done_by_name}</span>";
+                            $row_bg = 'hover:bg-green-50'; // Completed highlight
+                        } elseif ($row['done'] == 0) {
+                            $done_by_display = '<span class="text-red-600 font-semibold">Pending</span>';
                         }
-                    } else {
-                        $month_name = $months[$filter_month] ?? 'Selected Month';
-                        echo "<tr><td colspan='10' class='border px-4 py-2 text-center'>No extra travel records found in {$month_name} {$filter_year}</td></tr>";
+                        
+                        echo "<tr class='{$row_bg} border-b border-gray-100 transition duration-150' id='row-{$record_id}'>";
+                        echo "<td class='px-6 py-3 font-mono text-blue-600 font-medium'>" . htmlspecialchars($row['emp_id']) . "</td>";
+                        echo "<td class='px-6 py-3 font-medium text-gray-800'>" . htmlspecialchars($row['calling_name']) . "</td>";
+                        echo "<td class='px-6 py-3 font-bold uppercase'>" . htmlspecialchars($row['vehicle_no']) . "</td>";
+                        echo "<td class='px-6 py-3'>" . htmlspecialchars($row['date']) . "</td>";
+                        echo "<td class='px-6 py-3 out-time-cell-{$record_id}'>" . $out_time_display . "</td>";
+                        echo "<td class='px-6 py-3 in-time-cell-{$record_id}'>" . $in_time_display . "</td>";
+                        echo "<td class='px-6 py-3 text-left font-mono distance-cell-{$record_id}'>" . $distance_display . "</td>";
+                        
+                        // Display "Done By" column
+                        echo "<td class='px-6 py-3 done-by-cell-{$record_id}'>{$done_by_display}</td>";
+                        
+                        // Action Button Column
+                        echo "<td class='px-6 py-3 action-cell-{$record_id} text-center'>";
+                        if ($row['done'] == 0) {
+                            echo "<button data-id='{$record_id}' 
+                                          class='complete-trip-btn bg-green-500 hover:bg-green-600 text-white font-bold py-1.5 px-3 rounded text-xs shadow-sm transition transform hover:scale-105'>
+                                    Complete
+                                  </button>";
+                        } else {
+                            echo "<span class='text-gray-400 text-xs italic'><i class='fas fa-check'></i> Done</span>";
+                        }
+                        echo "</td>";
+                        
+                        echo "</tr>";
                     }
-                    $stmt->close();
-                    if (isset($conn)) $conn->close();
-                    ?>
-                </tbody>
-            </table>
-        </div>
+                } else {
+                    $month_name = $months[$filter_month] ?? 'Selected Month';
+                    echo "<tr><td colspan='9' class='px-6 py-4 text-center text-gray-500'>
+                            No extra travel records found in {$month_name} {$filter_year}
+                          </td></tr>";
+                }
+                $stmt->close();
+                if (isset($conn)) $conn->close();
+                ?>
+            </tbody>
+        </table>
     </div>
+</div>
 
 <div id="toast-container"></div>
 
@@ -378,20 +359,21 @@ include('../../../includes/navbar.php');
             <div class="mb-6">
                 <label for="distanceInput" class="block text-sm font-medium text-gray-700 mb-1">Distance Traveled (km):</label>
                 <input type="number" step="0.01" min="0" id="distanceInput" required 
-                       class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-indigo-500 focus:border-indigo-500">
+                       class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="0.00">
             </div>
 
             <div class="flex justify-end space-x-3">
                 <button type="button" id="cancelModalBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition">
                     Cancel
                 </button>
-                <button type="submit" id="confirmModalBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">
+                <button type="submit" id="confirmModalBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition shadow">
                     Confirm & Complete
                 </button>
             </div>
         </form>
     </div>
 </div>
+
 <script>
 // Global variables for modal elements
 const modalOverlay = document.getElementById('completeTripModal');
@@ -407,16 +389,13 @@ const loggedInUserId = '<?php echo $logged_in_user_id; ?>'; // Passed from PHP s
 function showToast(message, type) {
     const toastContainer = document.getElementById('toast-container');
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle'; 
+    toast.classList.add('toast', type, 'show');
+    const iconHtml = type === 'success' ? '<i class="fas fa-check-circle mr-2"></i>' : '<i class="fas fa-exclamation-triangle mr-2"></i>';
     
-    toast.innerHTML = `
-        <i class="fas ${iconClass} toast-icon"></i>
-        <span>${message}</span>
-    `;
+    toast.innerHTML = iconHtml + `<span>${message}</span>`;
 
     toastContainer.appendChild(toast);
-    setTimeout(() => toast.classList.add('show'), 10);
+    
     setTimeout(() => {
         toast.classList.remove('show');
         toast.addEventListener('transitionend', () => toast.remove(), { once: true });
@@ -509,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('AJAX Error:', error);
-            showToast('සර්වර් දෝෂයක් හෝ ප්‍රතිචාර දෝෂයක් සිදු විය.', 'error'); 
+            showToast('Server Error.', 'error'); 
         }
     }
 });

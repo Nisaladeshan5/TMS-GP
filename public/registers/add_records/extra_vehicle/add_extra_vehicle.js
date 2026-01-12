@@ -6,88 +6,21 @@ $(document).ready(function() {
     const supplierSelect = $('#supplier_code');
     const vehicleInput = $('#vehicle_no');
     const distanceInput = $('#distance');
-    const amountInput = $('#amount'); // Always readonly now
     const statusSpan = $('#supplier_loading_status');
-    const amountStatusSpan = $('#amount_status'); 
     const acStatusSelect = $('#ac_status'); 
     
     // Get the hidden supplier input
     const hiddenSupplierInput = $('#hidden_supplier_code');
 
-    // Global variables to store the current rate logic
-    let currentRate = 0;
-    let currentCodeType = '';
-
     // --- HELPER FUNCTIONS ---
 
     function clearDetails() {
-        // Clear/re-enable the supplier and amount logic
         supplierSelect.removeClass('bg-gray-200').val(''); 
         hiddenSupplierInput.val('');
-        amountInput.val('0.00'); // Keep amount at 0.00
-        amountStatusSpan.text('');
         statusSpan.addClass('hidden').removeClass('text-green-500 text-red-500');
-        currentRate = 0;
-        currentCodeType = '';
     }
 
-    // *** CALCULATE AMOUNT FUNCTION ***
-    function calculateAmount() {
-        const distance = parseFloat(distanceInput.val()) || 0;
-        let calculatedAmount = 0;
-
-        amountStatusSpan.text('');
-        amountInput.val('0.00'); // Default to 0.00
-
-        if (currentCodeType) { 
-            if (currentRate > 0) {
-                
-                if (distance > 0) {
-                    calculatedAmount = distance * currentRate;
-                    amountInput.val(calculatedAmount.toFixed(2));
-                    
-                    let rateContext = '';
-                    
-                    // Logic to display A/C status based on 1 or 0 value
-                    let acStatusDisplay = '';
-                    if (acStatusSelect.val() === '1') {
-                        acStatusDisplay = ' (A/C)';
-                    } else if (acStatusSelect.val() === '0') {
-                        acStatusDisplay = ' (Non A/C)';
-                    }
-                    
-                    if (currentCodeType === 'Route') {
-                        rateContext = `(Route Base Rate)`;
-                    } else if (currentCodeType === 'Operation') {
-                         rateContext = acStatusDisplay ? `(Op Rate - ${acStatusDisplay.replace(/[\(\)]/g, '')})` : `(Op Rate)`;
-                    }
-
-                    amountStatusSpan.text(`Calculated: ${distance} Km x ${currentRate.toFixed(2)} Rate ${rateContext}`).removeClass('text-red-500').addClass('text-green-600');
-                } else {
-                    amountInput.val('0.00'); 
-                    let acStatusDisplay = '';
-                    if (acStatusSelect.val() === '1') {
-                        acStatusDisplay = ' (A/C)';
-                    } else if (acStatusSelect.val() === '0') {
-                        acStatusDisplay = ' (Non A/C)';
-                    }
-                    
-                    let rateContext = (currentCodeType === 'Operation' && acStatusSelect.val() !== '') ? acStatusDisplay : '';
-                    amountStatusSpan.text(`Rate: ${currentRate.toFixed(2)} LKR/Km ${rateContext}. Enter distance for calculation.`).removeClass('text-red-500').addClass('text-gray-500');
-                }
-
-            } else {
-                amountInput.val('0.00');
-                amountStatusSpan.text('No rate found for this selection. Amount set to 0.00.').addClass('text-red-500');
-            }
-        } else {
-            amountInput.val('0.00');
-            amountStatusSpan.text('No code selected. Amount set to 0.00.').removeClass('text-red-500').addClass('text-gray-500');
-        }
-    }
-
-
-    // 1. Lookup Supplier/Vehicle Details (Fix implemented here)
+    // 1. Lookup Supplier/Vehicle Details
     function lookupDetails(codeType, tripCode) {
         
         if (!tripCode) {
@@ -95,9 +28,7 @@ $(document).ready(function() {
             return;
         }
         
-        statusSpan.removeClass('hidden').removeClass('text-green-500').addClass('text-red-500').text('Searching for Supplier and Vehicle...');
-        
-        // *** FIX: Make the visible select look disabled (add class), but KEEP IT ENABLED (no prop('disabled', true)) ***
+        statusSpan.removeClass('hidden').removeClass('text-green-500').addClass('text-red-500').text('Searching...');
         supplierSelect.addClass('bg-gray-200'); 
 
         $.ajax({
@@ -109,71 +40,23 @@ $(document).ready(function() {
                 statusSpan.addClass('hidden');
                 
                 if (response.success) {
-                    // 1. Update the visible select box (only for display)
                     supplierSelect.val(response.supplier_code);
-                    
-                    // 2. *** FIX: Update the HIDDEN input with the required value for submission ***
                     hiddenSupplierInput.val(response.supplier_code);
-                    
                     vehicleInput.val(response.vehicle_no || ''); 
                     
                     if (supplierSelect.val()) {
-                        statusSpan.removeClass('text-red-500').addClass('text-green-500').text('Details auto-filled! (Vehicle No is editable)').removeClass('hidden');
+                        statusSpan.removeClass('text-red-500').addClass('text-green-500').text('Found!').removeClass('hidden');
                     }
                 } else {
-                    statusSpan.removeClass('text-green-500').addClass('text-red-500').text(response.message || 'Code not found.').removeClass('hidden');
-                    
-                    // If failed, clear fields
+                    statusSpan.removeClass('text-green-500').addClass('text-red-500').text('Not found').removeClass('hidden');
                     supplierSelect.val('').removeClass('bg-gray-200'); 
                     hiddenSupplierInput.val('');
                 }
             },
             error: function() {
-                statusSpan.removeClass('hidden').removeClass('text-green-500').addClass('text-red-500').text('Error fetching details from server.');
+                statusSpan.removeClass('hidden').addClass('text-red-500').text('Error.');
                 supplierSelect.removeClass('bg-gray-200'); 
                 hiddenSupplierInput.val('');
-            }
-        });
-    }
-
-    // 2. Lookup Rate
-    function lookupRate(codeType, tripCode) {
-        // acStatus will be '1', '0', or ''
-        const acStatus = acStatusSelect.val(); 
-        
-        if (!tripCode || (codeType === 'Operation' && acStatus === '')) { 
-             currentRate = 0;
-             currentCodeType = '';
-             calculateAmount();
-             
-             if (codeType === 'Operation' && acStatus === '') {
-                 amountStatusSpan.text('Please select A/C Status to determine the Operation rate.').addClass('text-red-500');
-             }
-             return;
-        }
-
-        currentCodeType = codeType;
-        
-        $.ajax({
-            url: 'fetch_rate.php', 
-            method: 'GET',
-            data: { 
-                code_type: codeType, 
-                trip_code: tripCode, 
-                ac_status: acStatus 
-            }, 
-            dataType: 'json',
-            success: function(response) {
-                if (response.success) {
-                    currentRate = response.rate; 
-                } else {
-                    currentRate = 0;
-                }
-                calculateAmount(); 
-            },
-            error: function() {
-                currentRate = 0;
-                calculateAmount(); 
             }
         });
     }
@@ -183,115 +66,128 @@ $(document).ready(function() {
         const selectedCode = $(this).val();
         opSelect.prop('disabled', !!selectedCode).val('');
         opSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff');
-
         lookupDetails('Route', selectedCode);
-        lookupRate('Route', selectedCode);
     });
 
     opSelect.on('change', function() {
         const selectedCode = $(this).val();
         routeSelect.prop('disabled', !!selectedCode).val('');
         routeSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff');
-
         lookupDetails('Operation', selectedCode);
-        lookupRate('Operation', selectedCode);
     });
     
-    distanceInput.on('input', function() {
-        calculateAmount();
-    });
+
+    // ======================================================
+    //  EMPLOYEE & REASON GROUP LOGIC (UPDATED)
+    // ======================================================
     
-    acStatusSelect.on('change', function() {
-        const activeCode = routeSelect.val() || opSelect.val();
-        const codeType = routeSelect.val() ? 'Route' : (opSelect.val() ? 'Operation' : '');
+    // --- 1. ADD NEW REASON GROUP ---
+    $('#add-reason-group-btn').click(function () {
+        // Clone the first group
+        var $template = $('.reason-group').first();
+        var $newGroup = $template.clone();
+
+        // Clear Inputs & Selects
+        $newGroup.find('input').val(''); 
+        $newGroup.find('select').val(''); 
+
+        // Enable Remove Button
+        $newGroup.find('.remove-group-btn').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+
+        // Reset Employee List (Keep only one input)
+        var $empContainer = $newGroup.find('.employee-list-container');
+        var $firstEmpInput = $empContainer.find('.employee-input').first();
         
-        if (activeCode && codeType) {
-            lookupRate(codeType, activeCode);
+        // Remove all employee inputs except the first one logic
+        $empContainer.empty();
+        $firstEmpInput.find('input').val(''); // Clear value
+        $firstEmpInput.find('.remove-employee-btn').prop('disabled', true).addClass('opacity-50'); // Disable remove for first item
+        $empContainer.append($firstEmpInput);
+
+        // Append to Container
+        $('#reason-group-container').append($newGroup);
+        
+        // Update Titles & Indices
+        updateGroupTitles();
+    });
+
+    // --- 2. REMOVE REASON GROUP ---
+    $(document).on('click', '.remove-group-btn', function () {
+        if ($('.reason-group').length > 1) {
+            $(this).closest('.reason-group').remove();
+            updateGroupTitles(); 
         } else {
-            calculateAmount();
+            alert("At least one reason group is required.");
         }
     });
 
+    // --- 3. ADD EMPLOYEE INPUT (Within a Group) ---
+    $(document).on('click', '.add-employee-btn-group', function () {
+        var $container = $(this).closest('.reason-group').find('.employee-list-container');
+        var $templateInput = $container.find('.employee-input').first().clone();
 
-    // Initial calculation check
-    calculateAmount(); 
+        // Clear Value
+        $templateInput.find('input').val('');
+        
+        // Enable Remove Button
+        $templateInput.find('.remove-employee-btn').prop('disabled', false).removeClass('opacity-50');
 
-    // --- EMPLOYEE/REASON GROUP LOGIC ---
-    var groupContainer = $('#reason-group-container');
-    
-    function updateGroupIndices() {
-        groupContainer.find('.reason-group').each(function(index) {
-            const groupDiv = $(this);
-            groupDiv.find('h4').text(`Reason Group ${index + 1}`);
-            // Update the name attribute for the whole group index
-            groupDiv.find('.reason-select').attr('name', `reason_group[${index}]`);
-            groupDiv.find('.emp-id-input').attr('name', `emp_id_group[${index}][]`);
-            groupDiv.find('.remove-group-btn').prop('disabled', index === 0);
+        $container.append($templateInput);
+        
+        // Re-check remove buttons state
+        updateEmployeeRemoveState($container);
+    });
+
+    // --- 4. REMOVE EMPLOYEE INPUT ---
+    $(document).on('click', '.remove-employee-btn', function () {
+        var $container = $(this).closest('.employee-list-container');
+        
+        if ($container.find('.employee-input').length > 1) {
+            $(this).closest('.employee-input').remove();
+            updateEmployeeRemoveState($container);
+        } else {
+            // If it's the last one, just clear it
+            $(this).closest('.employee-input').find('input').val('');
+        }
+    });
+
+    // --- HELPER: Update Group Titles & Indices ---
+    function updateGroupTitles() {
+        $('.reason-group').each(function (index) {
+            // Update Title
+            $(this).find('h4').text('Group ' + (index + 1));
             
-            // Update placeholder text for employee inputs
-            groupDiv.find('.employee-input').each(function(emp_index) {
-                $(this).find('.emp-id-input').attr('placeholder', `Employee ID ${emp_index + 1} (e.g., SL001)`);
-            });
+            // Update PHP Array Index: emp_id_group[0][], emp_id_group[1][]...
+            $(this).find('input[name^="emp_id_group"]').attr('name', 'emp_id_group[' + index + '][]');
+
+            // Disable Remove Button for First Group
+            if (index === 0) {
+                $(this).find('.remove-group-btn').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+            } else {
+                $(this).find('.remove-group-btn').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+            }
         });
     }
 
-    function updateEmployeeRemoveButtons(groupDiv) {
-        const inputs = groupDiv.find('.employee-input');
-        inputs.find('.remove-employee-btn').prop('disabled', inputs.length === 1);
+    // --- HELPER: Update Employee Remove Buttons State ---
+    function updateEmployeeRemoveState($container) {
+        var inputs = $container.find('.employee-input');
+        if (inputs.length === 1) {
+            inputs.find('.remove-employee-btn').prop('disabled', true).addClass('opacity-50');
+        } else {
+            inputs.find('.remove-employee-btn').prop('disabled', false).removeClass('opacity-50');
+        }
     }
 
-    updateGroupIndices();
-    updateEmployeeRemoveButtons(groupContainer.find('.reason-group').first());
-    
-    $('#add-reason-group-btn').on('click', function() {
-        // Clone the first group structure
-        const newGroup = groupContainer.find('.reason-group').first().clone(true, true);
-        
-        // Clear all input values
-        newGroup.find('select').val('');
-        newGroup.find('.emp-id-input').val('');
-        
-        // Remove extra employee fields, keeping only the first one
-        newGroup.find('.employee-input:not(:first)').remove();
-        
-        groupContainer.append(newGroup);
-        updateGroupIndices();
-        updateEmployeeRemoveButtons(newGroup);
-    });
-
-    groupContainer.on('click', '.remove-group-btn', function() {
-        if (groupContainer.find('.reason-group').length > 1) {
-            $(this).closest('.reason-group').remove();
-            updateGroupIndices();
-        }
-    });
-    
-    groupContainer.on('click', '.add-employee-btn-group', function() {
-        const currentGroup = $(this).closest('.reason-group');
-        const container = currentGroup.find('.employee-list-container');
-        
-        // Clone the structure of the last employee input in that group
-        const lastEmployeeInput = container.find('.employee-input').last();
-        const newEmployeeInput = lastEmployeeInput.clone(true, true);
-        
-        newEmployeeInput.find('.emp-id-input').val('').prop('required', true);
-        container.append(newEmployeeInput);
-        
-        // We only need to update the indices/placeholders for this group
-        updateGroupIndices();
-        updateEmployeeRemoveButtons(currentGroup);
-    });
-    
-    groupContainer.on('click', '.remove-employee-btn', function() {
-        const currentGroup = $(this).closest('.reason-group');
-        const container = currentGroup.find('.employee-list-container');
-
-        if (container.find('.employee-input').length > 1) {
-            $(this).closest('.employee-input').remove();
-            
-            // We only need to update the indices/placeholders for this group
-            updateGroupIndices();
-            updateEmployeeRemoveButtons(currentGroup);
-        }
-    });
+    // Initialize on load
+    updateGroupTitles();
 });
+
+// Route / Op Code Toggle Logic
+function toggleCodeSelection(type) {
+    if (type === 'route') {
+        $('#op_code').val(""); 
+    } else {
+        $('#route_code').val("");
+    }
+}

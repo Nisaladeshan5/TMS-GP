@@ -364,19 +364,22 @@ include('../../includes/navbar.php');
 </script>
 <body class="bg-gray-100 text-gray-800">
     <div class="flex justify-center items-center w-[85%] ml-[15%] h-screen ">
-        <div class="w-full max-w-5xl mx-auto p-6 bg-white rounded-lg shadow-md">
+        <div class="w-full max-w-6xl mx-auto p-6 bg-white rounded-lg shadow-md">
             <h2 class="text-3xl font-bold mb-6 text-center text-blue-600">Fuel & Distance Rates</h2>
 
             <div class="flex justify-center gap-4 mb-6">
                 <a href="fuel.php?view=list" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center">
                     View Current Fuel Rates
                 </a>
+                <a href="fuel_history.php" class="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-700 transition-colors flex items-center justify-center">
+                    History
+                </a>
                 <a href="fuel.php?view=add_new_type" class="bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-yellow-700 transition-colors flex items-center justify-center">
                     Add New Fuel Type
                 </a>
                 <?php if ($is_authorized_for_lock): ?>
                     <a href="month_locks.php" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-red-700 transition-colors flex items-center justify-center">
-                        🔐 Month Lock Management
+                        Month Lock Management
                     </a>
                 <?php endif; ?>
                 <a href="distance_per_liter.php" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-green-700 transition-colors flex items-center justify-center">

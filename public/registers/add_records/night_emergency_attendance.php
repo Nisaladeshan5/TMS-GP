@@ -1,5 +1,5 @@
 <?php
-// Ensure session is started if not done in header.php (Crucial for $_SESSION['user_id'])
+// Ensure session is started if not done in header.php
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
@@ -9,18 +9,15 @@ include('../../../includes/header.php');
 include('../../../includes/navbar.php');
 
 // --- IMPORTANT: Get User ID from Session ---
-// Assuming 'user_id' is stored in the session when the user logs in.
 $user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
 
 // Initialize filter variables
 $filter_month = isset($_GET['month']) ? $_GET['month'] : date('m');
 $filter_year = isset($_GET['year']) ? $_GET['year'] : date('Y');
 
-// Security Check Flag: Used to control the visibility of the "Action" column and buttons
+// Security Check Flag
 $is_user_logged_in = ($user_id !== null && $user_id > 0);
-// If user_id is null/0, set it to 0 for JavaScript safety, but $is_user_logged_in handles logic
 $user_id = $is_user_logged_in ? $user_id : 0;
-
 
 // Base SQL query
 $sql = "
@@ -31,7 +28,7 @@ $sql = "
         nea.driver_NIC,
         nea.vehicle_status,
         nea.driver_status,
-        nea.op_code, -- Added nea.op_code for direct use in the delete link
+        nea.op_code,
         s.supplier,
         os.op_code
     FROM
@@ -47,7 +44,7 @@ $conditions = [];
 $params = [];
 $types = "";
 
-// Add month and year filters if they are set
+// Add month and year filters
 if (!empty($filter_month) && !empty($filter_year)) {
     $conditions[] = "MONTH(nea.date) = ? AND YEAR(nea.date) = ?";
     $params[] = $filter_month;
@@ -55,21 +52,24 @@ if (!empty($filter_month) && !empty($filter_year)) {
     $types .= "ii";
 }
 
-// Append conditions to the query
 if (count($conditions) > 0) {
     $sql .= " WHERE " . implode(" AND ", $conditions);
 }
-// Final ORDER BY clause
 $sql .= " ORDER BY nea.date DESC, nea.report_time DESC";
 
-// Prepare and execute the statement
 $stmt = $conn->prepare($sql);
 if ($types) {
-    // The use of '...' requires PHP 5.6+
     $stmt->bind_param($types, ...$params);
 }
 $stmt->execute();
 $result = $stmt->get_result();
+
+// Date Setup for Dropdowns
+$months = [
+    '01' => 'January', '02' => 'February', '03' => 'March', '04' => 'April', '05' => 'May', '06' => 'June',
+    '07' => 'July', '08' => 'August', '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
+];
+$current_year_sys = date('Y');
 ?>
 
 <!DOCTYPE html>
@@ -81,112 +81,131 @@ $result = $stmt->get_result();
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         .red-cell {
-            background-color: #fca5a5; /* A light red color from Tailwind CSS */
+            background-color: #fee2e2; /* red-100 */
+            color: #991b1b; /* red-800 */
+            font-weight: bold;
         }
-        /* Style for the modal so it appears centered and covers the screen */
+        /* Style for the modal */
         #deletionModal {
             transition: opacity 0.3s ease-in-out;
         }
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
     </style>
 </head>
 <body class="bg-gray-100">
 
-<div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
-    <div class="text-lg font-semibold ml-3">Registers</div>
-    <div class="flex gap-4">
-        <a href="../night_emergency.php" class="hover:text-yellow-600">Back to Trips</a>
+<div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+                <a href="../night_emergency.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                    Night Emergency Register
+                </a>
+
+                <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+                <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                    Attendance
+                </span>
+            </div>
+    </div>
+
+    <div class="flex items-center gap-4 text-sm font-medium">
+        
+        <form method="GET" action="" class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
+            
+            <select name="month" onchange="this.form.submit()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-1 appearance-none hover:text-yellow-200 transition">
+                <?php foreach ($months as $num => $name): 
+                    $selected = ($num == $filter_month) ? 'selected' : '';
+                ?>
+                    <option value="<?php echo $num; ?>" <?php echo $selected; ?> class="text-gray-900 bg-white">
+                        <?php echo $name; ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            
+            <span class="text-gray-400 mx-1">|</span>
+
+            <select name="year" onchange="this.form.submit()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-1 pr-2 appearance-none hover:text-yellow-200 transition">
+                <?php 
+                for ($y = $current_year_sys; $y >= 2020; $y--): 
+                    $selected = ($y == $filter_year) ? 'selected' : '';
+                ?>
+                    <option value="<?php echo $y; ?>" <?php echo $selected; ?> class="text-gray-900 bg-white">
+                        <?php echo $y; ?>
+                    </option>
+                <?php endfor; ?>
+            </select>
+
+        </form>
+
+        <span class="text-gray-600">|</span>
+
+        <a href="../night_emergency.php" class="text-gray-300 hover:text-white transition">Register</a>
+        
         <?php if ($is_user_logged_in): ?>
-        <a href="night_emergency_attendance_log.php" class="hover:text-yellow-600">Deletion Log</a>
+            <a href="night_emergency_attendance_log.php" class="text-gray-300 hover:text-red-300 transition">Deletion Log</a>
         <?php endif; ?>
-        <a href="add_night_emergency_attendance.php" class="hover:text-yellow-600">Add Attendance</a> 
+
+        <a href="add_night_emergency_attendance.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            Add Attendance
+        </a>
+
     </div>
 </div>
 
-<div class="container" style="width: 80%; margin-left: 18%; margin-right: 2.5%; display: flex; flex-direction: column; align-items: center;">
-    <p class="text-[36px] font-bold text-gray-800 mt-2">Night Emergency Attendance Register</p>
-
-    <form method="GET" action="" class="mb-6 flex justify-center mt-1">
-        <div class="flex items-center">
-            <label for="month" class="text-lg font-medium mr-2">Filter by:</label>
-            
-            <select id="month" name="month" class="border border-gray-300 p-2 rounded-md">
-                <?php
-                $months = [
-                    '01' => 'January', '02' => 'February', '03' => 'March', '04' => 'April', '05' => 'May', '06' => 'June',
-                    '07' => 'July', '08' => 'August', '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
-                ];
-                foreach ($months as $num => $name) {
-                    $selected = ($num == $filter_month) ? 'selected' : '';
-                    echo "<option value='{$num}' {$selected}>{$name}</option>";
-                }
-                ?>
-            </select>
-            
-            <select id="year" name="year" class="border border-gray-300 p-2 rounded-md ml-2">
-                <?php
-                $current_year = date('Y');
-                for ($y = $current_year; $y >= 2020; $y--) {
-                    $selected = ($y == $filter_year) ? 'selected' : '';
-                    echo "<option value='{$y}' {$selected}>{$y}</option>";
-                }
-                ?>
-            </select>
-
-            <button type="submit" class="bg-blue-500 text-white px-3 py-2 rounded-md ml-2 hover:bg-blue-600">Filter</button>
-        </div>
-    </form>
+<div class="w-[85%] ml-[15%] p-2 mt-1">
     
-    <div class="overflow-x-auto bg-white shadow-md rounded-md mb-6 w-full">
-        <table class="min-w-full table-auto">
-            <thead class="bg-blue-600 text-white">
+    <div class="overflow-x-auto bg-white shadow-lg rounded-lg border border-gray-200">
+        <table class="w-full table-auto">
+            <thead class="bg-blue-600 text-white text-sm">
                 <tr>
-                    <th class="px-4 py-2 text-left">Supplier</th>
-                    <th class="px-4 py-2 text-left">Vehicle No</th>
-                    <th class="px-4 py-2 text-left">Driver License ID</th>
-                    <th class="px-4 py-2 text-left">Date</th>
-                    <th class="px-4 py-2 text-left">Report Time</th>
-                    <th class="px-4 py-2 text-left">OP Code</th>
+                    <th class="px-4 py-3 text-left">Supplier</th>
+                    <th class="px-4 py-3 text-left">Vehicle No</th>
+                    <th class="px-4 py-3 text-left">Driver License ID</th>
+                    <th class="px-4 py-3 text-left">Date</th>
+                    <th class="px-4 py-3 text-left">Report Time</th>
+                    <th class="px-4 py-3 text-left">OP Code</th>
                     
-                    <?php if ($is_user_logged_in): // Only show Action header if logged in ?>
-                    <th class="px-4 py-2 text-center">Action</th> 
+                    <?php if ($is_user_logged_in): ?>
+                    <th class="px-4 py-3 text-center">Action</th> 
                     <?php endif; ?>
                 </tr>
             </thead>
-            <tbody>
+            <tbody class="text-sm text-gray-700">
                 <?php
-                // Determine colspan dynamically: 6 columns + 1 for Action if logged in
+                // Determine colspan dynamically
                 $column_count = $is_user_logged_in ? 7 : 6; 
                 
                 if ($result->num_rows > 0) {
                     while ($row = $result->fetch_assoc()) {
-                        // Determine the CSS class for the vehicle_no cell
+                        // Determine the CSS class for red cells
                         $vehicle_cell_class = ($row['vehicle_status'] == 0) ? 'red-cell' : '';
-                        
-                        // Determine the CSS class for the driver_NIC cell
                         $driver_cell_class = ($row['driver_status'] == 0) ? 'red-cell' : '';
                         
-                        // Data for JavaScript deletion
                         $op_code = htmlspecialchars($row['op_code']);
                         $date = htmlspecialchars($row['date']);
-                        // Note: $user_id is already set above to the logged-in ID or 0
                         $user_id_js = $user_id; 
 
-                        echo "<tr class='hover:bg-gray-100'>";
-                        echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['supplier']) . "</td>";
-                        echo "<td class='border px-4 py-2 {$vehicle_cell_class}'>" . htmlspecialchars($row['vehicle_no']) . "</td>";
-                        echo "<td class='border px-4 py-2 {$driver_cell_class}'>" . htmlspecialchars($row['driver_NIC']) . "</td>";
-                        echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['date']) . "</td>";
-                        echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['report_time']) . "</td>";
-                        echo "<td class='border px-4 py-2'>" . htmlspecialchars($row['op_code']) . "</td>";
+                        echo "<tr class='hover:bg-indigo-50 border-b border-gray-100 transition duration-150'>";
+                        echo "<td class='px-4 py-3'>" . htmlspecialchars($row['supplier']) . "</td>";
+                        echo "<td class='px-4 py-3 font-bold uppercase {$vehicle_cell_class}'>" . htmlspecialchars($row['vehicle_no']) . "</td>";
+                        echo "<td class='px-4 py-3 {$driver_cell_class}'>" . htmlspecialchars($row['driver_NIC']) . "</td>";
+                        echo "<td class='px-4 py-3'>" . htmlspecialchars($row['date']) . "</td>";
+                        echo "<td class='px-4 py-3'>" . htmlspecialchars($row['report_time']) . "</td>";
+                        echo "<td class='px-4 py-3 font-mono text-indigo-600 font-medium'>" . htmlspecialchars($row['op_code']) . "</td>";
                         
-                        // Only show Action button cell if logged in
                         if ($is_user_logged_in): 
-                            echo "<td class='border px-4 py-2 text-center'>";
-                            // Updated button to call the new confirmDeletion function
+                            echo "<td class='px-4 py-3 text-center'>";
                             echo "<button 
                                     type='button' 
                                     onclick='confirmDeletion(\"{$op_code}\", \"{$date}\", {$user_id_js})' 
-                                    class='bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600'
+                                    class='bg-red-500 text-white px-2 py-1.5 rounded text-xs hover:bg-red-600 transition shadow-sm'
+                                    title='Delete Record'
                                   ><i class='fas fa-trash-alt'></i></button>";
                             echo "</td>"; 
                         endif;
@@ -194,8 +213,9 @@ $result = $stmt->get_result();
                         echo "</tr>";
                     }
                 } else {
-                    // Use dynamic column count for "No records found"
-                    echo "<tr><td colspan='{$column_count}' class='border px-4 py-2 text-center'>No records found.</td></tr>";
+                    echo "<tr><td colspan='{$column_count}' class='px-6 py-4 text-center text-gray-500'>
+                            No attendance records found for the selected period.
+                          </td></tr>";
                 }
                 ?>
             </tbody>
@@ -227,14 +247,14 @@ $result = $stmt->get_result();
             <label for="modal_remark_input" class="block text-sm font-medium text-gray-700 mb-1">
                 Reason for deletion:
             </label>
-            <textarea id="modal_remark_input" rows="3" class="w-full border border-gray-300 p-2 rounded-md focus:ring-red-500 focus:border-red-500" placeholder="A required reason for auditing purposes..."></textarea>
+            <textarea id="modal_remark_input" rows="3" class="w-full border border-gray-300 p-2 rounded-md focus:ring-red-500 focus:border-red-500 outline-none" placeholder="A required reason for auditing purposes..."></textarea>
         </div>
         
         <div class="flex justify-between space-x-3">
-            <button type="button" onclick="closeModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium transition">
                 Cancel
             </button>
-            <button type="button" onclick="submitDeletion()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+            <button type="button" onclick="submitDeletion()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition shadow-sm">
                 <i class="fas fa-trash-alt mr-2"></i> Confirm Delete
             </button>
         </div>
@@ -243,43 +263,34 @@ $result = $stmt->get_result();
 <?php endif; ?>
 
 <script>
-// Global variables to hold the data while the modal is open
+// Global variables
 let currentOpCode = null;
 let currentAttendanceDate = null;
 let currentUserId = null;
 
-// Function to show the modal and populate data
 function confirmDeletion(op_code, attendance_date, user_id) {
-    // Basic client-side check
     if (user_id === 0) {
         alert("Authentication error. Please log in to perform this action.");
         return;
     }
 
-    // Store data globally
     currentOpCode = op_code;
     currentAttendanceDate = attendance_date;
     currentUserId = user_id;
 
-    // Populate modal fields
     document.getElementById('modal_op_code_display').textContent = op_code;
     document.getElementById('modal_date_display').textContent = attendance_date;
-    
-    // Clear previous remark input
     document.getElementById('modal_remark_input').value = '';
 
-    // Show the modal
     document.getElementById('deletionModal').classList.remove('hidden');
     document.getElementById('deletionModal').classList.add('flex');
 }
 
-// Function to hide the modal
 function closeModal() {
     document.getElementById('deletionModal').classList.add('hidden');
     document.getElementById('deletionModal').classList.remove('flex');
 }
 
-// Function to validate remark and submit the hidden form
 function submitDeletion() {
     const remark = document.getElementById('modal_remark_input').value.trim();
 
@@ -289,16 +300,12 @@ function submitDeletion() {
         return;
     }
     
-    // 1. Populate Hidden Form Fields
     document.getElementById('delete_op_code').value = currentOpCode;
     document.getElementById('delete_attendance_date').value = currentAttendanceDate;
     document.getElementById('delete_user_id').value = currentUserId;
     document.getElementById('delete_remark').value = remark;
 
-    // 2. Submit the Form
     document.getElementById('deleteForm').submit();
-    
-    // Close the modal immediately after submission (optional, as the page will redirect)
     closeModal();
 }
 </script>

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk QR Code PDF Generator (Small)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <style>
+        body { font-family: sans-serif; padding: 30px; background: #f4f4f4; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 200px; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; }
+        button { background: #28a745; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #218838; }
+        #status { margin-top: 10px; color: #666; font-weight: bold; }
+        /* Hidden div for generating QRs */
+        #qr-hidden { display: none; } 
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>QR Code PDF Generator (Small Size)</h2>
+    <p>Paste your asset codes below (one per line):</p>
+    
+    <textarea id="inputData" placeholder="Paste codes here...">GPG-GPGS-ITE-LTP-LTP-02475-P
+GPG-GPGS-ITE-LTP-LTP-02459-P
+GPG-GPGS-ITE-LTP-LTP-02488-X
+GPG-GPGS-ITE-LTP-LTP-02499-Y
+GPG-GPGS-ITE-LTP-LTP-02500-A
+GPG-GPGS-ITE-LTP-LTP-02501-B
+GPG-GPGS-ITE-LTP-LTP-02502-C
+GPG-GPGS-ITE-LTP-LTP-02503-D</textarea>
+    
+    <button onclick="generatePDF()">Download PDF</button>
+    <div id="status"></div>
+</div>
+
+<div id="qr-hidden"></div>
+
+<script>
+    async function generatePDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const input = document.getElementById('inputData').value;
+        const status = document.getElementById('status');
+        
+        // 1. Process Input
+        const codes = input.split(/\r?\n/).filter(line => line.trim() !== "");
+
+        if(codes.length === 0) {
+            alert("Please enter some codes!");
+            return;
+        }
+
+        status.innerText = "Generating PDF... Please wait.";
+
+        // --- SETTINGS (වෙනස්කම් මෙතනයි කළේ) ---
+        let xStart = 15;      // වම් පැත්තෙන් ඉඩ (Left Margin)
+        let yStart = 15;      // උඩින් ඉඩ (Top Margin)
+        
+        let qrSize = 25;      // QR එකේ ප්‍රමාණය (පොඩි කළා 45 -> 25)
+        let xSpacing = 45;    // තිරස් පරතරය (Column width)
+        let ySpacing = 45;    // සිරස් පරතරය (Row height)
+        let colsPerRow = 4;   // එක පේලියක QR කීයක් තියෙනවද (3 -> 4 කළා)
+        
+        let col = 0;
+        let x = xStart;
+        let y = yStart;
+
+        // 3. Loop through every code
+        for (let i = 0; i < codes.length; i++) {
+            const codeText = codes[i].trim();
+
+            try {
+                const qrDataUrl = await createQR(codeText);
+                
+                // Add Image to PDF
+                doc.addImage(qrDataUrl, 'PNG', x, y, qrSize, qrSize);
+                
+                // Add Text Label Below Image
+                doc.setFontSize(8); // අකුරු ටිකක් පොඩි කළා QR එකට ගැලපෙන්න
+                doc.setTextColor(0, 0, 0);
+                
+                // Center text logic
+                const textWidth = doc.getTextWidth(codeText);
+                const textX = x + (qrSize / 2) - (textWidth / 2);
+                
+                // Text එක QR එකට යටින් තියන්න (y + qrSize + 4)
+                doc.text(codeText, textX, y + qrSize + 4); 
+
+                // (Optional) කපාගන්න ලේසි වෙන්න කොටුවක් අඳිනවා නම් මේ පේලිය uncomment කරන්න:
+                // doc.rect(x - 2, y - 2, qrSize + 4, qrSize + 10); 
+
+            } catch (e) {
+                console.error("Error generating QR for " + codeText, e);
+            }
+
+            // Grid Logic: Move to next column
+            col++;
+            x += xSpacing;
+
+            // If we reach limit of columns (4), move to next row
+            if (col >= colsPerRow) {
+                col = 0;
+                x = xStart;
+                y += ySpacing;
+            }
+
+            // Check if we need a new page
+            // A4 උස 297mm, margin අත ඇරියම 280mm වගේ safe limit එක
+            if (y + ySpacing > 280) {
+                doc.addPage();
+                x = xStart;
+                y = yStart;
+                col = 0;
+            }
+        }
+
+        // 4. Save
+        doc.save("Asset_Tags_Small.pdf");
+        status.innerText = "Done! PDF downloaded.";
+    }
+
+    // Helper: Creates a QR code in the hidden div
+    function createQR(text) {
+        return new Promise((resolve, reject) => {
+            const container = document.getElementById('qr-hidden');
+            container.innerHTML = ''; 
+
+            new QRCode(container, {
+                text: text,
+                width: 200, // High res for quality
+                height: 200,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+
+            setTimeout(() => {
+                const canvas = container.querySelector('canvas');
+                if (canvas) {
+                    resolve(canvas.toDataURL("image/png"));
+                } else {
+                    const img = container.querySelector('img');
+                    if (img) resolve(img.src);
+                    else reject("QR generation failed");
+                }
+            }, 50); 
+        });
+    }
+</script>
+
+</body>
+</html>

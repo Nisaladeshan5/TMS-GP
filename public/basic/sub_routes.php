@@ -50,129 +50,120 @@ if (isset($_SESSION['toast'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sub-Route Details</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         /* Toast Notifications CSS */
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-        }
-        .toast {
-            display: none;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-        }
-        .toast.show {
-            display: flex;
-            align-items: center;
-            transform: translateY(0);
-            opacity: 1;
-        }
-        .toast.success {
-            background-color: #4CAF50;
-            color: white;
-        }
-        .toast.error {
-            background-color: #F44336;
-            color: white;
-        }
-        .toast-icon {
-            width: 1.5rem;
-            height: 1.5rem;
-            margin-right: 0.75rem;
-        }
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; min-width: 250px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background-color: #4CAF50; }
+        .toast.error { background-color: #F44336; }
+        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
     </style>
-</head>
-<script>
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
 
-    setTimeout(function() {
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
-    }, SESSION_TIMEOUT_MS);
-</script>
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
+</head>
+
 <body class="bg-gray-100">
 
-<div class="containerl flex justify-center">
-    <div class="w-[85%] ml-[15%]">
-        <div class="p-3 px-4">
-            <h1 class="text-4xl mx-auto font-bold text-gray-800 mt-3 mb-3 text-center">Sub-Route Details</h1>
-            <div class="w-full flex justify-between items-center mb-6">
-                
-                <a href="add_sub_route.php" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
-                    Add New Sub-Route
-                </a>
-
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-1">
-                        <label for="status-filter" class="text-gray-700 font-semibold">Filter by Status:</label>
-                        <select id="status-filter" onchange="filterData()" class="p-2 border rounded-md">
-                            <option value="active" <?php echo ($status_filter === 'active') ? 'selected' : ''; ?>>Active</option>
-                            <option value="inactive" <?php echo ($status_filter === 'inactive') ? 'selected' : ''; ?>>Inactive</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-            <div id="table-container" class="overflow-x-auto bg-white shadow-md rounded-md w-full">
-                <table class="min-w-full table-auto">
-                    <thead class="bg-blue-600 text-white">
-                        <tr>
-                            <th class="px-2 py-2 text-left">Sub-Route Code</th>
-                            <th class="px-2 py-2 text-left">Route Code</th>
-                            <th class="px-2 py-2 text-left">Supplier</th>
-                            <th class="px-2 py-2 text-left">Vehicle No</th> 
-                            <th class="px-2 py-2 text-left">Sub-Route</th>
-                            <th class="px-2 py-2 text-left">Distance (km)</th>
-                            <th class="px-2 py-2 text-left">Per Day Rate</th>
-                            <th class="px-2 py-2 text-left">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php
-                        if ($sub_routes_result && $sub_routes_result->num_rows > 0) {
-                            while ($row = $sub_routes_result->fetch_assoc()) {
-                                $is_active = htmlspecialchars($row["is_active"]);
-                                $status_text = ($is_active == 1) ? 'Active' : 'Disabled';
-                                $toggle_button_text = ($is_active == 1) ? 'Disable' : 'Enable';
-                                $toggle_button_color = ($is_active == 1) ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600';
-
-                                echo "<tr>";
-                                echo "<td class='border px-2 py-2'>" . htmlspecialchars($row["sub_route_code"]) . "</td>";
-                                echo "<td class='border px-2 py-2'>" . htmlspecialchars($row["route_code"]) . "</td>";
-                                echo "<td class='border px-2 py-2'>" . htmlspecialchars($row["supplier"]) . "</td>";
-                                
-                                // UPDATE 3: Display Vehicle No
-                                echo "<td class='border px-2 py-2'>" . htmlspecialchars($row["vehicle_no"]) . "</td>";
-                                
-                                echo "<td class='border px-2 py-2'>" . htmlspecialchars($row["sub_route"]) . "</td>";
-                                echo "<td class='border px-2 py-2'>" . htmlspecialchars($row["distance"]) . "</td>";
-                                echo "<td class='border px-2 py-2'>" . htmlspecialchars($row["per_day_rate"]) . "</td>";
-                                echo "<td class='border px-2 py-2'>
-                                        <a href='edit_sub_route.php?code=" . urlencode($row['sub_route_code']) . "' 
-                                           class='bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 mr-2'>Edit</a>
-                                        
-                                        <button onclick='toggleStatus(\"{$row['sub_route_code']}\", {$is_active})' 
-                                            class='" . $toggle_button_color . " text-white font-bold py-1 px-2 rounded text-sm transition duration-300'>$toggle_button_text</button>
-                                      </td>";
-                                echo "</tr>";
-                            }
-                        } else {
-                            $message = ($status_filter === 'active') ? "No active sub-routes found." : "No inactive sub-routes found.";
-                            // Increased colspan to 9 because we added a column
-                            echo "<tr><td colspan='9' class='border px-4 py-2 text-center'>{$message}</td></tr>";
-                        }
-                        ?>
-                    </tbody>
-                </table>
-            </div>
+<div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Sub-Routes
         </div>
+    </div>
+
+    <div class="flex items-center gap-4 text-sm font-medium">
+        
+        <div class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
+            <select id="status-filter" onchange="filterData()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-1 appearance-none hover:text-yellow-200 transition">
+                <option value="active" <?php echo ($status_filter === 'active') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Active</option>
+                <option value="inactive" <?php echo ($status_filter === 'inactive') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Inactive</option>
+            </select>
+        </div>
+
+        <span class="text-gray-600">|</span>
+
+        <a href="add_sub_route.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            Add Sub-Route
+        </a>
+
+    </div>
+</div>
+
+<div class="w-[85%] ml-[15%] p-2 mt-1">
+    
+    <div id="table-container" class="overflow-auto bg-white shadow-lg rounded-lg border border-gray-200 w-full max-h-[85vh]">
+        <table class="w-full table-auto border-collapse">
+            <thead class="bg-blue-600 text-white text-sm">
+                <tr>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Sub-Route Code</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Route Code</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Supplier</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Vehicle No</th> 
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Sub-Route</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-right shadow-sm">Distance (km)</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-right shadow-sm">Per Day Rate</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-center shadow-sm" style="min-width: 140px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="text-gray-700 divide-y divide-gray-200 text-sm">
+                <?php
+                if ($sub_routes_result && $sub_routes_result->num_rows > 0) {
+                    while ($row = $sub_routes_result->fetch_assoc()) {
+                        $is_active = htmlspecialchars($row["is_active"]);
+                        $status_text = ($is_active == 1) ? 'Active' : 'Disabled';
+                        $toggle_button_text = ($is_active == 1) ? 'Disable' : 'Enable';
+                        $toggle_button_class = ($is_active == 1) ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600';
+                        $toggle_icon = ($is_active == 1) ? 'fa-ban' : 'fa-check';
+
+                        echo "<tr class='hover:bg-indigo-50 border-b border-gray-100 transition duration-150'>";
+                        echo "<td class='px-4 py-3 font-mono text-blue-600 font-medium'>" . htmlspecialchars($row["sub_route_code"]) . "</td>";
+                        echo "<td class='px-4 py-3 font-mono text-gray-600'>" . htmlspecialchars($row["route_code"]) . "</td>";
+                        echo "<td class='px-4 py-3 text-sm'>" . htmlspecialchars($row["supplier"]) . "</td>";
+                        echo "<td class='px-4 py-3 font-bold uppercase'>" . htmlspecialchars($row["vehicle_no"]) . "</td>";
+                        echo "<td class='px-4 py-3 font-medium text-gray-800'>" . htmlspecialchars($row["sub_route"]) . "</td>";
+                        echo "<td class='px-4 py-3 text-right font-mono'>" . htmlspecialchars($row["distance"]) . "</td>";
+                        echo "<td class='px-4 py-3 text-right font-mono font-bold text-orange-600'>" . htmlspecialchars($row["per_day_rate"]) . "</td>";
+                        
+                        echo "<td class='px-4 py-3 text-center'>
+                                <div class='flex justify-center gap-2'>
+                                    <a href='edit_sub_route.php?code=" . urlencode($row['sub_route_code']) . "' 
+                                       class='bg-yellow-500 hover:bg-yellow-600 text-white py-1 px-2 rounded-md shadow-sm transition' title='Edit'>
+                                        <i class='fas fa-edit text-xs'></i>
+                                    </a>
+                                    
+                                    <button onclick='toggleStatus(\"{$row['sub_route_code']}\", {$is_active})' 
+                                            class='" . $toggle_button_class . " text-white py-1 px-2 rounded-md shadow-sm transition' title='$toggle_button_text'>
+                                        <i class='fas $toggle_icon text-xs'></i>
+                                    </button>
+                                </div>
+                              </td>";
+                        echo "</tr>";
+                    }
+                } else {
+                    $message = ($status_filter === 'active') ? "No active sub-routes found." : "No inactive sub-routes found.";
+                    echo "<tr><td colspan='8' class='px-6 py-4 text-center text-gray-500 italic'>
+                            {$message}
+                          </td></tr>";
+                }
+                ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -183,22 +174,19 @@ if (isset($_SESSION['toast'])) {
 
     function showToast(message, type = 'success') {
         const toast = document.createElement('div');
-        toast.classList.add('toast', type);
-        toast.innerHTML = `
-            <svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                ${type === 'success' ? `
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                ` : `
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                `}
-            </svg>
-            <span>${message}</span>
-        `;
+        toast.classList.add('toast', type, 'show');
+        
+        const iconHtml = type === 'success' 
+            ? '<i class="fas fa-check-circle mr-2"></i>' 
+            : '<i class="fas fa-exclamation-triangle mr-2"></i>';
+
+        toast.innerHTML = iconHtml + `<span>${message}</span>`;
+        
         toastContainer.appendChild(toast);
-        setTimeout(() => { toast.classList.add('show'); }, 10);
+        
         setTimeout(() => {
             toast.classList.remove('show');
-            setTimeout(() => { toast.remove(); }, 300);
+            toast.addEventListener('transitionend', () => toast.remove(), { once: true });
         }, 3000);
     }
 
@@ -214,6 +202,7 @@ if (isset($_SESSION['toast'])) {
     function toggleStatus(subRouteCode, currentStatus) {
         const newStatus = currentStatus === 1 ? 0 : 1;
         const actionText = newStatus === 1 ? 'enable' : 'disable';
+        
         if (confirm(`Are you sure you want to ${actionText} this sub-route?`)) {
             fetch(`sub_routes_backend.php?toggle_status=true&sub_route_code=${encodeURIComponent(subRouteCode)}&new_status=${newStatus}`)
             .then(response => response.text())
@@ -222,7 +211,7 @@ if (isset($_SESSION['toast'])) {
                     showToast(`Sub-route ${actionText}d successfully!`, 'success');
                     setTimeout(() => {
                         window.location.reload();
-                    }, 2300);
+                    }, 1000); 
                 } else {
                     showToast("Error: " + data, 'error');
                 }

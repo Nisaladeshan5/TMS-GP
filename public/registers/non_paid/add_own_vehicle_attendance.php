@@ -21,24 +21,30 @@ error_reporting(E_ALL);
 // --- Database Functions ---
 
 function fetch_own_vehicle_employee_ids($conn) {
-    $emp_ids = [];
-    $sql = "SELECT DISTINCT emp_id FROM own_vehicle WHERE vehicle_no IS NOT NULL AND vehicle_no != '' ORDER BY emp_id ASC";
+    $emp_list = [];
+    // Join employee table to get the name
+    $sql = "SELECT DISTINCT ov.emp_id, e.calling_name 
+            FROM own_vehicle ov 
+            LEFT JOIN employee e ON ov.emp_id = e.emp_id 
+            WHERE ov.vehicle_no IS NOT NULL AND ov.vehicle_no != '' 
+            ORDER BY ov.emp_id ASC";
     try {
         $result = $conn->query($sql);
         if ($result && $result->num_rows > 0) {
             while ($row = $result->fetch_assoc()) {
-                $emp_ids[] = $row['emp_id'];
+                $emp_list[] = [
+                    'emp_id' => $row['emp_id'],
+                    'calling_name' => $row['calling_name'] ?? 'Unknown'
+                ];
             }
         }
     } catch (Exception $e) { return []; }
-    return $emp_ids;
+    return $emp_list;
 }
 
 function fetch_employee_and_vehicle_by_id($conn, $emp_id) {
     $details = null;
-    $sql = "SELECT e.calling_name, ov.vehicle_no FROM employee AS e
-            LEFT JOIN own_vehicle AS ov ON e.emp_id = ov.emp_id 
-            WHERE e.emp_id = ? LIMIT 1";
+    $sql = "SELECT ov.vehicle_no FROM own_vehicle AS ov WHERE ov.emp_id = ? LIMIT 1";
     $stmt = $conn->prepare($sql);
     if (!$stmt) return null;
     $stmt->bind_param('s', $emp_id);
@@ -48,9 +54,9 @@ function fetch_employee_and_vehicle_by_id($conn, $emp_id) {
     $stmt->close();
     
     if ($row) {
-        $details = ['calling_name' => $row['calling_name'] ?? 'N/A', 'vehicle_no' => $row['vehicle_no'] ?? ''];
+        $details = ['vehicle_no' => $row['vehicle_no'] ?? ''];
     } else {
-        $details = ['calling_name' => 'Employee Missing', 'vehicle_no' => ''];
+        $details = ['vehicle_no' => ''];
     }
     return $details;
 }
@@ -70,7 +76,7 @@ function check_duplicate_entry($conn, $emp_id, $date) {
 // --- AJAX POST HANDLERS ---
 // ---------------------------------------------------------------------
 
-// 1. Fetch Details
+// 1. Fetch Details (Only Vehicle No needed now)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_details'])) {
     if (ob_get_length()) ob_clean(); 
     header('Content-Type: application/json');
@@ -80,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_details'])) {
     exit(); 
 }
 
-// 2. Add Record (Modified for Two Inputs)
+// 2. Add Record
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     if (ob_get_length()) ob_clean(); 
     header('Content-Type: application/json');
@@ -89,11 +95,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     $vehicle_no = strtoupper(trim($_POST['vehicle_no'])); 
     $date = trim($_POST['date']);
     
-    // වෙලාවල් දෙක වෙන වෙනම ගන්නවා
-    $in_time = !empty($_POST['time']) ? trim($_POST['time']) : null;       // In Time
-    $out_time = !empty($_POST['out_time']) ? trim($_POST['out_time']) : null; // Out Time
+    $in_time = !empty($_POST['time']) ? trim($_POST['time']) : null;
+    $out_time = !empty($_POST['out_time']) ? trim($_POST['out_time']) : null;
     
-    // Validation: අඩුම තරමේ එක වෙලාවක් හරි තියෙන්න ඕන
     if (empty($emp_id) || empty($vehicle_no) || empty($date)) {
         echo json_encode(['status' => 'error', 'message' => 'Employee, Vehicle, and Date are required.']);
         exit();
@@ -103,7 +107,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
         exit();
     }
 
-    // Duplicate Check (මේ දවසට කලින් Data තියෙනවද බලනවා)
     if (check_duplicate_entry($conn, $emp_id, $date)) {
         echo json_encode(['status' => 'error', 'message' => 'Record already exists for this date. Please use Edit option.']);
         exit();
@@ -112,13 +115,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     $conn->begin_transaction(); 
 
     try {
-        // අලුත් Logic එක: එකපාර Column දෙකම Insert කරනවා (නැති එකට NULL යනවා)
         $sql = "INSERT INTO own_vehicle_attendance (emp_id, date, vehicle_no, time, out_time) VALUES (?, ?, ?, ?, ?)";
         
         $stmt = $conn->prepare($sql);
         if (!$stmt) throw new Exception("Prepare Failed: " . $conn->error);
 
-        // Binding: emp_id(s), date(s), vehicle_no(s), time(s-NULL), out_time(s-NULL)
         $stmt->bind_param('sssss', $emp_id, $date, $vehicle_no, $in_time, $out_time);
 
         if (!$stmt->execute()) {
@@ -147,7 +148,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
 // ---------------------------------------------------------------------
 
 $today_date = date('Y-m-d');
-$current_time_value = date('H:i'); 
 $employee_ids_list = fetch_own_vehicle_employee_ids($conn); 
 
 include('../../../includes/header.php');
@@ -167,7 +167,6 @@ include('../../../includes/navbar.php');
         .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
-        .auto-filled-display { background-color: #f3f4f6; color: #4b5563; }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
@@ -185,24 +184,20 @@ include('../../../includes/navbar.php');
                     <input type="hidden" name="add_record" value="1">
                     
                     <div>
-                        <label for="emp_id_select" class="block text-sm font-medium text-gray-700">Employee ID:</label>
-                        <select id="emp_id_select" name="emp_id" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2">
-                            <option value="" disabled selected>Select an Employee ID</option>
-                            <?php foreach ($employee_ids_list as $id): ?>
-                                <option value="<?php echo htmlspecialchars($id); ?>"><?php echo htmlspecialchars($id); ?></option>
+                        <label for="emp_id_select" class="block text-sm font-medium text-gray-700">Employee (Search by Name/ID):</label>
+                        <select id="emp_id_select" name="emp_id" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2 bg-white">
+                            <option value="" disabled selected>Select an Employee</option>
+                            <?php foreach ($employee_ids_list as $emp): ?>
+                                <option value="<?php echo htmlspecialchars($emp['emp_id']); ?>">
+                                    <?php echo htmlspecialchars($emp['emp_id'] . ' - ' . $emp['calling_name']); ?>
+                                </option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     
-                    <div class="grid md:grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700">Employee Name:</label>
-                            <input type="text" id="employee_name_display" disabled class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2 auto-filled-display" placeholder="Auto-filled">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700">Vehicle No:</label>
-                            <input type="text" id="vehicle_no" name="vehicle_no" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2" placeholder="Auto-filled or Enter">
-                        </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Vehicle No:</label>
+                        <input type="text" id="vehicle_no" name="vehicle_no" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2" placeholder="Auto-filled or Enter">
                     </div>
 
                     <div>
@@ -232,10 +227,8 @@ include('../../../includes/navbar.php');
     <div id="toast-container"></div>
 
     <script>
-        // JS Logic to handle AJAX and Auto-fill
         const empIdSelect = document.getElementById('emp_id_select');
         const vehicleNoInput = document.getElementById('vehicle_no'); 
-        const employeeNameDisplay = document.getElementById('employee_name_display'); 
         const form = document.getElementById('addVehicleForm');
 
         function showToast(message, type) {
@@ -249,13 +242,13 @@ include('../../../includes/navbar.php');
         }
 
         function resetAutoFields() {
-            vehicleNoInput.value = ''; vehicleNoInput.classList.remove('bg-yellow-100');
-            employeeNameDisplay.value = ''; employeeNameDisplay.classList.remove('bg-yellow-100');
+            vehicleNoInput.value = ''; 
+            vehicleNoInput.classList.remove('bg-yellow-100');
         }
 
         async function fetchDetailsByEmpId(empId) {
             if (!empId) { resetAutoFields(); return; }
-            vehicleNoInput.value = '...'; employeeNameDisplay.value = '...';
+            vehicleNoInput.value = '...';
             
             const formData = new FormData();
             formData.append('fetch_details', '1'); formData.append('emp_id', empId);
@@ -265,9 +258,8 @@ include('../../../includes/navbar.php');
                 const result = await response.json();
                 if (result.status === 'success') {
                     vehicleNoInput.value = result.details.vehicle_no;
-                    employeeNameDisplay.value = result.details.calling_name;
                 } else {
-                    resetAutoFields(); showToast('Details not found', 'error');
+                    resetAutoFields(); showToast('Vehicle details not found', 'error');
                 }
             } catch (e) { resetAutoFields(); }
         }

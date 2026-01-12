@@ -1,14 +1,8 @@
 <?php
 // dh_attendance.php - Displays Day Heldup Attendance Records (Filtered by Separate Month/Year)
 
-require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
-}
-
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("Location: ../../../includes/login.php");
-    exit();
 }
 
 include('../../../includes/db.php');
@@ -128,87 +122,108 @@ include('../../../includes/navbar.php');
     .toast.error { background-color: #F44336; }
     /* Modal Styling */
     #acStatusModal { position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: none; align-items: center; justify-content: center; z-index: 50; }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
 </style>
 <body class="bg-gray-100 ">
 <div id="toast-container"></div>
 
-<div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
-    <div class="text-lg font-semibold ml-3">Registers</div>
-    <div class="flex gap-4">
-        <a href="day_heldup_register.php" class="hover:text-yellow-600">Trip Register</a>
+<div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+                <a href="day_heldup_register.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                    Day Heldup
+                </a>
+
+                <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+                <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                    Attendance
+                </span>
+            </div>
+    </div>
+
+    <div class="flex items-center gap-4 text-sm font-medium">
+        
+        <?php if ($pending_count > 0): ?>
+            <div class="bg-red-600 text-white px-2 py-1 rounded-md text-xs font-bold animate-pulse shadow-sm flex items-center gap-1" title="Pending AC Confirmations">
+                <i class="fas fa-exclamation-circle"></i> AC Pending: <?php echo $pending_count; ?>
+            </div>
+        <?php endif; ?>
+
+        <form method="GET" class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
+            
+            <select name="month_num" onchange="this.form.submit()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-1 appearance-none hover:text-yellow-200 transition">
+                <?php foreach ($monthNames as $num => $name): 
+                    $selected = ($filterMonthNum == $num) ? 'selected' : '';
+                ?>
+                    <option value="<?php echo $num; ?>" <?php echo $selected; ?> class="text-gray-900 bg-white">
+                        <?php echo $name; ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            
+            <span class="text-gray-400 mx-1">|</span>
+
+            <select name="year" onchange="this.form.submit()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-1 pr-2 appearance-none hover:text-yellow-200 transition">
+                <?php 
+                $startYear = date('Y') + 1;
+                $endYear = date('Y') - 3;
+                for ($year = $startYear; $year >= $endYear; $year--):
+                    $selected = ($filterYear == $year) ? 'selected' : '';
+                ?>
+                    <option value="<?php echo $year; ?>" <?php echo $selected; ?> class="text-gray-900 bg-white">
+                        <?php echo $year; ?>
+                    </option>
+                <?php endfor; ?>
+            </select>
+        </form>
+
+        <span class="text-gray-600">|</span>
+
+        <a href="day_heldup_register.php" class="text-gray-300 hover:text-white transition">Trip Register</a>
+        
         <?php if ($can_act): ?>
-            <a href="day_heldup_add_attendance_manual.php" class="hover:text-yellow-600">Add Attendance </a>
+            <a href="day_heldup_add_attendance_manual.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            Add Attendance
+            </a>
         <?php endif; ?>
+        
         <?php if (!$can_act): ?>
-            <a href="day_heldup_add_attendance.php" class="hover:text-yellow-600">Add Attendance</a>
+            <a href="day_heldup_add_attendance.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            Add Attendance
+            </a>
         <?php endif; ?>
+
     </div>
 </div>
 
-<div class="w-[85%] ml-[15%]" style="display: flex; flex-direction: column; align-items: center;">
-    <p class="text-[32px] font-bold text-gray-800 mt-2">Day Heldup Attendance Register</p>
-
-    <form method="GET" class="mb-6 flex justify-center items-center">
-        <div class="flex items-center space-x-2">
-            <label class="text-lg font-medium">Filter by:</label>
-            
-            <div>
-                <select name="month_num" class="border border-gray-300 p-2 rounded-md">
-                    <?php 
-                    foreach ($monthNames as $num => $name): 
-                        $selected = ($filterMonthNum == $num) ? 'selected' : '';
-                    ?>
-                        <option value="<?php echo $num; ?>" <?php echo $selected; ?>>
-                            <?php echo $name; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
-            <div>
-                <select name="year" class="border border-gray-300 p-2 rounded-md">
-                    <?php 
-                    $startYear = date('Y') - 3;
-                    $endYear = date('Y') + 1;
-                    for ($year = $startYear; $year <= $endYear; $year++):
-                        $selected = ($filterYear == $year) ? 'selected' : '';
-                    ?>
-                        <option value="<?php echo $year; ?>" <?php echo $selected; ?>>
-                            <?php echo $year; ?>
-                        </option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-            
-            <button type="submit" class="bg-blue-500 text-white px-3 py-2 rounded-md hover:bg-blue-600">Filter</button>
-        </div>
-        
-        <?php if ($pending_count > 0): ?>
-            <div class="count-badge">
-                <div class="px-3 py-1 bg-red-600 text-white rounded-full shadow-lg text-sm font-bold ml-4">
-                    AC PENDING : <?php echo $pending_count; ?>
-                </div>
-            </div>
-        <?php endif; ?>
-    </form>
-
-    <div class="overflow-x-auto bg-white shadow-md rounded-md mb-6">
-        <table class="w-full table-auto p-2">
+<div class="w-[85%] ml-[15%] p-2 mt-1">
+    
+    <div class="overflow-x-auto bg-white shadow-lg rounded-lg border border-gray-200">
+        <table class="w-full table-auto">
             <thead class="bg-blue-600 text-white text-sm">
                 <tr>
-                    <th class="px-4 py-2 text-left">Date</th>
-                    <th class="px-4 py-2 text-left">Time</th>
-                    <th class="px-4 py-2 text-left">Op Code</th>
-                    <th class="px-4 py-2 text-left">Vehicle No</th>
-                    <th class="px-4 py-2 text-left">Recorded By</th>
-                    <th class="px-4 py-2 text-center">AC Status</th>
-                    <th class="px-4 py-2 text-center" style="min-width: 100px;">Action</th>
+                    <th class="px-4 py-3 text-left">Date</th>
+                    <th class="px-4 py-3 text-left">Time</th>
+                    <th class="px-4 py-3 text-left">Op Code</th>
+                    <th class="px-4 py-3 text-left">Vehicle No</th>
+                    <th class="px-4 py-3 text-left">Recorded By</th>
+                    <th class="px-4 py-3 text-center">AC Status</th>
+                    <th class="px-4 py-3 text-center" style="min-width: 100px;">Action</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody class="text-sm">
                 <?php
                 if (empty($attendance_records)) {
-                    echo "<tr><td colspan='7' class='border px-4 py-2 text-center text-gray-500'>No Attendance records available for " . htmlspecialchars($filterYearMonth) . ".</td></tr>";
+                    echo "<tr><td colspan='7' class='px-6 py-4 text-center text-gray-500'>
+                            No Attendance records available for " . htmlspecialchars($filterYearMonth) . ".
+                          </td></tr>";
                 } else {
                     foreach ($attendance_records as $entry) {
                         
@@ -218,12 +233,11 @@ include('../../../includes/navbar.php');
                         $record_ac_user_id = $entry['ac_user_id']; 
                         $ac_status_db = $entry['ac']; 
 
-                        // ⬇️ NEW CODE: Highlight row if AC Status is NULL (Pending)
-                        $row_class = 'hover:bg-gray-50';
+                        // Highlight row if AC Status is NULL (Pending)
+                        $row_class = 'hover:bg-gray-50 border-b border-gray-100 transition duration-150';
                         if ($ac_status_db === null) {
-                            $row_class = 'bg-red-100 hover:bg-red-200'; 
+                            $row_class = 'bg-red-50 hover:bg-red-100 border-b border-red-100'; 
                         }
-                        // ⬆️ END NEW CODE
                         
                         // Check if the current logged-in user is the record creator or the AC status setter
                         $is_record_owner = !empty($logged_in_user_id) && !empty($record_user_id) && ((string)$logged_in_user_id === (string)$record_user_id);
@@ -244,50 +258,49 @@ include('../../../includes/navbar.php');
                         
                         // AC Status Display Logic
                         if ($ac_status_db === 1) {
-                            $ac_display = '<span class="text-green-600 font-bold">AC</span>';
+                            $ac_display = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-200 text-green-800">AC</span>';
                         } elseif ($ac_status_db === 2) {
-                            $ac_display = '<span class="text-red-600 font-bold">NON-AC</span>';
+                            $ac_display = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-200 text-red-800">NON-AC</span>';
                         } else {
                             // NULL or 0
-                            $ac_display = '<span class="text-gray-500">---</span>';
+                            $ac_display = '<span class="text-gray-400 italic">---</span>';
                         }
                         
                         // Display user name, defaulting to '---' if NULL
                         $recorded_by = htmlspecialchars($entry['recorded_by_user_display'] ?? '---');
 
-                        // ⬇️ MODIFIED LINE: Apply the calculated $row_class
                         echo "<tr class='{$row_class}'>
-                            <td class='border px-4 py-2'>{$record_date}</td>
-                            <td class='border px-4 py-2'>{$entry['time']}</td>
-                            <td class='border px-4 py-2'>{$record_op_code}</td>
-                            <td class='border px-4 py-2'>{$entry['vehicle_no']}</td>
-                            <td class='border px-4 py-2 text-sm font-semibold'>{$recorded_by}</td>
+                            <td class='px-4 py-3 font-medium text-gray-700'>{$record_date}</td>
+                            <td class='px-4 py-3'>{$entry['time']}</td>
+                            <td class='px-4 py-3'>{$record_op_code}</td>
+                            <td class='px-4 py-3'>{$entry['vehicle_no']}</td>
+                            <td class='px-4 py-3 text-xs text-gray-600'>{$recorded_by}</td>
                             
-                            <td class='border px-4 py-2 text-center'>";
+                            <td class='px-4 py-3 text-center'>";
                             if ($can_toggle_ac) {
                                 // AC Status clickable area (triggers modal)
                                 echo "<button data-op-code='{$record_op_code}' 
-                                        data-date='{$record_date}'
-                                        data-current-ac='{$ac_status_db}'
-                                        class='ac-status-btn text-blue-600 hover:text-blue-800 font-bold py-1 px-2 rounded text-xs'>
-                                        {$ac_display} <i class='fas fa-pencil-alt ml-1'></i>
-                                    </button>";
+                                                data-date='{$record_date}'
+                                                data-current-ac='{$ac_status_db}'
+                                                class='ac-status-btn hover:opacity-80 transition transform hover:scale-105' title='Edit AC Status'>
+                                                {$ac_display} 
+                                        </button>";
                             } else {
                                 echo $ac_display; // Display status, but not clickable
                             }
                             echo "</td>
                             
-                            <td class='border px-4 py-2 text-center'>";
+                            <td class='px-4 py-3 text-center'>";
                             
                             if ($is_record_owner) {
                                 // Delete Button (Strictly only for record owner)
                                 echo "<button data-op-code='{$record_op_code}' 
-                                        data-date='{$record_date}'
-                                        class='delete-attendance-btn bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs'>
-                                        <i class='fas fa-trash-alt'></i>
-                                    </button>";
+                                                data-date='{$record_date}'
+                                                class='delete-attendance-btn bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-md text-xs shadow-sm transition' title='Delete Record'>
+                                                <i class='fas fa-trash-alt'></i>
+                                        </button>";
                             } else {
-                                echo "---";
+                                echo "<span class='text-gray-400 text-xs italic'>Locked</span>";
                             }
 
                             echo "</td>
@@ -302,7 +315,9 @@ include('../../../includes/navbar.php');
 
 <div id="acStatusModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden items-center justify-center z-50">
     <div class="bg-white p-6 rounded-lg shadow-xl w-96">
-        <h2 class="text-xl font-bold mb-4">Set AC Status for <span id="modalOpCode" class="text-indigo-600"></span></h2>
+        <h2 class="text-xl font-bold mb-4 text-gray-800">Set AC Status</h2>
+        <p class="text-sm text-gray-500 mb-4">For <span id="modalOpCode" class="font-bold text-indigo-600"></span></p>
+        
         <form id="acStatusForm">
             <input type="hidden" name="action" value="set_ac_status_final">
             <input type="hidden" name="op_code">
@@ -330,8 +345,8 @@ include('../../../includes/navbar.php');
             </div>
 
             <div class="flex justify-between space-x-3">
-                <button type="button" onclick="document.getElementById('acStatusModal').style.display='none'" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancel</button>
-                <button type="submit" id="acStatusSubmitBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">Submit</button>
+                <button type="button" onclick="document.getElementById('acStatusModal').style.display='none'" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition">Cancel</button>
+                <button type="submit" id="acStatusSubmitBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition">Submit</button>
             </div>
         </form>
     </div>

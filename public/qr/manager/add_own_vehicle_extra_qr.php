@@ -45,8 +45,8 @@ mysqli_close($conn);
             
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 ">
                 <a href="own_vehicle_attendance_qr.php" class="bg-blue-600 text-white py-12 px-10 rounded-lg text-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl font-semibold">ATTENDANCE</a>
-                <a href="own_vehicle_extra_qr_out.php" class="bg-teal-500 text-white py-12 px-10 rounded-lg text-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl font-semibold">OUT</a>
-                <a href="own_vehicle_extra_qr_in.php" class="bg-purple-600 text-white py-12 px-10 rounded-lg text-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl font-semibold">IN</a>
+                <!-- <a href="own_vehicle_extra_qr_out.php" class="bg-teal-500 text-white py-12 px-10 rounded-lg text-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl font-semibold">OUT</a>
+                <a href="own_vehicle_extra_qr_in.php" class="bg-purple-600 text-white py-12 px-10 rounded-lg text-xl shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl font-semibold">IN</a> -->
                 <!-- <a href="vehicle.php" class="bg-green-600 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Vehicles</a>
                 <a href="driver.php" class="bg-red-600 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Drivers</a>
                 <a href="employee.php" class="bg-yellow-500 text-white py-12 px-10 rounded-lg text-xl font-semibold shadow-md transform transition-all duration-300 hover:scale-105 hover:shadow-xl">Employees</a>
