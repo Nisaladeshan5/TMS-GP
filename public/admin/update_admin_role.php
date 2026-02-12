@@ -1,5 +1,5 @@
 <?php
-// update_admin_role.php
+// update_admin_role.php (Updated for Viewer Role)
 
 header('Content-Type: application/json');
 
@@ -14,9 +14,9 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 }
 
 // 2. Includes and Data Validation
-include('../../includes/db.php'); // Assumed database connection file
+include('../../includes/db.php'); 
 
-$logged_in_user_role = $_SESSION['user_role'] ?? 'admin'; 
+$logged_in_user_role = $_SESSION['user_role'] ?? 'viewer'; 
 $current_user_emp_id = $_SESSION['user_emp_id'] ?? null; 
 
 // Check for required POST data
@@ -26,86 +26,75 @@ if (!isset($_POST['emp_id']) || !isset($_POST['new_role'])) {
 }
 
 $target_emp_id = $_POST['emp_id'];
-$new_role = strtolower($_POST['new_role']); // Ensure role is lowercase
+$new_role = strtolower(trim($_POST['new_role'])); 
 
-// --- START: SECURITY LOGIC (Must be included here) ---
+// --- START: SECURITY LOGIC ---
+
+// 1. Updated Hierarchy with Viewer
 $role_hierarchy = [
+    'viewer' => 0,      // Lowest Level
     'admin' => 1,
     'super admin' => 2,
     'manager' => 3,
     'developer' => 4,
 ];
 
-/**
- * Checks if the logged-in user has permission to perform a specific modification on a target user based on the NEW strict rules.
- * LATEST UPDATE: Prevents ANY promotion to the 'developer' role.
- */
-function canModify($logged_in_role, $target_role, $action_type, $target_new_role = null) {
+// Function to check permissions
+function canModify($logged_in_role, $target_role, $action_type, $target_new_role) {
     global $role_hierarchy;
 
     $logged_in_level = $role_hierarchy[$logged_in_role] ?? 0;
     $target_level = $role_hierarchy[$target_role] ?? 0;
+    $new_role_level = $role_hierarchy[$target_new_role] ?? 0;
     
     // Rule 0: Cannot modify your own role
     if ($logged_in_level > 0 && $target_level > 0 && $logged_in_level === $target_level) {
         return false; 
     }
     
-    // Rule 1: Logged-in user must be strictly higher level than the target user's current level (for Promote/Demote)
-    if ($action_type !== 'remove' && $logged_in_level <= $target_level) {
+    // Rule 1: Logged-in user must be STRICTLY higher level than the target user's CURRENT level
+    if ($logged_in_level <= $target_level) {
         return false;
     }
-    
-    // --- SPECIAL RULE FOR REMOVE (Remove 'admin' (L1) only) ---
-    if ($action_type === 'remove') {
-        return ($logged_in_level > 1 && $target_role === 'admin');
-    }
-    // ------------------------------------------------
 
-    // A. Developer (L4): Can Promote/Demote anyone below them (L1, L2, L3)
+    // A. Developer (L4)
     if ($logged_in_role === 'developer') {
-        
-        // **NEW RULE CHECK for DEVELOPER:** Cannot promote anyone TO 'developer'.
-        if ($action_type === 'promote' && $target_new_role === 'developer') {
-            return false;
-        }
-
-        // Developer can demote L4 to L3, or L3 to L2, or L2 to L1.
+        // Cannot promote anyone TO 'developer'
+        if ($target_new_role === 'developer') return false;
         return true; 
     }
 
-    // B. Admin (L1) - Cannot do anything
-
-    // C. Super Admin (L2) - Cannot Promote or Demote
-    if ($logged_in_role === 'super admin') {
-        return false;
-    }
-    
-    // D. Manager (L3) Specific Rules
+    // B. Manager (L3)
     if ($logged_in_role === 'manager') {
+        // Cannot promote to Developer
+        if ($target_new_role === 'developer') return false;
+
+        // Can Promote: Viewer -> Admin OR Admin -> Super Admin OR Super Admin -> Manager
+        if ($action_type === 'promote') {
+            return ($target_new_role === 'admin' || $target_new_role === 'super admin' || $target_new_role === 'manager');
+        }
         
-        // Determine action type based on level change
-        $current_new_level = $role_hierarchy[$target_new_role] ?? 0;
-        $action_type_dynamic = ($current_new_level > $target_level) ? 'promote' : 'demote';
-
-        if ($action_type_dynamic === 'promote' && $target_new_role) {
-            
-            // **IMPLEMENTING NEW RULE:** Cannot promote anyone TO 'developer'.
-            if ($target_new_role === 'developer') {
-                return false;
-            }
-
-            // Can Promote Admin (L1 -> L2) OR Super Admin (L2 -> L3)
-            return (
-                ($target_role === 'admin' && $target_new_role === 'super admin') || 
-                ($target_role === 'super admin' && $target_new_role === 'manager')
-            );
-        } elseif ($action_type_dynamic === 'demote' && $target_new_role) {
-            // Can Demote Super Admin (L2 -> L1)
-            return ($target_role === 'super admin' && $target_new_role === 'admin');
+        // Can Demote: Manager -> Super Admin OR Super Admin -> Admin OR Admin -> Viewer
+        if ($action_type === 'demote') {
+            return ($target_new_role === 'super admin' || $target_new_role === 'admin' || $target_new_role === 'viewer');
         }
     }
 
+    // C. Super Admin (L2) - NOW HAS POWER
+    if ($logged_in_role === 'super admin') {
+        // Can Promote: Viewer -> Admin
+        if ($action_type === 'promote') {
+            return ($target_role === 'viewer' && $target_new_role === 'admin');
+        }
+        // Can Demote: Admin -> Viewer
+        if ($action_type === 'demote') {
+            return ($target_role === 'admin' && $target_new_role === 'viewer');
+        }
+        // Cannot touch Managers or other Super Admins
+        return false;
+    }
+
+    // D. Admin (L1) & Viewer (L0) - No powers
     return false;
 }
 // --- END: SECURITY LOGIC ---
@@ -118,7 +107,7 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 if ($result->num_rows === 0) {
-    echo json_encode(['success' => false, 'error' => 'Target user not found in admin table.']);
+    echo json_encode(['success' => false, 'error' => 'Target user not found.']);
     $stmt->close();
     exit();
 }
@@ -127,43 +116,49 @@ $target_user = $result->fetch_assoc();
 $current_target_role = $target_user['role'];
 $stmt->close();
 
-// 4. Determine Action and Perform Permission Check
-// Since we don't know if it's promote or demote yet, we use a generic 'role_change' action type here, 
-// and the canModify logic uses $target_new_role to determine validity based on levels.
-
+// 4. Determine Action Type (Promote vs Demote)
 if ($target_emp_id == $current_user_emp_id) {
     echo json_encode(['success' => false, 'error' => 'Cannot modify your own role.']);
     exit();
 }
 
-if (!in_array($new_role, array_keys($role_hierarchy))) {
+if (!array_key_exists($new_role, $role_hierarchy)) {
     echo json_encode(['success' => false, 'error' => 'Invalid role specified.']);
     exit();
 }
 
-$can_update = canModify($logged_in_user_role, $current_target_role, 'promote', $new_role) || 
-              canModify($logged_in_user_role, $current_target_role, 'demote', $new_role);
+$current_level = $role_hierarchy[$current_target_role] ?? 0;
+$new_level = $role_hierarchy[$new_role] ?? 0;
 
-
-if (!$can_update) {
-    echo json_encode(['success' => false, 'error' => 'Permission denied. You cannot set ' . $target_emp_id . ' to ' . $new_role . '.']);
+if ($new_level > $current_level) {
+    $action = 'promote';
+} elseif ($new_level < $current_level) {
+    $action = 'demote';
+} else {
+    echo json_encode(['success' => false, 'error' => 'New role is same as current role.']);
     exit();
 }
 
-// 5. Execute Database Update
+// 5. Check Permission
+if (!canModify($logged_in_user_role, $current_target_role, $action, $new_role)) {
+    echo json_encode(['success' => false, 'error' => 'Permission denied.']);
+    exit();
+}
+
+// 6. Execute Database Update
 $update_sql = "UPDATE admin SET role = ? WHERE emp_id = ?";
 $stmt = $conn->prepare($update_sql);
 
 if ($stmt === false) {
     error_log("Prepare failed: " . $conn->error);
-    echo json_encode(['success' => false, 'error' => 'Database error during preparation.']);
+    echo json_encode(['success' => false, 'error' => 'Database error.']);
     exit();
 }
 
 $stmt->bind_param("ss", $new_role, $target_emp_id);
 
 if ($stmt->execute()) {
-    echo json_encode(['success' => true, 'message' => 'Role for user ' . $target_emp_id . ' successfully updated to ' . $new_role . '.']);
+    echo json_encode(['success' => true, 'message' => "User role updated to $new_role."]);
 } else {
     error_log("Execute failed: " . $stmt->error);
     echo json_encode(['success' => false, 'error' => 'Database update failed.']);

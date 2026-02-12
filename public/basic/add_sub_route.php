@@ -6,7 +6,6 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
@@ -54,59 +53,17 @@ if ($vehicle_result && $vehicle_result->num_rows > 0) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Add New Sub-Route</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Toast Notifications CSS */
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-        }
-        .toast {
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            color: white;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-        }
-        .toast.show {
-            transform: translateY(0);
-            opacity: 1;
-        }
-        .toast.success {
-            background-color: #4CAF50; /* Green */
-        }
-        .toast.error {
-            background-color: #F44336; /* Red */
-        }
-        .toast-icon {
-            width: 1.5rem;
-            height: 1.5rem;
-            margin-right: 0.75rem;
-        }
-        /* Style to force uppercase visually */
-        .uppercase-input {
-            text-transform: uppercase;
-        }
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; min-width: 250px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background-color: #4CAF50; }
+        .toast.error { background-color: #F44336; }
+        .uppercase-input { text-transform: uppercase; }
+        .readonly-field { background-color: #f3f4f6; cursor: not-allowed; }
     </style>
 </head>
-<script>
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
-
-    setTimeout(function() {
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
-    }, SESSION_TIMEOUT_MS);
-</script>
 <body class="bg-gray-100 font-sans">
 
 <div id="toast-container"></div>
@@ -121,7 +78,7 @@ if ($vehicle_result && $vehicle_result->num_rows > 0) {
             <div class="grid md:grid-cols-2 gap-6">
                 <div> 
                     <label for="route_code" class="block text-sm font-medium text-gray-700">Route Name (Parent):</label>
-                    <select id="route_code" name="route_code" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                    <select id="route_code" name="route_code" required class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2">
                         <option value="">-- Select Route --</option>
                         <?php foreach ($routes as $route): ?>
                             <option value="<?= htmlspecialchars($route['route_code']) ?>">
@@ -133,21 +90,18 @@ if ($vehicle_result && $vehicle_result->num_rows > 0) {
 
                 <div>
                     <label for="sub_route_code" class="block text-sm font-medium text-gray-700">Sub-Route Code Suffix:</label>
-                    <input type="text" id="sub_route_code" name="sub_route_code" 
-                           placeholder="e.g. 1WED-V" maxlength="6" required 
-                           class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 uppercase-input">
-                    <p class="text-xs text-gray-500 mt-1">Format: Digit + 3 Letters + Hyphen + Letter (e.g. 1WED-V)</p>
+                    <input type="text" id="sub_route_code" name="sub_route_code" placeholder="e.g. 1WED-V" maxlength="7" required class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2 uppercase-input">
                 </div>
             </div>
             
             <div class="grid md:grid-cols-2 gap-6">
                 <div>
                     <label for="sub_route" class="block text-sm font-medium text-gray-700">Sub-Route Name:</label>
-                    <input type="text" id="sub_route" name="sub_route" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                    <input type="text" id="sub_route" name="sub_route" required class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2">
                 </div>
                 <div>
                     <label for="supplier" class="block text-sm font-medium text-gray-700">Supplier:</label>
-                    <select id="supplier" name="supplier" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                    <select id="supplier" name="supplier" required class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2">
                         <option value="">-- Select Supplier --</option>
                         <?php foreach ($suppliers as $supplier_row): ?>
                             <option value="<?= htmlspecialchars($supplier_row["supplier"]) ?>" data-code="<?= htmlspecialchars($supplier_row["supplier_code"]) ?>">
@@ -161,8 +115,8 @@ if ($vehicle_result && $vehicle_result->num_rows > 0) {
             <div class="grid md:grid-cols-2 gap-6">
                 <div>
                     <label for="vehicle_no" class="block text-sm font-medium text-gray-700">Vehicle No:</label>
-                    <select id="vehicle_no" name="vehicle_no" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                        <option value="">-- Select Vehicle No --</option>
+                    <select id="vehicle_no" name="vehicle_no" required class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2">
+                        <option value="">-- Select Vehicle --</option>
                         <?php foreach ($vehicles as $vehicle_row): ?>
                             <option value="<?= htmlspecialchars($vehicle_row["vehicle_no"]) ?>">
                                 <?= htmlspecialchars($vehicle_row["vehicle_no"]) ?>
@@ -172,24 +126,40 @@ if ($vehicle_result && $vehicle_result->num_rows > 0) {
                 </div>
                 <div>
                     <label for="distance" class="block text-sm font-medium text-gray-700">Distance (km):</label>
-                    <input type="number" id="distance" name="distance" step="0.01" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                    <input type="number" id="distance" name="distance" step="0.01" required class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2">
                 </div>
             </div>
 
             <div class="grid md:grid-cols-2 gap-6">
                 <div>
-                    <label for="per_day_rate" class="block text-sm font-medium text-gray-700">Per Day Rate (Rs.):</label>
-                    <input type="number" id="per_day_rate" name="per_day_rate" step="0.01" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                    <label for="fixed_rate" class="block text-sm font-medium text-gray-700">Fixed Rate (Rs./km):</label>
+                    <input type="number" id="fixed_rate" name="fixed_rate" step="0.01" required class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Fuel Option:</label>
+                    <div class="flex items-center space-x-4 mt-2 p-2 border border-gray-300 rounded-md bg-gray-50">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="with_fuel" value="1" checked class="mr-1 h-4 w-4 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm text-gray-700">With Fuel</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="with_fuel" value="0" class="mr-1 h-4 w-4 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm text-gray-700">Without Fuel</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6">
+                <div>
+                    <label for="fuel_amount_display" class="block text-sm font-medium text-gray-700">Fuel Amount (Auto):</label>
+                    <input type="text" id="fuel_amount_display" readonly class="mt-1 block w-full rounded-md border border-gray-300 shadow-sm p-2" value="0.00">
                 </div>
             </div>
             
             <div class="flex justify-between mt-6 pt-4 border-t border-gray-200">
-                <a href="sub_routes.php" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
-                    Cancel
-                </a>
-                <button type="submit" id="submitBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
-                    Add Sub-Route
-                </button>
+                <a href="sub_routes.php" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-md transition duration-300 transform hover:scale-105 shadow-md text-sm">Cancel</a>
+                <button type="submit" id="submitBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md transition duration-300 transform hover:scale-105 shadow-md text-sm">Add Sub-Route</button>
             </div>
         </form>
     </div>
@@ -197,114 +167,108 @@ if ($vehicle_result && $vehicle_result->num_rows > 0) {
 
 <script>
     const form = document.getElementById("subRouteForm");
-    const toastContainer = document.getElementById("toast-container");
-    const subRouteInput = document.getElementById('sub_route_code');
-
-    // 1. Auto Capitalize Input Listener
-    subRouteInput.addEventListener('input', function (e) {
-        this.value = this.value.toUpperCase();
-    });
+    const vehicleNoSelect = document.getElementById('vehicle_no');
+    const fuelDisplay = document.getElementById('fuel_amount_display');
+    const fuelRadios = document.querySelectorAll('input[name="with_fuel"]');
 
     // Toast Function
     function showToast(message, type) {
-        const toast = document.createElement('div'); 
-        toast.className = `toast ${type}`; 
-        
-        let iconPath = '';
-        if (type === 'success') {
-             iconPath = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />';
-        } else {
-             iconPath = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />';
+        const container = document.getElementById("toast-container");
+        const toast = document.createElement('div');
+        toast.className = `toast ${type} show`;
+        const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle';
+        toast.innerHTML = `<i class="fas ${icon} mr-2"></i><span>${message}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    // --- Dynamic Fuel Calculation ---
+    async function updateFuelRate() {
+        const vehicleNo = vehicleNoSelect.value;
+        const withFuel = document.querySelector('input[name="with_fuel"]:checked').value;
+
+        // "Without Fuel" select karala nam ho vehicle select karala nethnam 0.00 pennanawa
+        if (withFuel == "0" || !vehicleNo) {
+            fuelDisplay.value = "0.00";
+            return;
         }
 
-        toast.innerHTML = ` 
-            <svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                ${iconPath}
-            </svg>
-            <span>${message}</span> 
-        `; 
-        
-        toastContainer.appendChild(toast); 
+        try {
+            // Fuel calculation action eka backend file ekatama call karanawa
+            const response = await fetch(`sub_routes_backend.php?action=get_fuel_rates&vehicle_no=${encodeURIComponent(vehicleNo)}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                const fuelPrice = parseFloat(data.fuel_cost_per_liter);
+                const kmPerLiter = parseFloat(data.km_per_liter);
 
-        setTimeout(() => toast.classList.add('show'), 10); 
+                if (kmPerLiter > 0) {
+                    const rate = fuelPrice / kmPerLiter;
+                    fuelDisplay.value = rate.toFixed(2);
+                } else {
+                    fuelDisplay.value = "0.00";
+                    showToast("Consumption data missing for this vehicle", "error");
+                }
+            } else {
+                fuelDisplay.value = "0.00";
+            }
+        } catch (e) {
+            console.error("Fuel fetch error:", e);
+            fuelDisplay.value = "0.00";
+        }
+    }
 
-        setTimeout(() => { 
-            toast.classList.remove('show'); 
-            toast.addEventListener('transitionend', () => toast.remove(), { once: true }); 
-        }, 3000); 
-    } 
+    // Event Listeners for calculation
+    vehicleNoSelect.addEventListener('change', updateFuelRate);
+    fuelRadios.forEach(r => r.addEventListener('change', updateFuelRate));
 
+    // Handle Form Submit
     function handleFormSubmit(event) {
         event.preventDefault();
         const formData = new FormData(form);
         
-        // --- VALIDATION & CONCATENATION START ---
-        
+        // 1. Combine Route Code + Suffix (Parent + Suffix)
         const routeCode = formData.get('route_code');
-        // Ensure user input is uppercase for regex check
-        const userTypedCode = formData.get('sub_route_code').toUpperCase(); 
-
-        // 2. Updated Regex Pattern for "1WED-V" format
-        // ^ = Start, \d = One Digit, [A-Z]{3} = 3 Letters, - = Hyphen, [A-Z] = 1 Letter, $ = End
-        const codePattern = /^\d[A-Z]{3}-[A-Z]$/; 
-
-        if (!codePattern.test(userTypedCode)) {
-            showToast("Invalid format! Use: Number + 3 Letters + Hyphen + Letter (e.g. 1WED-V)", 'error');
-            return; // Stop execution
-        }
-
-        // 3. Combine Route Code + Suffix (Parent Code + Suffix)
-        if (routeCode && userTypedCode) {
-            const finalSubCode = `${routeCode.trim()}-${userTypedCode.trim()}`;
-            formData.set('sub_route_code', finalSubCode);
+        const suffix = formData.get('sub_route_code').toUpperCase();
+        if (routeCode && suffix) {
+            formData.set('sub_route_code', `${routeCode}-${suffix}`);
         } else {
-            showToast("Please select a Route and enter a Sub-Route Code.", 'error');
+            showToast("Missing code details", "error");
             return;
         }
-        
-        // --- VALIDATION & CONCATENATION END ---
 
-        // Handle Supplier Code Extraction
-        const selectedSupplierName = formData.get('supplier');
+        // 2. Extract Supplier Code
         const supplierSelect = document.getElementById('supplier');
-        const selectedOption = supplierSelect.querySelector(`option[value="${selectedSupplierName}"]`);
-        
-        if (selectedOption) {
-            formData.set('supplier_code', selectedOption.getAttribute('data-code'));
+        const selectedOpt = supplierSelect.options[supplierSelect.selectedIndex];
+        if (selectedOpt && selectedOpt.value) {
+            formData.set('supplier_code', selectedOpt.getAttribute('data-code'));
         } else {
-             showToast("Please select a valid supplier.", 'error');
-             return;
+            showToast("Please select a supplier", "error");
+            return;
         }
-        formData.delete('supplier'); // Remove supplier name, keep supplier_code
 
-        // Disable button during submission
         document.getElementById('submitBtn').disabled = true;
 
-        fetch('sub_routes_backend.php', { 
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.text())
+        fetch('sub_routes_backend.php', { method: 'POST', body: formData })
+        .then(res => res.text())
         .then(data => {
-            document.getElementById('submitBtn').disabled = false;
-            
             if (data.trim() === "Success") {
                 showToast("Sub-Route added successfully!", 'success');
-                setTimeout(() => {
-                    window.location.href = 'sub_routes.php'; 
-                }, 1300); 
+                setTimeout(() => window.location.href = 'sub_routes.php', 1300);
             } else {
                 showToast("Error: " + data, 'error');
+                document.getElementById('submitBtn').disabled = false;
             }
         })
-        .catch(error => {
+        .catch(err => {
+            console.error("Submit error:", err);
+            showToast("An error occurred. Please try again.", "error");
             document.getElementById('submitBtn').disabled = false;
-            console.error('Error:', error);
-            showToast("An error occurred. Please try again.", 'error');
         });
     }
 </script>
-
 </body>
 </html>
-<?php $conn->close(); ?>

@@ -97,27 +97,27 @@ $page = substr($_SERVER['SCRIPT_NAME'], strrpos($_SERVER['SCRIPT_NAME'],"/")+1);
             
             <?php if ($is_logged_in): ?>
                 
-                <?php if (in_array($user_role, ['manager', 'super admin', 'admin', 'developer'])) { ?>
+                <?php if (in_array($user_role, ['viewer', 'manager', 'super admin', 'admin', 'developer'])) { ?>
                 <div class="pt-3 pb-1 px-4 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Management</div>
                 
                 <a href="<?= BASE_URL ?>basic/basic_category.php" class="<?= getNavClass($is_basic); ?>">
                     <i class="fas fa-database w-5 text-center text-lg <?= $is_basic ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
                     <span>Basic Data</span>
                 </a>
+                <?php } ?>
+                <?php if (in_array($user_role, ['manager', 'super admin', 'admin', 'developer'])) { ?>
                 <a href="<?= BASE_URL ?>payments/payments_category.php" class="<?= getNavClass($is_payments); ?>">
                     <i class="fas fa-file-invoice-dollar w-5 text-center text-lg <?= $is_payments ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
                     <span>Payments</span>
                 </a>
                 <?php } ?>
                 
-                <?php if ($user_role === 'developer') { ?>
+                <?php if (in_array($user_role, ['viewer', 'manager', 'super admin', 'admin', 'developer'])) { ?>
                 <a href="<?= BASE_URL ?>report/report_main.php" class="<?= getNavClass($is_report); ?>">
                     <i class="fas fa-chart-pie w-5 text-center text-lg <?= $is_report ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
                     <span>Report</span>
                 </a>
-                <?php } ?>
                 
-                <?php if (in_array($user_role, ['manager', 'super admin', 'admin', 'developer'])) { ?>
                 <a href="<?= BASE_URL ?>checkUp/checkUp_category.php" class="<?= getNavClass($is_checkUp); ?>">
                     <i class="fas fa-clipboard-check w-5 text-center text-lg <?= $is_checkUp ? 'text-white' : 'text-gray-500 group-hover:text-white'; ?>"></i>
                     <span>Inspection</span>
@@ -159,7 +159,7 @@ $page = substr($_SERVER['SCRIPT_NAME'], strrpos($_SERVER['SCRIPT_NAME'],"/")+1);
 
         <div class="p-3 border-t border-white/10 bg-black/20 backdrop-blur-sm shrink-0">
             <a href="<?= $button_href; ?>"
-               class="flex items-center justify-center w-full py-2 px-4 rounded-lg font-bold shadow-md transition-all duration-300 transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 
+               class="flex items-center justify-center w-full py-2 px-4 rounded-lg font-bold shadow-md transition-all duration-300 transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 no-loader
                <?= $is_logged_in ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500' : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'; ?>"
                <?php if ($is_logged_in): ?>
                onclick="showLogoutModal(event, '<?= $button_href; ?>')"
@@ -188,7 +188,7 @@ $page = substr($_SERVER['SCRIPT_NAME'], strrpos($_SERVER['SCRIPT_NAME'],"/")+1);
                 Are you sure you want to log out? <br>You will be returned to the login screen.
             </p>
             
-            <div class="flex justify-end space-x-3">
+            <div class="flex justify-between space-x-3">
                 <button onclick="hideLogoutModal()"
                         class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition focus:outline-none focus:ring-2 focus:ring-gray-300">
                     Cancel

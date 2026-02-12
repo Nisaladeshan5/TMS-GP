@@ -3,125 +3,173 @@
 
 require_once '../../includes/session_check.php';
 require_once '../../includes/db.php';
-require_once '../../tcpdf/tcpdf.php'; 
+require_once '../../tcpdf/tcpdf.php';
+date_default_timezone_set('Asia/Colombo');
 
-// --- 1. Fetch Data ---
-$filter_rate_id = isset($_GET['rate_id']) ? $_GET['rate_id'] : 'all';
-$from_date = isset($_GET['from_date']) ? $_GET['from_date'] : '';
-$to_date = isset($_GET['to_date']) ? $_GET['to_date'] : '';
+/* ======================================================
+    PROFESSIONAL PDF CLASS
+====================================================== */
+class MYPDF extends TCPDF {
+    public function Header() {
+        // ඉතා සිහින් පිටත රාමුව (Light Gray)
+        $this->SetLineStyle(array('width' => 0.1, 'color' => array(150, 150, 150)));
+        $this->Rect(10, 10, 190, 277);
 
-$sql = "SELECT rate_id, type, rate, date FROM fuel_rate WHERE 1=1";
-$filter_text = "All Fuel Types";
+        $this->SetY(15);
+        $this->SetFont('helvetica', 'B', 14); // ප්‍රධාන මාතෘකාව මඳක් කුඩා කළා
+        $this->SetTextColor(30, 58, 138); // Royal Blue
+        $this->Cell(0, 10, 'TRANSPORT MANAGEMENT SYSTEM', 0, 1, 'C');
+        
+        $this->SetFont('helvetica', 'B', 8); // Subtitle එක 8pt වලට කුඩා කළා
+        $this->SetTextColor(100, 116, 139); 
+        $this->Cell(0, 5, 'OFFICIAL FUEL RATE MONITORING REPORT', 0, 1, 'C');
+        
+        // සරල තනි ඉරක්
+        $this->SetLineStyle(array('width' => 0.3, 'color' => array(30, 58, 138)));
+        $this->Line(15, 32, 195, 32);
+    }
 
-if ($filter_rate_id != 'all') {
-    $sql .= " AND rate_id = " . intval($filter_rate_id);
-    $type_query = $conn->query("SELECT type FROM fuel_rate WHERE rate_id = " . intval($filter_rate_id) . " LIMIT 1");
-    if($r = $type_query->fetch_assoc()) { $filter_text = $r['type']; }
+    public function Footer() {
+        $this->SetY(-15);
+        $this->SetFont('helvetica', 'I', 7);
+        $this->SetTextColor(148, 163, 184);
+        $current_date = date('Y-m-d H:i:s');
+        $this->Cell(0, 10, "Report Generated: $current_date | Page " . $this->getAliasNumPage() . ' / ' . $this->getAliasNbPages(), 0, 0, 'C');
+    }
 }
 
-if (!empty($from_date)) {
-    $sql .= " AND date >= '" . $conn->real_escape_string($from_date) . "'";
+/* ======================================================
+    DATA FETCHING
+====================================================== */
+$curr_res = $conn->query("SELECT fr1.type, fr1.rate, fr1.date FROM fuel_rate fr1 
+             INNER JOIN (SELECT type, MAX(date) as max_date FROM fuel_rate GROUP BY type) fr2 
+             ON fr1.type = fr2.type AND fr1.date = fr2.max_date ORDER BY fr1.type ASC");
+
+$rate_id   = $_GET['rate_id'] ?? 'all';
+$from_date = $_GET['from_date'] ?? '';
+$to_date   = $_GET['to_date'] ?? '';
+
+$sql = "SELECT type, rate, date FROM fuel_rate WHERE 1=1";
+$filter_name = "All Types";
+
+if ($rate_id != 'all') {
+    $rate_id = intval($rate_id);
+    $sql .= " AND rate_id = $rate_id";
+    $q = $conn->query("SELECT type FROM fuel_rate WHERE rate_id=$rate_id LIMIT 1");
+    if ($r = $q->fetch_assoc()) $filter_name = $r['type'];
 }
-if (!empty($to_date)) {
-    $sql .= " AND date <= '" . $conn->real_escape_string($to_date) . "'";
-}
+if ($from_date) $sql .= " AND date >= '".$conn->real_escape_string($from_date)."'";
+if ($to_date)   $sql .= " AND date <= '".$conn->real_escape_string($to_date)."'";
 
-$sql .= " ORDER BY date DESC, type ASC";
-$result = $conn->query($sql);
+$sql .= " ORDER BY date DESC";
+$history_res = $conn->query($sql);
 
-// --- 2. Initialize PDF ---
-// 'P' = Portrait, 'mm' = millimeters, 'A4'
-$pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
-
-// Metadata
-$pdf->SetCreator('TMS System');
-$pdf->SetAuthor('Admin');
-$pdf->SetTitle('Fuel Rate Report');
-
-// Disable default Header/Footer for custom design
-$pdf->setPrintHeader(false);
-$pdf->setPrintFooter(false);
-
-// Set Margins (Left, Top, Right)
-$pdf->SetMargins(15, 20, 15);
-$pdf->SetAutoPageBreak(TRUE, 15);
-$pdf->SetFont('helvetica', '', 10);
-
+/* ======================================================
+    PDF CONFIGURATION
+====================================================== */
+$pdf = new MYPDF('P', 'mm', 'A4', true, 'UTF-8', false);
+$pdf->SetMargins(15, 40, 15);
+$pdf->SetAutoPageBreak(TRUE, 30);
 $pdf->AddPage();
 
-// --- 3. Custom Report Styling ---
-// We use simple inline CSS for TCPDF compatibility
+/* ======================================================
+    STYLING & CONTENT (CLEAN LOOK)
+====================================================== */
+
 $html = '
 <style>
-    .title { font-size: 18pt; font-weight: bold; color: #2c3e50; }
-    .subtitle { font-size: 10pt; color: #7f8c8d; }
-    .meta-table { border-bottom: 2px solid #2c3e50; padding-bottom: 10px; }
-    .data-table { width: 100%; border-collapse: collapse; }
-    .data-th { background-color: #2c3e50; color: #ffffff; font-weight: bold; text-align: center; }
-    .data-td { border-bottom: 1px solid #dfe6e9; color: #333; }
-    .row-even { background-color: #ffffff; }
-    .row-odd { background-color: #f8f9fa; }
-    .total-count { font-weight: bold; font-size: 10pt; color: #333; }
-</style>
+    .section-title { font-size: 9pt; font-weight: bold; color: #1e3a8a; }
+    .meta-text { font-size: 8pt; color: #475569; }
+    .main-table { width: 100%; border-collapse: collapse; }
+    .th { background-color: #f1f5f9; color: #1e3a8a; font-weight: bold; border: 0.1px solid #cbd5e1; text-align: center; font-size: 8pt; }
+    .td { border: 0.1px solid #e2e8f0; font-size: 8pt; color: #334155; }
+</style>';
 
-<table cellpadding="0" cellspacing="0" class="meta-table" style="width: 100%;">
+// Meta Info
+$html .= '
+<table width="100%" class="meta-text">
     <tr>
-        <td width="60%">
-            <div class="title">FUEL RATE HISTORY</div>
-            <div class="subtitle">Transport Management System Report</div>
-        </td>
-        <td width="40%" align="right" style="font-size: 9pt; color: #555;">
-            <strong>Generated:</strong> ' . date('Y-m-d H:i') . '<br>
-            <strong>User:</strong> Admin<br>
-        </td>
+        <td width="50%"><strong>SCOPE:</strong> ' . strtoupper($filter_name) . '</td>
+        <td width="50%" align="right"><strong>REF:</strong> TMS/FUEL/' . date('Ymd') . '</td>
+    </tr>
+    <tr>
+        <td width="50%"><strong>PERIOD:</strong> ' . ($from_date ?: 'START') . ' - ' . ($to_date ?: date('Y-m-d')) . '</td>
+        <td width="50%" align="right"><strong>STATUS:</strong> OFFICIAL RECORDS</td>
     </tr>
 </table>
-<br><br>
+<br><br>';
 
-<table cellpadding="5" cellspacing="0" style="width: 100%; background-color: #ecf0f1; border-radius: 4px;">
-    <tr>
-        <td width="50%"><strong>Filter:</strong> ' . $filter_text . '</td>
-        <td width="50%" align="right"><strong>Range:</strong> ' . ($from_date ? $from_date : 'Start') . ' to ' . ($to_date ? $to_date : 'Now') . '</td>
-    </tr>
-</table>
-<br><br>
-
-<table cellpadding="8" cellspacing="0" class="data-table">
+// Executive Summary
+$html .= '<div class="section-title">01. CURRENT MARKET RATES (LATEST)</div><br>
+<table class="main-table" cellpadding="5" border="1">
     <thead>
-        <tr>
-            <th class="data-th" width="30%">Effective Date</th>
-            <th class="data-th" width="40%">Fuel Type</th>
-            <th class="data-th" width="30%" align="right">Rate (LKR)</th>
+        <tr class="th">
+            <th width="45%">Fuel Description</th>
+            <th width="30%">Last Updated Date</th>
+            <th width="25%" align="right">Rate (LKR)</th>
+        </tr>
+    </thead>
+    <tbody>';
+while ($c = $curr_res->fetch_assoc()) {
+    $html .= '
+    <tr>
+        <td width="45%" class="td">' . htmlspecialchars($c['type']) . '</td>
+        <td width="30%" class="td" align="center">' . date('Y-m-d', strtotime($c['date'])) . '</td>
+        <td width="25%" class="td" align="right"><strong>' . number_format($c['rate'], 2) . '</strong></td>
+    </tr>';
+}
+$html .= '</tbody></table><br><br>';
+
+// History Table
+$html .= '<div class="section-title">02. HISTORICAL PRICE LOGS</div><br>
+<table class="main-table" cellpadding="4" border="1">
+    <thead>
+        <tr class="th">
+            <th width="8%">#</th>
+            <th width="27%">Effective Date</th>
+            <th width="45%">Fuel Description</th>
+            <th width="20%" align="right">Rate (Rs.)</th>
         </tr>
     </thead>
     <tbody>';
 
-if ($result->num_rows > 0) {
-    $i = 0; // Counter for zebra striping
-    while ($row = $result->fetch_assoc()) {
-        $bg_class = ($i % 2 == 0) ? 'row-even' : 'row-odd';
-        
+if ($history_res->num_rows > 0) {
+    $i = 1;
+    while ($row = $history_res->fetch_assoc()) {
         $html .= '
-        <tr class="' . $bg_class . '">
-            <td class="data-td">' . date('Y-m-d', strtotime($row['date'])) . '</td>
-            <td class="data-td">' . htmlspecialchars($row['type']) . '</td>
-            <td class="data-td" align="right">' . number_format($row['rate'], 2) . '</td>
+        <tr>
+            <td width="8%" class="td" align="center">' . sprintf('%02d', $i) . '</td>
+            <td width="27%" class="td" align="center">' . date('Y-m-d', strtotime($row['date'])) . '</td>
+            <td width="45%" class="td">' . htmlspecialchars($row['type']) . '</td>
+            <td width="20%" class="td" align="right"><strong>' . number_format($row['rate'], 2) . '</strong></td>
         </tr>';
         $i++;
     }
 } else {
-    $html .= '<tr><td colspan="3" align="center" style="padding: 20px; color: #7f8c8d;">No records found for this period.</td></tr>';
+    $html .= '<tr><td colspan="4" class="td" align="center">No archival records found.</td></tr>';
 }
+$html .= '</tbody></table><br><br><br>';
 
-$html .= '</tbody></table>';
+// Signature Area
+$html .= '
+<table width="100%" style="font-size: 8pt; color: #334155;">
+    <tr>
+        <td width="40%" align="center">
+            <br><br><br>...................................................<br>
+            <strong>Prepared By</strong><br>
+            Transport Officer
+        </td>
+        <td width="20%"></td>
+        <td width="40%" align="center">
+            <br><br><br>...................................................<br>
+            <strong>Authorized By</strong><br>
+            Transport Manager
+        </td>
+    </tr>
+</table>';
 
-// --- 4. Footer Summary ---
-$html .= '<br><br>
-<div align="right" class="total-count">
-    Total Records Found: ' . $result->num_rows . '
-</div>';
-
-// --- 5. Output ---
 $pdf->writeHTML($html, true, false, true, false, '');
-$pdf->Output('Fuel_History_' . date('Ymd') . '.pdf', 'D');
+
+ob_end_clean();
+$pdf->Output('Fuel_Official_Report.pdf', 'I');
 ?>

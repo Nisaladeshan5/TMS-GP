@@ -1,16 +1,9 @@
 <?php
-// dh_attendance_handler.php - Handles insertion of attendance data (Manual Date/Time Input)
+// dh_attendance_manual_handler.php - Handles insertion of attendance data (Manual Date/Time Input)
 
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-
-// Ensure the user is logged in (as requested in the previous context)
-// if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-//     header('Content-Type: application/json');
-//     echo json_encode(['success' => false, 'message' => 'Authentication required.']);
-//     exit();
-// }
 
 // CRITICAL: Ensure no preceding output or errors
 if (ob_get_length()) ob_clean();
@@ -20,6 +13,15 @@ include('../../../includes/db.php');
 date_default_timezone_set('Asia/Colombo'); // Use the correct timezone
 
 $response = ['success' => false, 'message' => ''];
+
+// --- 0. AUTHENTICATION CHECK ---
+// Ensure the session has the user ID
+if (!isset($_SESSION['user_id'])) {
+    $response['message'] = 'Error: User is not logged in or session has expired.';
+    goto output;
+}
+
+$user_id = $_SESSION['user_id']; // Capture the logged-in user ID
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_POST['action'] ?? '') !== 'mark_attendance') {
     $response['message'] = 'Invalid request action.';
@@ -44,18 +46,19 @@ $conn->begin_transaction();
 
 try {
     
-    // 2. Insert Attendance Record
+    // 2. Insert Attendance Record (Now including user_id)
     $insert_sql = "INSERT INTO dh_attendance 
-                   (op_code, vehicle_no, date, time) 
-                   VALUES (?, ?, ?, ?)";
+                   (op_code, vehicle_no, date, time, user_id) 
+                   VALUES (?, ?, ?, ?, ?)";
                  
     $insert_stmt = $conn->prepare($insert_sql);
     if (!$insert_stmt) {
         throw new Exception("Insert Prepare Failed: " . $conn->error);
     }
     
-    // Bind parameters: s s s s (op_code, vehicle_no, date, time)
-    $insert_stmt->bind_param('ssss', $op_code, $vehicle_no, $record_date, $record_time);
+    // Bind parameters: s s s s i (op_code, vehicle_no, date, time, user_id)
+    // Note: 'i' is used for integer user_id
+    $insert_stmt->bind_param('ssssi', $op_code, $vehicle_no, $record_date, $record_time, $user_id);
 
     if (!$insert_stmt->execute()) {
         if ($conn->errno == 1062) {
@@ -83,3 +86,4 @@ output:
 if (isset($conn)) $conn->close();
 // Ensure only this line outputs the response
 echo json_encode($response);
+?>

@@ -1,147 +1,68 @@
 <?php
 require_once '../../includes/session_check.php';
-// Start the session (ensure it's started before accessing session variables)
+// Start the session
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+// Check login
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
 }
+
 $user_role = $_SESSION['user_role'] ?? 'guest'; 
-$allowed_roles = ['super admin', 'manager', 'developer'];
+$allowed_roles = ['admin', 'super admin', 'manager', 'developer'];
 $is_authorized_for_lock = in_array($user_role, $allowed_roles); 
 
 include('../../includes/db.php');
 
-// Get the logged-in user's ID
 $logged_in_user_id = $_SESSION['user_id'] ?? 0;
-
 $toast_message = null;
 $toast_type = null;
-
-// FIX: Define $view_mode early to avoid 'Undefined variable' warnings in includes
 $view_mode = isset($_GET['view']) ? $_GET['view'] : 'list';
 
 // --- AUDIT LOG FUNCTION ---
-function log_general_audit_entry(
-    $conn, 
-    $tableName, 
-    $recordId, 
-    $actionType, 
-    $userId, 
-    $fieldName = null,  
-    $oldValue = null,   
-    $newValue = null    
-) {
-    if (!isset($conn) || $conn->connect_error) {
-        error_log("Audit Log: Database connection is not valid for logging.");
-        return;
-    }
-
-    $log_sql = "INSERT INTO audit_log (table_name, record_id, action_type, user_id, field_name, old_value, new_value, change_time) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
-
+function log_general_audit_entry($conn, $tableName, $recordId, $actionType, $userId, $fieldName = null, $oldValue = null, $newValue = null) {
+    if (!isset($conn) || $conn->connect_error) return;
+    $log_sql = "INSERT INTO audit_log (table_name, record_id, action_type, user_id, field_name, old_value, new_value, change_time) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
     $log_stmt = $conn->prepare($log_sql);
-
-    if ($log_stmt === false) {
-        error_log("General Audit Log Preparation Error: " . $conn->error);
-        return;
+    if ($log_stmt) {
+        $log_stmt->bind_param("sssssss", $tableName, $recordId, $actionType, $userId, $fieldName, $oldValue, $newValue);
+        $log_stmt->execute();
+        $log_stmt->close();
     }
-    
-    $log_stmt->bind_param(
-        "sssssss", 
-        $tableName, 
-        $recordId, 
-        $actionType,
-        $userId, 
-        $fieldName, 
-        $oldValue, 
-        $newValue
-    );
-    
-    if (!$log_stmt->execute()) {
-        error_log("General Audit Log Execution Error: " . $log_stmt->error);
-    }
-    $log_stmt->close();
-}
-// --- END AUDIT LOG FUNCTION ---
-
-// Function to fetch current consumption rates (Remains the same)
-function getConsumptionRates($conn) {
-    $rates = [];
-    try {
-        $stmt = $conn->prepare("SELECT c_type, distance FROM consumption");
-        $stmt->execute();
-        $result = $stmt->get_result();
-        while ($row = $result->fetch_assoc()) {
-            $rates[$row['c_type']] = $row['distance'];
-        }
-        $stmt->close();
-    } catch (Exception $e) {
-        error_log("Error fetching consumption rates: " . $e->getMessage());
-        return null;
-    }
-    return $rates;
 }
 
-// Handle form submissions (POST requests) for database updates
+// Handle Form Submissions
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
-    // --- NEW: ADD NEW FUEL TYPE ---
+    // 1. ADD NEW FUEL TYPE
     if (isset($_POST['action']) && $_POST['action'] == 'add_new_fuel_type') {
         $new_type_name = trim($_POST['new_type_name']);
-
         if (empty($new_type_name)) {
             $toast_message = "Fuel Type Name is required.";
             $toast_type = "error";
         } else {
             try {
-                // 1. Find the next available rate_id (MAX + 1)
                 $max_id_result = $conn->query("SELECT MAX(rate_id) AS max_id FROM fuel_rate");
                 $max_id_row = $max_id_result->fetch_assoc();
-                // If table is empty, start from 1. Otherwise, MAX + 1.
                 $next_rate_id = ($max_id_row['max_id'] === null) ? 1 : $max_id_row['max_id'] + 1;
 
-                // 2. Insert the new type with rate 0 and current date
-                // This creates the stable ID and the initial history row
                 $stmt_new_type = $conn->prepare("INSERT INTO fuel_rate (rate_id, type, rate, date) VALUES (?, ?, ?, ?)");
                 $initial_rate = 0.00;
-                // Using NOW() for the actual insertion time in the database, 
-                // but setting a date for the entry itself if needed, 
-                // using current date for consistency
                 $current_date = date('Y-m-d H:i:s');
-                
-                // Binding parameters: (Integer, String, Double, String)
                 $stmt_new_type->bind_param("isds", $next_rate_id, $new_type_name, $initial_rate, $current_date);
                 
                 if ($stmt_new_type->execute()) {
-                    
-                    // 3. --- AUDIT LOG ---
                     $new_record_id = $conn->insert_id;
+                    log_general_audit_entry($conn, 'fuel_rate', (string)$new_record_id, 'CREATE', $logged_in_user_id, 'new_type', null, htmlspecialchars($new_type_name));
                     
-                    log_general_audit_entry(
-                        $conn, 
-                        'fuel_rate', 
-                        (string)$new_record_id, 
-                        'CREATE',              
-                        $logged_in_user_id,
-                        'new_type', 
-                        null, 
-                        htmlspecialchars($new_type_name) . " (ID: " . $next_rate_id . ")"
-                    );
-                    // --- END AUDIT LOG ---
-
-                    $toast_message = "New Fuel Type '" . htmlspecialchars($new_type_name) . "' added successfully with ID " . $next_rate_id . ". Please set the actual rate now using 'Set New Rate'.";
+                    $toast_message = "New Fuel Type '" . htmlspecialchars($new_type_name) . "' added successfully!";
                     $toast_type = "success";
                 } else {
-                    // Check for potential duplicate entry (if a constraint is used on 'type')
-                    if ($conn->errno == 1062) { 
-                         throw new Exception("Error: Fuel Type '" . htmlspecialchars($new_type_name) . "' might already exist.");
-                    }
-                    throw new Exception("Error saving new fuel type: " . $stmt_new_type->error);
+                    if ($conn->errno == 1062) throw new Exception("Fuel Type might already exist.");
+                    throw new Exception($stmt_new_type->error);
                 }
                 $stmt_new_type->close();
             } catch (Exception $e) {
@@ -151,77 +72,39 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-
-    // --- INSERT NEW RATE FOR HISTORY (Use rate_id as stable type ID) ---
+    // 2. UPDATE FUEL RATE
     if (isset($_POST['action']) && $_POST['action'] == 'update_fuel_rate') {
         $new_rate = $_POST['new_fuel_rate'];
-        $fuel_type = $_POST['fuel_type_name']; // Get the Type Name (e.g., Lanka Auto Diesel)
-        $fuel_rate_id = $_POST['fuel_rate_id']; // Get the Stable ID (e.g., 1, 2, 3, 4)
+        $fuel_type = $_POST['fuel_type_name']; 
+        $fuel_rate_id = $_POST['fuel_rate_id']; 
         $rate_date = $_POST['rate_date'] ?? date('Y-m-d'); 
         $is_valid_to_proceed = true;
 
-        if (!is_numeric($fuel_rate_id) || empty($new_rate) || empty($fuel_type) || empty($rate_date)) {
-            $toast_message = "All fields are required and Fuel Type ID must be valid.";
-            $toast_type = "error";
-            $is_valid_to_proceed = false;
-        } else {
-            // --- LOCK VALIDATION CHECK ---
-            try {
-                $check_year = date('Y', strtotime($rate_date));
-                $check_month = date('n', strtotime($rate_date)); 
-
-                $check_lock_stmt = $conn->prepare("SELECT is_locked FROM month_locks WHERE year = ? AND month = ? AND is_locked = 1");
-                $check_lock_stmt->bind_param("ii", $check_year, $check_month);
-                $check_lock_stmt->execute();
-                $lock_result = $check_lock_stmt->get_result();
-                
-                if ($lock_result->num_rows > 0) {
-                    $toast_message = "Error: You cannot set a new rate for " . date('F Y', strtotime($rate_date)) . " because the month is LOCKED. Please contact a system administrator.";
-                    $toast_type = "error";
-                    $is_valid_to_proceed = false;
-                }
-                $check_lock_stmt->close();
-
-            } catch (Exception $e) {
-                error_log("Lock validation error: " . $e->getMessage());
-                $toast_message = "Internal validation error occurred.";
+        // Check Lock
+        try {
+            $check_year = date('Y', strtotime($rate_date));
+            $check_month = date('n', strtotime($rate_date)); 
+            $check_lock_stmt = $conn->prepare("SELECT is_locked FROM month_locks WHERE year = ? AND month = ? AND is_locked = 1");
+            $check_lock_stmt->bind_param("ii", $check_year, $check_month);
+            $check_lock_stmt->execute();
+            if ($check_lock_stmt->get_result()->num_rows > 0) {
+                $toast_message = "Error: Month is LOCKED.";
                 $toast_type = "error";
                 $is_valid_to_proceed = false;
             }
-            // --- END LOCK VALIDATION CHECK ---
-        }
+            $check_lock_stmt->close();
+        } catch (Exception $e) { $is_valid_to_proceed = false; }
 
-        // Only proceed with INSERT if all validation checks passed
         if ($is_valid_to_proceed) {
             try {
-                // 1. USE INSERT INTO to create a history record
                 $stmt_rate = $conn->prepare("INSERT INTO fuel_rate (rate_id, type, rate, date) VALUES (?, ?, ?, ?)");
-                
-                // Binding parameters: (Integer, String, Double, String)
                 $stmt_rate->bind_param("isds", $fuel_rate_id, $fuel_type, $new_rate, $rate_date);
-                
                 if ($stmt_rate->execute()) {
-                    
-                    // 2. --- AUDIT LOG: Insert New Rate ---
                     $new_record_id = $conn->insert_id; 
-                    
-                    log_general_audit_entry(
-                        $conn, 
-                        'fuel_rate', 
-                        (string)$new_record_id, 
-                        'CREATE',
-                        $logged_in_user_id,
-                        'rate', 
-                        null, 
-                        (string)$new_rate
-                    );
-                    // --- END AUDIT LOG ---
-
-                    $toast_message = "New Fuel rate set successfully for " . htmlspecialchars($fuel_type) . " (Effective Date: " . $rate_date . ")!";
+                    log_general_audit_entry($conn, 'fuel_rate', (string)$new_record_id, 'CREATE', $logged_in_user_id, 'rate', null, (string)$new_rate);
+                    $toast_message = "New rate set successfully for " . htmlspecialchars($fuel_type);
                     $toast_type = "success";
-                } else {
-                    throw new Exception("Error saving fuel rate: " . $stmt_rate->error);
-                }
+                } else { throw new Exception($stmt_rate->error); }
                 $stmt_rate->close();
             } catch (Exception $e) {
                 $toast_message = "Error: " . $e->getMessage();
@@ -229,76 +112,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         }
     }
-
-    // --- Update Distance Values (Remains unchanged) ---
-    if (isset($_POST['action']) && $_POST['action'] == 'update_distance') {
-        $non_ac_distance = $_POST['non_ac_distance'];
-        $front_ac_distance = $_POST['front_ac_distance'];
-        $dual_ac_distance = $_POST['dual_ac_distance'];
-        if (empty($non_ac_distance) || empty($front_ac_distance) || empty($dual_ac_distance)) {
-            $toast_message = "All distance fields are required.";
-            $toast_type = "error";
-        } else {
-            try {
-                $consumption_values = [
-                    'Non A/C' => $non_ac_distance,
-                    'Front A/C' => $front_ac_distance,
-                    'Dual A/C' => $dual_ac_distance
-                ];
-                $stmt_consumption = $conn->prepare("INSERT INTO consumption (c_type, distance) VALUES (?, ?) ON DUPLICATE KEY UPDATE distance = VALUES(distance)");
-                foreach ($consumption_values as $type => $distance) {
-                    $stmt_consumption->bind_param("sd", $type, $distance);
-                    if (!$stmt_consumption->execute()) {
-                        throw new Exception("Error updating distance for " . $type . ": " . $stmt_consumption->error);
-                    }
-                }
-                $stmt_consumption->close();
-                $toast_message = "Distance values updated successfully!";
-                $toast_type = "success";
-            } catch (Exception $e) {
-                $toast_message = "Error: " . $e->getMessage();
-                $toast_type = "error";
-            }
-        }
-    }
 }
 
-// Fetch the LATEST rate for each unique fuel type (rate_id)
+// Fetch Rates
 $all_fuel_rates = [];
-// This query finds the MAX(date) for each unique rate_id (the fuel type ID)
-$sql_rates = "SELECT fr1.rate_id, fr1.type, fr1.rate, fr1.date
-              FROM fuel_rate fr1
-              INNER JOIN (
-                  SELECT rate_id, MAX(date) AS max_date
-                  FROM fuel_rate
-                  GROUP BY rate_id
-              ) fr2 ON fr1.rate_id = fr2.rate_id AND fr1.date = fr2.max_date
-              ORDER BY fr1.rate_id"; 
-              
+$sql_rates = "SELECT fr1.rate_id, fr1.type, fr1.rate, fr1.date FROM fuel_rate fr1 INNER JOIN (SELECT rate_id, MAX(date) AS max_date FROM fuel_rate GROUP BY rate_id) fr2 ON fr1.rate_id = fr2.rate_id AND fr1.date = fr2.max_date ORDER BY fr1.rate_id"; 
 $result_rates = $conn->query($sql_rates);
-if ($result_rates->num_rows > 0) {
-    while ($row = $result_rates->fetch_assoc()) {
-        $all_fuel_rates[] = $row;
-    }
-}
+if ($result_rates->num_rows > 0) { while ($row = $result_rates->fetch_assoc()) { $all_fuel_rates[] = $row; } }
 
-// Fetch Type data for setting a new rate (Used in the 'set_new_rate' view)
+// Setup for Edit View
 $rate_id_to_set = null;
 $type_name_to_set = null;
-
 if ($view_mode == 'set_new_rate' && isset($_GET['rate_id'])) {
-    $id = (int)$_GET['rate_id'];
-    // Find the type name and stable ID from the fetched list
     foreach ($all_fuel_rates as $rate) {
-        if ($rate['rate_id'] == $id) {
-            $rate_id_to_set = $id;
+        if ($rate['rate_id'] == (int)$_GET['rate_id']) {
+            $rate_id_to_set = $rate['rate_id'];
             $type_name_to_set = $rate['type'];
             break;
         }
     }
 }
-
-$current_distances = getConsumptionRates($conn);
 
 include('../../includes/header.php');
 include('../../includes/navbar.php');
@@ -309,223 +142,272 @@ include('../../includes/navbar.php');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fuel & Distance</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Fuel Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-        }
-        .toast {
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            color: white;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-        }
-        .toast.show {
-            transform: translateY(0);
-            opacity: 1;
-        }
-        .toast.success {
-            background-color: #4CAF50;
-        }
-        .toast.error {
-            background-color: #F44336;
-        }
-        .toast-icon {
-            width: 1.5rem;
-            height: 1.5rem;
-            margin-right: 0.75rem;
-        }
-    </style>
-</head>
-<script>
-    // 9 hours in milliseconds (32,400,000 ms)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
-
-    setTimeout(function() {
-        // Alert and redirect
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
         
-    }, SESSION_TIMEOUT_MS);
-</script>
-<body class="bg-gray-100 text-gray-800">
-    <div class="flex justify-center items-center w-[85%] ml-[15%] h-screen ">
-        <div class="w-full max-w-6xl mx-auto p-6 bg-white rounded-lg shadow-md">
-            <h2 class="text-3xl font-bold mb-6 text-center text-blue-600">Fuel & Distance Rates</h2>
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; color: white; min-width: 300px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background-color: #4CAF50; }
+        .toast.error { background-color: #F44336; }
+        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
+    </style>
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
+</head>
 
-            <div class="flex justify-center gap-4 mb-6">
-                <a href="fuel.php?view=list" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 transition-colors flex items-center justify-center">
-                    View Current Fuel Rates
-                </a>
-                <a href="fuel_history.php" class="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-700 transition-colors flex items-center justify-center">
-                    History
-                </a>
-                <a href="fuel.php?view=add_new_type" class="bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-yellow-700 transition-colors flex items-center justify-center">
-                    Add New Fuel Type
-                </a>
-                <?php if ($is_authorized_for_lock): ?>
-                    <a href="month_locks.php" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-red-700 transition-colors flex items-center justify-center">
-                        Month Lock Management
-                    </a>
-                <?php endif; ?>
-                <a href="distance_per_liter.php" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-green-700 transition-colors flex items-center justify-center">
-                    Update Distance
-                </a>
-                
-            </div>
+<body class="bg-gray-100">
 
-            <hr class="my-6">
-
-            <?php if ($view_mode == 'list'): ?>
-                <div class="current-rates-display p-6 border border-blue-200 rounded-lg bg-blue-50">
-                    <h3 class="text-xl font-semibold mb-4 text-blue-800">Current Fuel Rates</h3>
-                    <?php if ($all_fuel_rates): ?>
-                        <div class="overflow-x-auto rounded-lg">
-                            <table class="min-w-full bg-white border border-gray-200 shadow-sm">
-                                <thead class="bg-gray-200">
-                                    <tr>
-                                        <th class="py-2 px-4 border-b text-left">Type ID</th>
-                                        <th class="py-2 px-4 border-b text-left">Type</th>
-                                        <th class="py-2 px-4 border-b text-left">Rate (Rs.)</th>
-                                        <th class="py-2 px-4 border-b text-left">Effective Date</th>
-                                        <th class="py-2 px-4 border-b text-center">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($all_fuel_rates as $rate): ?>
-                                        <tr class="hover:bg-gray-100 transition-colors">
-                                            <td class="py-2 px-4 border-b"><?php echo htmlspecialchars($rate['rate_id']); ?></td>
-                                            <td class="py-2 px-4 border-b"><?php echo htmlspecialchars($rate['type']); ?></td>
-                                            <td class="py-2 px-4 border-b"><?php echo htmlspecialchars($rate['rate']); ?></td>
-                                            <td class="py-2 px-4 border-b"><?php echo date('Y-m-d', strtotime($rate['date'])); ?></td>
-                                            <td class="py-2 px-4 border-b text-center">
-                                                <a href="fuel.php?view=set_new_rate&rate_id=<?php echo $rate['rate_id']; ?>" class="bg-purple-500 text-white px-3 py-1 rounded-md text-sm hover:bg-purple-600">Set New Rate</a>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php else: ?>
-                        <p class="text-gray-500">No fuel rates found. Please ensure your database is populated with initial fuel types and rates.</p>
-                        <div class="mt-4 text-center">
-                            <a href="fuel.php?view=add_new_type" class="bg-green-500 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-green-600 transition-colors">
-                                Click here to add your first Fuel Type
-                            </a>
-                        </div>
-                    <?php endif; ?>
-                </div>
-
-            <?php elseif ($view_mode == 'add_new_type'): ?>
-                <div class="update-form p-6 rounded-lg border border-gray-300">
-                    <h3 class="text-xl font-semibold mb-2 text-gray-800">Add New Fuel Type</h3>
-                    <p class="text-sm text-gray-600 mb-4">Enter the name of the new fuel type. It will be assigned an initial rate of 0.00.</p>
-                    <form action="fuel.php" method="POST">
-                        <input type="hidden" name="action" value="add_new_fuel_type">
-                        
-                        <div class="mb-4">
-                            <label for="new_type_name" class="block text-gray-700 font-medium mb-1">Fuel Type Name (e.g., Super Diesel):</label>
-                            <input type="text" id="new_type_name" name="new_type_name" required
-                                class="w-full px-4 py-2 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                                placeholder="Enter the new fuel type name">
-                        </div>
-                        
-                        <div class="flex justify-end space-x-4">
-                            <a href="fuel.php?view=list" class="bg-gray-400 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-500 transition-colors">Cancel</a>
-                            <button type="submit" class="bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-yellow-700 transition-colors">
-                                Save New Type
-                            </button>
-                        </div>
-                    </form>
-                </div>
-                <?php elseif ($view_mode == 'set_new_rate'): ?>
-                <div class="update-form p-6 rounded-lg border border-gray-300">
-                    <h3 class="text-xl font-semibold mb-2 text-gray-800">Set New Rate for <?php echo htmlspecialchars($type_name_to_set); ?> (ID: <?php echo htmlspecialchars($rate_id_to_set); ?>)</h3>
-                    <?php if ($rate_id_to_set): ?>
-                        <form action="fuel.php" method="POST">
-                            <input type="hidden" name="action" value="update_fuel_rate">
-                            <input type="hidden" name="fuel_rate_id" value="<?php echo htmlspecialchars($rate_id_to_set); ?>">
-                            <input type="hidden" name="fuel_type_name" value="<?php echo htmlspecialchars($type_name_to_set); ?>">
-                            
-                            <div class="mb-4">
-                                <label for="rate_date" class="block text-gray-700 font-medium mb-1">Effective Date (yyyy-mm-dd):</label>
-                                <input type="date" id="rate_date" name="rate_date" required
-                                    class="w-full px-4 py-2 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    value="<?php echo date('Y-m-d'); ?>">
-                                <p class="text-sm text-gray-500 mt-1">Select the date this new rate should be applied from.</p>
-                            </div>
-                            
-                            <div class="mb-4">
-                                <label for="fuel_type_display" class="block text-gray-700 font-medium mb-1">Fuel Type:</label>
-                                <input type="text" id="fuel_type_display" 
-                                    class="w-full px-4 py-2 border border-gray-400 rounded-lg bg-gray-100 focus:outline-none" 
-                                    value="<?php echo htmlspecialchars($type_name_to_set); ?>" readonly>
-                            </div>
-                            <div class="mb-4">
-                                <label for="new_fuel_rate" class="block text-gray-700 font-medium mb-1">New Fuel Rate (Rs.):</label>
-                                <input type="number" step="0.01" id="new_fuel_rate" name="new_fuel_rate" required
-                                    class="w-full px-4 py-2 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Enter the new rate">
-                            </div>
-                            <div class="flex justify-end space-x-4">
-                                <a href="fuel.php?view=list" class="bg-gray-400 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-gray-500 transition-colors">Cancel</a>
-                                <button type="submit" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 transition-colors">
-                                    Add New Rate
-                                </button>
-                            </div>
-                        </form>
-                    <?php else: ?>
-                        <p class="text-red-500">Error: Fuel type not specified or invalid ID.</p>
-                    <?php endif; ?>
-                </div>
-            <?php endif; ?>
-            
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Fuel
         </div>
     </div>
     
-    <div id="toast-container"></div>
-    <script>
-        function showToast(message, type = 'success') {
-            const toastContainer = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.innerHTML = `<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
-                                ${type === 'success' ? 
-                                    '<path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.293 12.5a1.003 1.003 0 0 1-1.417 0L2.354 8.7a.733.733 0 0 1 1.047-1.05l3.245 3.246 6.095-6.094z"/>' :
-                                    '<path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/> <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>'
-                                }
-                            </svg>
-                            <p class="font-semibold">${message}</p>`;
-            toastContainer.appendChild(toast);
-            setTimeout(() => toast.classList.add('show'), 10);
-            setTimeout(() => toast.classList.remove('show'), 3000);
-            setTimeout(() => toast.remove(), 3500);
-        }
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="fuel_history.php" class="text-gray-300 hover:text-white transition group relative" title="History">
+            <i class="fas fa-history text-lg"></i>
+            <span class="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-max bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">History</span>
+        </a>
+        
+        <a href="distance_per_liter.php" class="text-gray-300 hover:text-white transition group relative" title="Update Distance">
+            <i class="fas fa-road text-lg"></i>
+            <span class="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-max bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">Distance</span>
+        </a>
 
-        <?php if (isset($toast_message) && isset($toast_type)): ?>
-            document.addEventListener('DOMContentLoaded', function() {
-                showToast("<?php echo htmlspecialchars($toast_message, ENT_QUOTES, 'UTF-8'); ?>", "<?php echo htmlspecialchars($toast_type, ENT_QUOTES, 'UTF-8'); ?>");
-                
-                // Redirect back to list view after a successful INSERT
-                if ("<?php echo $toast_type; ?>" === 'success') {
-                    setTimeout(() => window.location.href = 'fuel.php?view=list', 3000);
-                }
-            });
+        <?php if ($is_authorized_for_lock): ?>
+            <a href="month_locks.php" class="text-gray-300 hover:text-red-400 transition group relative" title="Month Locks">
+                <i class="fas fa-lock text-lg"></i>
+                <span class="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-max bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">Locks</span>
+            </a>
         <?php endif; ?>
-    </script>
+
+        <span class="text-gray-600">|</span>
+
+        <a href="fuel.php?view=add_new_type" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide border border-blue-500">
+            Add Fuel Type
+        </a>
+    </div>
+</div>
+
+<div class="w-[85%] ml-[15%] pt-20 px-2 min-h-screen flex flex-col items-center">
+    
+    <div class="w-full">
+        
+        <?php if ($view_mode == 'list'): ?>
+            <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+                
+                <?php if ($all_fuel_rates): ?>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-blue-600 text-white uppercase text-xs tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-3 font-semibold text-center w-24">ID</th>
+                                    <th class="px-6 py-3 font-semibold">Fuel Type</th>
+                                    <th class="px-6 py-3 font-semibold text-right">Current Rate</th>
+                                    <th class="px-6 py-3 font-semibold text-center">Effective From</th>
+                                    <th class="px-6 py-3 font-semibold text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <?php foreach ($all_fuel_rates as $rate): ?>
+                                    <tr class="hover:bg-indigo-50/60 transition duration-150 group">
+                                        <td class="px-6 py-4 text-center font-mono text-gray-400 group-hover:text-blue-500">
+                                            #<?php echo htmlspecialchars($rate['rate_id']); ?>
+                                        </td>
+                                        <td class="px-6 py-4 font-medium text-gray-800 flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                                                <i class="fas fa-gas-pump text-sm"></i>
+                                            </div>
+                                            <?php echo htmlspecialchars($rate['type']); ?>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <span class="font-bold text-emerald-600 font-mono text-base bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
+                                                Rs. <?php echo number_format((float)$rate['rate'], 2); ?>
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-center text-gray-500 text-xs">
+                                            <i class="far fa-calendar-alt mr-1"></i> 
+                                            <?php echo date('Y-M-d', strtotime($rate['date'])); ?>
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <a href="fuel.php?view=set_new_rate&rate_id=<?php echo $rate['rate_id']; ?>" 
+                                               class="inline-flex items-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-yellow-50 hover:border-yellow-300 hover:text-yellow-700 px-3 py-1.5 rounded-md shadow-sm text-xs font-semibold transition-all">
+                                                <i class="fas fa-edit"></i> Update
+                                            </a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else: ?>
+                    <div class="p-16 text-center text-gray-400 flex flex-col items-center">
+                        <div class="bg-gray-100 p-4 rounded-full mb-4">
+                            <i class="fas fa-gas-pump text-4xl text-gray-300"></i>
+                        </div>
+                        <p class="text-lg font-medium text-gray-600">No fuel rates found.</p>
+                        <p class="text-sm text-gray-400 mb-6">Get started by adding your first fuel type.</p>
+                        <a href="fuel.php?view=add_new_type" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold shadow hover:bg-blue-700 transition">
+                            Add Fuel Type
+                        </a>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+        <?php elseif ($view_mode == 'add_new_type'): ?>
+            <div class="max-w-xl mx-auto bg-white rounded-xl shadow-xl border border-gray-200 mt-10 overflow-hidden">
+                <div class="px-8 py-6 border-b border-gray-100 bg-gray-50">
+                    <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-plus-circle text-blue-500"></i> Add New Fuel Type
+                    </h3>
+                    <p class="text-sm text-gray-500 mt-1 ml-7">Create a new fuel category for the system.</p>
+                </div>
+                
+                <form action="fuel.php" method="POST" class="p-8">
+                    <input type="hidden" name="action" value="add_new_fuel_type">
+                    
+                    <div class="mb-6">
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="new_type_name">
+                            Fuel Type Name <span class="text-red-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-tag text-gray-400"></i>
+                            </div>
+                            <input type="text" id="new_type_name" name="new_type_name" required
+                                   class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-gray-700"
+                                   placeholder="e.g., Super Diesel / 95 Octane">
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2 flex items-center gap-1">
+                            <i class="fas fa-info-circle"></i> Initial rate will be set to 0.00 automatically.
+                        </p>
+                    </div>
+                    
+                    <div class="flex justify-between gap-3 pt-4 border-t border-gray-100">
+                        <a href="fuel.php?view=list" class="px-5 py-2.5 bg-white text-gray-700 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 transition shadow-sm">Cancel</a>
+                        <button type="submit" class="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-md hover:bg-blue-700 transition transform hover:scale-105 flex items-center gap-2">
+                            Save Type
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+        <?php elseif ($view_mode == 'set_new_rate'): ?>
+            <div class="max-w-xl mx-auto bg-white rounded-xl shadow-xl border border-gray-200 mt-10 overflow-hidden">
+                <div class="px-8 py-6 border-b border-gray-100 bg-gray-50">
+                    <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-coins text-yellow-500"></i> Update Fuel Price
+                    </h3>
+                    <p class="text-sm text-gray-500 mt-1 ml-7">Set a new effective rate for the selected fuel type.</p>
+                </div>
+                
+                <?php if ($rate_id_to_set): ?>
+                    <form action="fuel.php" method="POST" class="p-8">
+                        <input type="hidden" name="action" value="update_fuel_rate">
+                        <input type="hidden" name="fuel_rate_id" value="<?php echo htmlspecialchars($rate_id_to_set); ?>">
+                        <input type="hidden" name="fuel_type_name" value="<?php echo htmlspecialchars($type_name_to_set); ?>">
+                        
+                        <div class="mb-5">
+                            <label class="block text-gray-700 text-sm font-bold mb-2">Fuel Type</label>
+                            <div class="w-full px-4 py-2.5 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 font-medium flex items-center gap-2">
+                                <i class="fas fa-gas-pump text-gray-400"></i>
+                                <?php echo htmlspecialchars($type_name_to_set); ?>
+                            </div>
+                        </div>
+
+                        <div class="mb-5">
+                            <label class="block text-gray-700 text-sm font-bold mb-2" for="rate_date">Effective Date <span class="text-red-500">*</span></label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <i class="fas fa-calendar text-gray-400"></i>
+                                </div>
+                                <input type="date" id="rate_date" name="rate_date" required value="<?php echo date('Y-m-d'); ?>"
+                                       class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none transition text-gray-700">
+                            </div>
+                        </div>
+
+                        <div class="mb-8">
+                            <label class="block text-gray-700 text-sm font-bold mb-2" for="new_fuel_rate">New Rate (Rs.) <span class="text-red-500">*</span></label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <span class="text-gray-500 font-bold">Rs.</span>
+                                </div>
+                                <input type="number" step="0.01" id="new_fuel_rate" name="new_fuel_rate" required placeholder="0.00"
+                                       class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none font-mono text-lg font-bold text-gray-800">
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-between gap-3 pt-4 border-t border-gray-100">
+                            <a href="fuel.php?view=list" class="px-5 py-2.5 bg-white text-gray-700 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 transition shadow-sm">Cancel</a>
+                            <button type="submit" class="px-5 py-2.5 bg-yellow-500 text-white rounded-lg font-bold shadow-md hover:bg-yellow-600 transition transform hover:scale-105 flex items-center gap-2">
+                                Update Rate
+                            </button>
+                        </div>
+                    </form>
+                <?php else: ?>
+                    <div class="p-8 text-center">
+                        <div class="bg-red-50 p-4 rounded-full mb-3 inline-block">
+                            <i class="fas fa-exclamation-triangle text-red-500 text-2xl"></i>
+                        </div>
+                        <p class="text-red-600 font-medium">Invalid Fuel Type selection.</p>
+                        <a href="fuel.php" class="text-blue-600 hover:underline mt-2 inline-block text-sm">Go Back to List</a>
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
+    </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+    function showToast(message, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = type === 'success' 
+            ? '<i class="fas fa-check-circle toast-icon"></i>' 
+            : '<i class="fas fa-exclamation-circle toast-icon"></i>';
+            
+        toast.innerHTML = `${icon} <span class="font-medium">${message}</span>`;
+        
+        container.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    <?php if (isset($toast_message) && isset($toast_type)): ?>
+        document.addEventListener('DOMContentLoaded', function() {
+            showToast("<?php echo htmlspecialchars($toast_message); ?>", "<?php echo htmlspecialchars($toast_type); ?>");
+            <?php if ($toast_type === 'success' && $view_mode !== 'list'): ?>
+                setTimeout(() => window.location.href = 'fuel.php?view=list', 2000);
+            <?php endif; ?>
+        });
+    <?php endif; ?>
+</script>
+
 </body>
 </html>
+
+<?php $conn->close(); ?>

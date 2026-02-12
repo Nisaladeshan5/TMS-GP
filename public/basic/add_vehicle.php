@@ -351,8 +351,10 @@ include('../../includes/navbar.php');
                         <select id="purpose" name="purpose" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
                             <option value="staff">Staff</option>
                             <option value="factory">Factory</option>
-                            <option value="night_emergency">Night Emergency</option>
                             <option value="sub_route">Sub Route</option>
+                            <option value="held_up">Held Up</option>
+                            <option value="extra">Extra</option>
+                            <option value="night_emergency">Night Emergency</option>
                         </select>
                     </div>
                 </div>

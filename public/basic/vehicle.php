@@ -161,6 +161,8 @@ $vehicles_result = $stmt->get_result();
             <select id="purpose-filter" onchange="filterVehicles(this.value)" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-1 appearance-none hover:text-yellow-200 transition">
                 <option value="staff" <?php echo (isset($purpose_filter) && $purpose_filter === 'staff') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Staff</option>
                 <option value="factory" <?php echo (isset($purpose_filter) && $purpose_filter === 'factory') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Factory</option>
+                <option value="held_up" <?php echo (isset($purpose_filter) && $purpose_filter === 'held_up') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Held Up</option>
+                <option value="extra" <?php echo (isset($purpose_filter) && $purpose_filter === 'extra') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Extra</option>
                 <option value="night_emergency" <?php echo (isset($purpose_filter) && $purpose_filter === 'night_emergency') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Night Emergency</option>
                 <option value="sub_route" <?php echo (isset($purpose_filter) && $purpose_filter === 'sub_route') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Sub Route</option>
             </select>

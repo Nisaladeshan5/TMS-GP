@@ -1,6 +1,5 @@
 <?php
 // download_sub_route_excel.php
-require_once '../../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
@@ -10,104 +9,92 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     exit();
 }
 
-include('../../../../includes/db.php');
-
-// 1. Get Filters
-$month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
-$year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
-
-// 2. Set Filename
+// 1. Get Filters from POST
+$month = isset($_POST['month']) ? (int)$_POST['month'] : (int)date('m');
+$year = isset($_POST['year']) ? (int)$_POST['year'] : (int)date('Y');
 $month_name = date('F', mktime(0, 0, 0, $month, 10));
+
+// 2. Decode the Data sent from the page
+$payment_data = [];
+if (isset($_POST['payment_json'])) {
+    $payment_data = json_decode($_POST['payment_json'], true);
+}
+
+// 3. Set Filename
 $filename = "Sub_Route_Payments_{$month_name}_{$year}.xls";
 
-// 3. Set Headers for Excel Download
+// 4. Headers for Excel
 header("Content-Type: application/vnd.ms-excel");
 header("Content-Disposition: attachment; filename=\"$filename\"");
 header("Pragma: no-cache");
 header("Expires: 0");
-
-// 4. Helper Functions (Query Logic)
-function get_attendance($conn, $parent_route, $m, $y) {
-    $sql = "SELECT COUNT(DISTINCT date) as days FROM factory_transport_vehicle_register WHERE route = ? AND MONTH(date) = ? AND YEAR(date) = ? AND is_active = 1";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $parent_route, $m, $y);
-    $stmt->execute();
-    return (int)($stmt->get_result()->fetch_assoc()['days'] ?? 0);
-}
-
-function get_adjustment($conn, $sub_code, $m, $y) {
-    $sql = "SELECT SUM(adjustment_days) as adj FROM sub_route_adjustments WHERE sub_route_code = ? AND month = ? AND year = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $sub_code, $m, $y);
-    $stmt->execute();
-    return (int)($stmt->get_result()->fetch_assoc()['adj'] ?? 0);
-}
-
-// 5. Fetch Data
-$sql = "SELECT sub_route_code, route_code, sub_route, vehicle_no, per_day_rate FROM sub_route WHERE is_active = 1 ORDER BY sub_route_code ASC";
-$result = $conn->query($sql);
-
-// 6. Output Data Table
 ?>
-<table border="1">
-    <thead>
-        <tr>
-            <th colspan="10" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">
-                Sub Route Monthly Payment Report - <?php echo "$month_name $year"; ?>
-            </th>
-        </tr>
-        <tr>
-            <th style="background-color: #ADD8E6; font-weight: bold;">#</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Sub Route Code</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Sub Route Name</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Parent Route</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Vehicle No</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Daily Rate (LKR)</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Base Days</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Adjustments</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Final Days</th>
-            <th style="background-color: #ADD8E6; font-weight: bold;">Total Payment (LKR)</th>
-        </tr>
-    </thead>
-    <tbody>
-        <?php 
-        $count = 1;
-        if ($result && $result->num_rows > 0) {
-            while ($row = $result->fetch_assoc()) {
-                $sub_code = $row['sub_route_code'];
-                $parent = $row['route_code'];
-                $rate = (float)$row['per_day_rate'];
 
-                // Calculate
-                $base = get_attendance($conn, $parent, $month, $year);
-                $adj = get_adjustment($conn, $sub_code, $month, $year);
-                
-                $final = $base + $adj;
-                if ($final < 0) $final = 0;
-                
-                $total = $final * $rate;
-
-                // Color for Adjustment
-                $adj_style = ($adj != 0) ? 'background-color: #FFE4B5;' : ''; // Light Orange if adjusted
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <style>
+        .text-format { mso-number-format:"\@"; } 
+        .currency-format { mso-number-format:"\#\,\#\#0\.00"; }
+        .header-bg { background-color: #ADD8E6; font-weight: bold; }
+        .total-bg { background-color: #f0f0f0; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <table border="1">
+        <thead>
+            <tr>
+                <th colspan="9" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">
+                    Sub Route Monthly Payment Report - <?php echo "$month_name $year"; ?>
+                </th>
+            </tr>
+            <tr style="font-weight: bold; text-align: center;">
+                <th class="header-bg">#</th>
+                <th class="header-bg">Sub Route Code</th>
+                <th class="header-bg">Sub Route Name</th>
+                <th class="header-bg">Parent Route</th>
+                <th class="header-bg">Vehicle No</th>
+                <th class="header-bg">Daily Rate (LKR)</th>
+                <th class="header-bg">Base Days</th>
+                <th class="header-bg">Adj</th>
+                <th class="header-bg">Total Payment (LKR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php 
+            $count = 1;
+            $grand_total = 0;
+            if (!empty($payment_data)) {
+                foreach ($payment_data as $data) {
+                    $grand_total += (float)$data['total_payment'];
+                    ?>
+                    <tr>
+                        <td style="text-align: center;"><?php echo $count++; ?></td>
+                        <td class="text-format"><?php echo htmlspecialchars($data['sub_route_code']); ?></td>
+                        <td><?php echo htmlspecialchars($data['sub_route_name']); ?></td>
+                        <td class="text-format"><?php echo htmlspecialchars($data['parent_route']); ?></td>
+                        <td><?php echo htmlspecialchars($data['vehicle_no']); ?></td>
+                        <td class="currency-format" style="text-align: right;"><?php echo (float)$data['day_rate']; ?></td>
+                        <td style="text-align: center;"><?php echo (int)$data['base_days']; ?></td>
+                        <td style="text-align: center;"><?php echo (int)$data['adjustments']; ?></td>
+                        <td class="currency-format" style="text-align: right; font-weight: bold;"><?php echo (float)$data['total_payment']; ?></td>
+                    </tr>
+                    <?php
+                }
+                // Grand Total Row එක
                 ?>
-                <tr>
-                    <td style="text-align: center;"><?php echo $count++; ?></td>
-                    <td><?php echo $sub_code; ?></td>
-                    <td><?php echo $row['sub_route']; ?></td>
-                    <td><?php echo $parent; ?></td>
-                    <td><?php echo $row['vehicle_no']; ?></td>
-                    <td style="text-align: right;"><?php echo number_format($rate, 2); ?></td>
-                    <td style="text-align: center;"><?php echo $base; ?></td>
-                    <td style="text-align: center; <?php echo $adj_style; ?>"><?php echo ($adj > 0 ? "+$adj" : $adj); ?></td>
-                    <td style="text-align: center; font-weight: bold;"><?php echo $final; ?></td>
-                    <td style="text-align: right; font-weight: bold;"><?php echo number_format($total, 2); ?></td>
+                <tr class="total-bg">
+                    <td colspan="8" style="text-align: right; font-weight: bold;">Grand Total (LKR):</td>
+                    <td class="currency-format" style="text-align: right; font-weight: bold; background-color: #e2e8f0;">
+                        <?php echo $grand_total; ?>
+                    </td>
                 </tr>
                 <?php
+            } else {
+                echo "<tr><td colspan='10' style='text-align:center;'>No data available to export.</td></tr>";
             }
-        } else {
-            echo "<tr><td colspan='10' style='text-align:center;'>No records found</td></tr>";
-        }
-        ?>
-    </tbody>
-</table>
-<?php $conn->close(); ?>
+            ?>
+        </tbody>
+    </table>
+</body>
+</html>

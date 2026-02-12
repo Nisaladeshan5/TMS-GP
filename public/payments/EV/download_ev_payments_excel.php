@@ -1,5 +1,5 @@
 <?php
-// download_ev_payments.php - Generates CSV summary for Extra Vehicle Payments (Fixed Logic)
+// download_ev_payments.php - Generates Excel summary for Extra Vehicle Payments (Styled)
 
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -161,63 +161,86 @@ while ($row = $result->fetch_assoc()) {
 $stmt->close();
 $conn->close();
 
-// --- 4. OUTPUT CSV ---
+// --- 4. EXCEL GENERATION START ---
 
-$filename = "Extra_Vehicle_Summary_{$monthName}_{$filterYear}.csv";
-header('Content-Type: text/csv; charset=utf-8');
-header('Content-Disposition: attachment; filename="' . $filename . '"');
+$filename = "Extra_Vehicle_Summary_{$monthName}_{$filterYear}.xls";
 
-$output = fopen('php://output', 'w');
+header("Content-Type: application/vnd.ms-excel");
+header("Content-Disposition: attachment; filename=\"$filename\"");
+header("Pragma: no-cache");
+header("Expires: 0");
 
-// Title Row
-fputcsv($output, ["Extra Vehicle Payment Summary - {$monthName} {$filterYear}"]);
-fputcsv($output, [""]); 
-
-// Header Row
-$header = [
-    'IDENTIFIER (OP/ROUTE)', 
-    'TYPE', 
-    'SUPPLIER', 
-    'VEHICLE NO (REF)', 
-    'TOTAL TRIPS', 
-    'TOTAL DISTANCE (KM)', 
-    'TOTAL PAYMENT (LKR)'
-];
-fputcsv($output, $header);
-
-$grand_total_payment = 0;
-$grand_total_distance = 0;
-$grand_total_trips = 0;
-
-foreach ($payment_data as $data) {
-    $row = [
-        $data['identifier'],
-        $data['type'],
-        $data['supplier'],
-        $data['vehicle_no'],
-        $data['total_trips'],
-        number_format($data['total_distance'], 2),
-        number_format($data['total_payment'], 2)
-    ];
-    fputcsv($output, $row);
-
-    $grand_total_trips += $data['total_trips'];
-    $grand_total_distance += $data['total_distance'];
-    $grand_total_payment += $data['total_payment'];
-}
-
-// Grand Total Row
-fputcsv($output, [""]);
-fputcsv($output, [
-    'GRAND TOTALS', 
-    '', 
-    '', 
-    '', 
-    $grand_total_trips, 
-    number_format($grand_total_distance, 2), 
-    number_format($grand_total_payment, 2)
-]);
-
-fclose($output);
-exit;
 ?>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <style>
+        /* Force text format for codes to keep leading zeros */
+        .text-format { mso-number-format:"\@"; } 
+        /* Currency format */
+        .currency-format { mso-number-format:"\#\,\#\#0\.00"; }
+    </style>
+</head>
+<body>
+    <table border="1">
+        <thead>
+            <tr>
+                <th colspan="7" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">
+                    Extra Vehicle Payment Summary - <?php echo "$monthName $filterYear"; ?>
+                </th>
+            </tr>
+            <tr>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Identifier (OP/Route)</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Type</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Supplier</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Vehicle No (Ref)</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Total Trips</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Total Distance (km)</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Total Payment (LKR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php 
+            $grand_total_trips = 0;
+            $grand_total_distance = 0;
+            $grand_total_payment = 0;
+
+            if (!empty($payment_data)): 
+                foreach ($payment_data as $row): 
+                    $grand_total_trips += $row['total_trips'];
+                    $grand_total_distance += $row['total_distance'];
+                    $grand_total_payment += $row['total_payment'];
+            ?>
+                    <tr>
+                        <td class="text-format"><?php echo htmlspecialchars($row['identifier']); ?></td>
+                        <td><?php echo htmlspecialchars($row['type']); ?></td>
+                        <td><?php echo htmlspecialchars($row['supplier']); ?></td>
+                        <td><?php echo htmlspecialchars($row['vehicle_no']); ?></td>
+                        <td style="text-align:center;"><?php echo $row['total_trips']; ?></td>
+                        <td style="text-align:center;"><?php echo number_format($row['total_distance'], 2); ?></td>
+                        <td class="currency-format" style="font-weight:bold;">
+                            <?php echo $row['total_payment']; ?>
+                        </td>
+                    </tr>
+            <?php 
+                endforeach; 
+                // Grand Total Row
+            ?>
+                <tr>
+                    <td colspan="4" style="text-align: right; font-weight: bold;">GRAND TOTALS</td>
+                    <td style="text-align: center; font-weight: bold;"><?php echo $grand_total_trips; ?></td>
+                    <td style="text-align: center; font-weight: bold;"><?php echo number_format($grand_total_distance, 2); ?></td>
+                    <td class="currency-format" style="font-weight: bold; border-top: 2px solid black;">
+                        <?php echo $grand_total_payment; ?>
+                    </td>
+                </tr>
+
+            <?php else: ?>
+                <tr>
+                    <td colspan="7" style="text-align:center;">No records found for this period.</td>
+                </tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
+</body>
+</html>

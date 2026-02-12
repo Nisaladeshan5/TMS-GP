@@ -11,8 +11,39 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 }
 
 include('../../../../includes/db.php');
-// FPDF path එක ඔබේ ෆෝල්ඩර ව්‍යුහය අනුව වෙනස් විය හැක.
 require('../../fpdf.php'); 
+
+// --- FUEL CALCULATION LOGIC ---
+function get_latest_fuel_price_by_rate_id($conn, $rate_id) {
+    $sql = "SELECT rate FROM fuel_rate WHERE rate_id = ? ORDER BY date DESC, id DESC LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) return 0; 
+    $stmt->bind_param("i", $rate_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    return $row['rate'] ?? 0;
+}
+
+function calculate_fuel_cost_per_km($conn, $vehicle_no) {
+    if (empty($vehicle_no)) return 0;
+    
+    $consumption_rates = [];
+    $res_c = $conn->query("SELECT c_id, distance FROM consumption");
+    if ($res_c) while ($r = $res_c->fetch_assoc()) $consumption_rates[$r['c_id']] = $r['distance'];
+
+    $stmt = $conn->prepare("SELECT fuel_efficiency, rate_id FROM vehicle WHERE vehicle_no = ?");
+    $stmt->bind_param("s", $vehicle_no);
+    $stmt->execute();
+    $v = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    if (!$v) return 0;
+    $price = get_latest_fuel_price_by_rate_id($conn, $v['rate_id']);
+    $km_per_l = $consumption_rates[$v['fuel_efficiency']] ?? 1.0;
+    return ($price > 0) ? ($price / $km_per_l) : 0;
+}
 
 // ---------------------------------------------------------
 // EXTENDED PDF CLASS
@@ -118,12 +149,14 @@ if (!$sub_route_code) {
     die("Error: Sub Route Code missing.");
 }
 
-// 1. Get Sub Route Info
+// 1. Get Sub Route Info (Added fixed_rate, with_fuel, distance)
 $sql_route = "
     SELECT 
         sr.sub_route AS sub_route_name,
         sr.vehicle_no,
-        sr.per_day_rate,
+        sr.fixed_rate,
+        sr.with_fuel,
+        sr.distance,
         sr.route_code AS parent_route,
         sr.supplier_code
     FROM sub_route sr
@@ -139,11 +172,21 @@ $route_data = $res_route->fetch_assoc();
 
 $sub_route_name = $route_data['sub_route_name'];
 $vehicle_no = $route_data['vehicle_no'];
-$rate = (float)$route_data['per_day_rate'];
+$fixed_rate = (float)$route_data['fixed_rate'];
+$distance = (float)$route_data['distance'];
 $parent_route = $route_data['parent_route'];
 $supplier_code = $route_data['supplier_code'];
 
-// 2. Get Supplier Details (NEW SECTION)
+// 2. Calculate Fuel Rate
+$fuel_rate = 0;
+if ((int)$route_data['with_fuel'] === 1) {
+    $fuel_rate = calculate_fuel_cost_per_km($conn, $vehicle_no);
+}
+
+// DAILY RATE = (Fixed + Fuel) * Distance
+$final_daily_rate = ($fixed_rate + $fuel_rate) * $distance;
+
+// 3. Get Supplier Details
 $sup_data = [];
 if (!empty($supplier_code)) {
     $sql_sup = "SELECT supplier, email, beneficiaress_name, bank, branch, acc_no FROM supplier WHERE supplier_code = ?";
@@ -156,7 +199,7 @@ if (!empty($supplier_code)) {
     }
 }
 
-// 3. Get Attendance (From Parent Route)
+// 4. Get Attendance (From Parent Route)
 $sql_att = "
     SELECT COUNT(DISTINCT date) as days_run 
     FROM factory_transport_vehicle_register 
@@ -169,7 +212,7 @@ $res_att = $stmt_att->get_result();
 $att_data = $res_att->fetch_assoc();
 $base_days = (int)($att_data['days_run'] ?? 0);
 
-// 4. Get Adjustments
+// 5. Get Adjustments
 $sql_adj = "
     SELECT SUM(adjustment_days) as total_adj 
     FROM sub_route_adjustments 
@@ -182,10 +225,10 @@ $res_adj = $stmt_adj->get_result();
 $adj_data = $res_adj->fetch_assoc();
 $adjustments = (int)($adj_data['total_adj'] ?? 0);
 
-// 5. Calculations
+// 6. Calculations
 $final_days = $base_days + $adjustments;
 if ($final_days < 0) $final_days = 0;
-$total_payment = $final_days * $rate;
+$total_payment = $final_days * $final_daily_rate;
 
 // ---------------------------------------------------------
 // PDF GENERATION
@@ -201,18 +244,15 @@ $month_name = date('F', mktime(0,0,0,$selected_month,10));
 $pdf->Cell(0,10,"For $month_name, $selected_year",0,1,'C');
 $pdf->Ln(7);
 
-// ---------------------------------
-// SUPPLIER DETAILS SECTION (NEW)
-// ---------------------------------
+// SUPPLIER DETAILS SECTION
 if (!empty($sup_data)) {
     $pdf->SetFont('Arial','B',12);
     $pdf->Cell(0,7,'Supplier Details',0,1,'L');
     $pdf->SetFont('Arial','',10);
 
-    // Mapping Database Columns to Labels
     $sup_fields = [
         'Supplier Name' => 'supplier',
-        'Supplier Code' => $supplier_code, // Direct variable
+        'Supplier Code' => $supplier_code,
         'Email' => 'email',
         'Beneficiary Name' => 'beneficiaress_name',
         'Bank' => 'bank',
@@ -222,7 +262,6 @@ if (!empty($sup_data)) {
 
     foreach($sup_fields as $label => $key){
         $value = ($label === 'Supplier Code') ? $key : ($sup_data[$key] ?? '-');
-        
         $pdf->SetFont('Arial','B',10);
         $pdf->Cell(40, 6, $label.':', 0, 0);
         $pdf->SetFont('Arial','',10);
@@ -231,9 +270,7 @@ if (!empty($sup_data)) {
     $pdf->Ln(5);
 }
 
-// ---------------------------------
 // ROUTE DETAILS SECTION
-// ---------------------------------
 $pdf->SetFont('Arial','B',12);
 $pdf->Cell(0,7,'Route Details',0,1,'L');
 $pdf->SetFont('Arial','',10);
@@ -243,7 +280,7 @@ $route_details = [
     'Sub Route Code' => $sub_route_code,
     'Parent Route' => $parent_route,
     'Vehicle No' => $vehicle_no,
-    'Daily Rate (LKR)' => number_format($rate, 2)
+    'Daily Rate (LKR)' => number_format($final_daily_rate, 2)
 ];
 
 foreach($route_details as $label => $value){
@@ -255,9 +292,7 @@ foreach($route_details as $label => $value){
 
 $pdf->Ln(8);
 
-// ---------------------------------
 // CALCULATION TABLE
-// ---------------------------------
 $pdf->SetFont('Arial','B',10);
 $pdf->SetFillColor(220,220,220); // Header Background
 
@@ -271,14 +306,14 @@ $pdf->SetFillColor(255,255,255);
 // Row 1: Base Attendance
 $pdf->Cell(110, 7, 'Base Working Days (Attendance)', 1, 0, 'L');
 $pdf->Cell(30, 7, $base_days, 1, 0, 'C');
-$pdf->Cell(50, 7, number_format($base_days * $rate, 2), 1, 1, 'R');
+$pdf->Cell(50, 7, number_format($base_days * $final_daily_rate, 2), 1, 1, 'R');
 
 // Row 2: Adjustments
 if($adjustments != 0) {
     $adj_sign = ($adjustments > 0) ? '+' : '';
     $pdf->Cell(110, 7, 'Manual Adjustments', 1, 0, 'L');
     $pdf->Cell(30, 7, $adj_sign . $adjustments, 1, 0, 'C');
-    $pdf->Cell(50, 7, number_format($adjustments * $rate, 2), 1, 1, 'R');
+    $pdf->Cell(50, 7, number_format($adjustments * $final_daily_rate, 2), 1, 1, 'R');
 }
 
 // Row 3: Total

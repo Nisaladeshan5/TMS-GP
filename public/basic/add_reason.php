@@ -11,11 +11,13 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 }
 
 include('../../includes/db.php');
+include('../../includes/header.php');
+include('../../includes/navbar.php');
 
 $toast_message = "";
 $toast_type = "";
 
-// 1. Fetch GL codes and names from the 'gl' table for the dropdown
+// 1. Fetch GL codes and names
 $gl_options = [];
 $gl_sql = "SELECT gl_code, gl_name FROM gl ORDER BY gl_name ASC";
 $gl_result = $conn->query($gl_sql);
@@ -25,37 +27,31 @@ if ($gl_result && $gl_result->num_rows > 0) {
         $gl_options[] = $row;
     }
 }
-// Note: We no longer rely on $allowed_categories array for transport types, 
-// we use the actual data from the 'gl' table.
 
-// Handle adding a new reason
+// Handle adding a new reason (POST Request)
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['new_reason_code'], $_POST['new_reason_text'], $_POST['gl_code'])) {
     
     $new_reason_code = trim($_POST['new_reason_code']); 
     $new_reason_text = trim($_POST['new_reason_text']);
     $selected_gl_code = trim($_POST['gl_code']); 
 
-    // 1. Validation check for required fields
     if (empty($new_reason_code) || empty($new_reason_text) || empty($selected_gl_code)) {
-        $toast_message = "Error: All fields (Code, Text, Category) are required.";
+        $toast_message = "Error: All fields are required.";
         $toast_type = "error";
-    } 
-    // 2. We skip the array validation since we trust the database lookup
-    
-    // 3. Proceed with DB insertion
-    else {
+    } else {
         $stmt = $conn->prepare("INSERT INTO reason (reason_code, reason, gl_code) VALUES (?, ?, ?)");
         $stmt->bind_param("sss", $new_reason_code, $new_reason_text, $selected_gl_code);
 
         if ($stmt->execute()) {
-            // SUCCESS - Redirect to reason.php WITHOUT any toast parameters
+            // SUCCESS - Redirect
             $stmt->close();
             $conn->close();
-            header("Location: reason.php"); 
+            // Redirect logic with JS is handled below to show success if needed, 
+            // but standard PHP redirect is cleaner for non-AJAX
+            echo "<script>window.location.href='reason.php';</script>";
             exit(); 
-            
         } else {
-            // DB Error - Show toast on the current page (add_reason.php)
+            // DB Error
             $error_info = $stmt->error;
             if (strpos($error_info, 'Duplicate entry') !== false) {
                  $toast_message = "Error: Reason Code '" . htmlspecialchars($new_reason_code) . "' already exists.";
@@ -68,14 +64,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['new_reason_code'], $_P
     }
 }
 
-// Ensure DB connection is closed if not already closed by successful redirect
+// Ensure DB connection is closed
 if (isset($conn) && $conn->ping()) {
     $conn->close();
 }
-
-
-include('../../includes/header.php');
-include('../../includes/navbar.php');
 ?>
 
 <!DOCTYPE html>
@@ -84,99 +76,141 @@ include('../../includes/navbar.php');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Add New Reason</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        /* Toast styles */
-        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; }
-        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; opacity: 1; transition: opacity 0.3s; }
+        /* Toast Notifications CSS */
+        #toast-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+        .toast {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            color: white;
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            transform: translateY(-20px);
+            opacity: 0;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
-        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
+        .toast-icon {
+            width: 1.5rem;
+            height: 1.5rem;
+            margin-right: 0.75rem;
+        }
     </style>
+    <script>
+        // Session Timeout Logic
+        const SESSION_TIMEOUT_MS = 32400000; // 9 hours
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
 </head>
-<body class="bg-gray-100 text-gray-800">
-    <div class="h-screen flex">
-        <div class="w-[15%]">
-            <?php // include('../../includes/navbar.php'); ?>
-        </div>
-        
-        <div class="w-[85%] flex flex-col">
-            <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg h-[5%]">
-                <div class="text-lg font-semibold ml-3">Add Reason</div>
-                <div class="flex gap-4">
-                    <a href="reason.php" class="hover:text-yellow-600 text-yellow-500 font-bold">Back to Reason List</a>
+<body class="bg-gray-100 font-sans">
+
+    <div id="toast-container"></div>
+
+    <div class="w-[85%] ml-[15%]">
+        <div class="container max-w-2xl p-6 md:p-10 bg-white shadow-lg rounded-lg mt-10">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-6 border-b pb-2">Add New Reason</h1>
+            
+            <form action="add_reason.php" method="POST" class="space-y-6">
+                
+                <div class="grid md:grid-cols-1 gap-6">
+                    <div>
+                        <label for="new_reason_code" class="block text-sm font-medium text-gray-700">Reason Code (Unique ID):</label>
+                        <input type="text" id="new_reason_code" name="new_reason_code" required
+                            class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2"
+                            value="<?php echo isset($_POST['new_reason_code']) ? htmlspecialchars($_POST['new_reason_code']) : ''; ?>">
+                    </div>
+
+                    <div>
+                        <label for="new_reason_text" class="block text-sm font-medium text-gray-700">Reason Description:</label>
+                        <input type="text" id="new_reason_text" name="new_reason_text" required
+                            class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2"
+                            value="<?php echo isset($_POST['new_reason_text']) ? htmlspecialchars($_POST['new_reason_text']) : ''; ?>">
+                    </div>
+
+                    <div>
+                        <label for="gl_code" class="block text-sm font-medium text-gray-700">Reason Category (GL Name):</label>
+                        <select id="gl_code" name="gl_code" required
+                            class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                            
+                            <option value="" disabled <?php echo !isset($_POST['gl_code']) ? 'selected' : ''; ?>>-- Select GL Category --</option>
+                            
+                            <?php if (!empty($gl_options)): ?>
+                                <?php foreach ($gl_options as $gl): ?>
+                                    <option value="<?php echo htmlspecialchars($gl['gl_code']); ?>"
+                                        <?php echo (isset($_POST['gl_code']) && $_POST['gl_code'] === $gl['gl_code']) ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($gl['gl_name']); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <option value="" disabled>No GL Categories found</option>
+                            <?php endif; ?>
+                        </select>
+                    </div>
                 </div>
-            </div>
 
-            <div class="flex-grow flex justify-center items-center p-6">
-                <div class="w-full max-w-lg bg-white rounded-lg shadow-xl p-8 border border-blue-200">
-                    <h2 class="text-3xl font-bold mb-6 text-center text-blue-800">Add New Transport Reason</h2>
-                    
-                    <form action="add_reason.php" method="POST"> 
-                        
-                        <div class="mb-4">
-                            <label for="new_reason_code" class="block text-gray-700 font-medium mb-1">Reason Code (Unique ID):</label>
-                            <input type="text" id="new_reason_code" name="new_reason_code" required
-                                class="w-full px-4 py-2 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                                value="<?php echo isset($_POST['new_reason_code']) ? htmlspecialchars($_POST['new_reason_code']) : ''; ?>">
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="new_reason_text" class="block text-gray-700 font-medium mb-1">Reason Description:</label>
-                            <input type="text" id="new_reason_text" name="new_reason_text" required
-                                class="w-full px-4 py-2 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                value="<?php echo isset($_POST['new_reason_text']) ? htmlspecialchars($_POST['new_reason_text']) : ''; ?>">
-                        </div>
-
-                        <div class="mb-6">
-                            <label for="gl_code" class="block text-gray-700 font-medium mb-1">Reason Category (GL Name):</label>
-                            <select id="gl_code" name="gl_code" required
-                                class="w-full px-4 py-2 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                
-                                <option value="" disabled <?php echo !isset($_POST['gl_code']) ? 'selected' : ''; ?>>-- Select GL Category --</option>
-                                
-                                <?php if (!empty($gl_options)): ?>
-                                    <?php foreach ($gl_options as $gl): ?>
-                                        <option value="<?php echo htmlspecialchars($gl['gl_code']); ?>"
-                                            <?php echo (isset($_POST['gl_code']) && $_POST['gl_code'] === $gl['gl_code']) ? 'selected' : ''; ?>>
-                                            <?php echo htmlspecialchars($gl['gl_name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <option value="" disabled>No GL Categories found</option>
-                                <?php endif; ?>
-                            </select>
-                        </div>
-
-                        <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow-md hover:bg-blue-700 transition-colors">
-                            Add Reason to Database
-                        </button>
-                    </form>
+                <div class="flex justify-between mt-6 pt-4 border-t border-gray-200">
+                    <a href="reason.php" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
+                        Cancel
+                    </a>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
+                        Add Reason
+                    </button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
     
-    <div id="toast-container"></div>
     <script>
         function showToast(message, type = 'success') {
             const toastContainer = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            const iconSvg = type === 'success' ? 
-                '<path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.293 12.5a1.003 1.003 0 0 1-1.417 0L2.354 8.7a.733.733 0 0 1 1.047-1.05l3.245 3.246 6.095-6.094z"/>' :
-                '<path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/> <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>';
-                
-            toast.innerHTML = `<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">${iconSvg}</svg><p class="font-semibold">${message}</p>`;
+            
+            let iconPath = '';
+            if (type === 'success') {
+                iconPath = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />';
+            } else {
+                iconPath = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />';
+            }
+
+            toast.innerHTML = `
+                <svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    ${iconPath}
+                </svg>
+                <span>${message}</span>
+            `;
 
             toastContainer.appendChild(toast);
             setTimeout(() => toast.classList.add('show'), 10);
-            setTimeout(() => toast.classList.remove('show'), 3000);
-            setTimeout(() => toast.remove(), 3500);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+            }, 3000);
         }
 
         document.addEventListener('DOMContentLoaded', function() {
-            // This now only shows the toast if an ERROR occurred (because success redirects without parameters)
+            // PHP Logic to trigger toast if message exists
             <?php 
             if (!empty($toast_message) && isset($toast_type)): 
             ?>

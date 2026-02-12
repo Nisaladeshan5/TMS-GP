@@ -278,7 +278,7 @@ if (isset($conn)) {
                     <div>
                         <label for="purpose" class="block text-sm font-semibold text-gray-700">Purpose:</label>
                         <select id="purpose" name="purpose" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-                            <?php $purposes = ['staff', 'factory', 'night_emergency' , 'sub_route']; ?>
+                            <?php $purposes = ['staff', 'factory', 'held_up', 'night_emergency' , 'sub_route', 'extra' ]; ?>
                             <?php foreach ($purposes as $purpose): ?>
                                 <option value="<?php echo $purpose; ?>"
                                     <?php echo ($purpose == $vehicle_data['purpose']) ? 'selected' : ''; ?>>

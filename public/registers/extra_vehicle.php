@@ -13,6 +13,8 @@ include('../../includes/db.php');
 date_default_timezone_set('Asia/Colombo');
 
 $user_role = $_SESSION['user_role'] ?? 'guest';
+// $can_act logic can be used if you want to restrict general access, 
+// but here we rely on specific record ownership for editing/deleting.
 $can_act = in_array($user_role, ['super admin', 'admin', 'developer', 'manager']); 
 
 $filterDate = date('Y-m-d');
@@ -39,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_trip_details'])
 }
 
 // =========================================================
-// 2. AJAX: FETCH VIEW DETAILS (Updated with Name)
+// 2. AJAX: FETCH VIEW DETAILS
 // =========================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_view_details'])) {
     if (ob_get_length()) ob_clean(); 
@@ -53,10 +55,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_view_details'])
     $trip_info = $stmt_loc->get_result()->fetch_assoc();
     $stmt_loc->close();
 
-    // 2. Get Passengers (JOIN Employee & Reason)
+    // 2. Get Passengers
     $passengers = [];
-    
-    // CHANGED SQL: Added Join with 'employee' table
     $sql_pass = "
         SELECT 
             t.emp_id, 
@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_view_details'])
         $res = $stmt->get_result();
         while($row = $res->fetch_assoc()){
             $row['reason'] = $row['reason'] ?? 'Unknown'; 
-            $row['calling_name'] = $row['calling_name'] ?? '-'; // Handle if name not found
+            $row['calling_name'] = $row['calling_name'] ?? '-'; 
             $passengers[] = $row;
         }
         $stmt->close();
@@ -122,12 +122,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($stmt->execute()) {
                 echo "<script>window.location.href='?date=$filterDate&status=success&message=" . urlencode("Trip Completed Successfully") . "';</script>";
             } else {
-                // DB Error Reporting (Debugging purposes)
                 echo "<script>alert('Error completing trip: " . addslashes($stmt->error) . "');</script>";
             }
             $stmt->close();
-        } else {
-             echo "<script>alert('Database Prepare Error');</script>";
         }
     }
 
@@ -141,19 +138,48 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $distance = (float)$_POST['distance'];
         $ac_status = (int)$_POST['ac_status']; 
         
-        $sql_update = "UPDATE extra_vehicle_register SET supplier_code = ?, op_code = ?, route = ?, distance = ?, ac_status = ?, user_id = ? WHERE id = ?";
+        // Note: checking user_id in UPDATE ensures only owner can edit (if you want strict security here too)
+        // For now, based on previous logic, we update user_id or keep it. Here I'll update it to current user or keep ownership logic consistent.
+        // Assuming strict ownership:
+        $sql_update = "UPDATE extra_vehicle_register SET supplier_code = ?, op_code = ?, route = ?, distance = ?, ac_status = ? WHERE id = ? AND user_id = ?";
         $stmt = $conn->prepare($sql_update);
         
         if ($stmt) {
-            $stmt->bind_param('sssdiii', $supplier_code, $op_code, $route, $distance, $ac_status, $current_session_user_id, $trip_id);
+            $stmt->bind_param('sssdiii', $supplier_code, $op_code, $route, $distance, $ac_status, $trip_id, $current_session_user_id);
             if ($stmt->execute()) {
-                echo "<script>window.location.href='?date=$filterDate&status=success&message=" . urlencode("Record Edited Successfully") . "';</script>";
+                if ($stmt->affected_rows > 0) {
+                    echo "<script>window.location.href='?date=$filterDate&status=success&message=" . urlencode("Record Edited Successfully") . "';</script>";
+                } else {
+                    echo "<script>alert('Error: You can only edit records you completed.'); window.location.href='?date=$filterDate';</script>";
+                }
             } else {
                 echo "<script>alert('Error editing record: " . addslashes($stmt->error) . "');</script>";
             }
             $stmt->close();
-        } else {
-            echo "<script>alert('Database Prepare Error');</script>";
+        }
+    }
+
+    // --- CASE C: DELETE TRIP (NEW) ---
+    if (isset($_POST['delete_trip'])) {
+        $trip_id = (int)$_POST['trip_id'];
+
+        // Strict Check: Delete only if ID matches AND user_id matches logged-in user
+        $sql_delete = "DELETE FROM extra_vehicle_register WHERE id = ? AND user_id = ?";
+        $stmt = $conn->prepare($sql_delete);
+
+        if ($stmt) {
+            $stmt->bind_param('ii', $trip_id, $current_session_user_id);
+            if ($stmt->execute()) {
+                if ($stmt->affected_rows > 0) {
+                    echo "<script>window.location.href='?date=$filterDate&status=success&message=" . urlencode("Trip Deleted Successfully") . "';</script>";
+                } else {
+                    // Affected rows 0 means either ID didn't exist OR user_id didn't match
+                    echo "<script>alert('Error: You can only delete trips completed by yourself.'); window.location.href='?date=$filterDate';</script>";
+                }
+            } else {
+                echo "<script>alert('Database Error: " . addslashes($stmt->error) . "');</script>";
+            }
+            $stmt->close();
         }
     }
 }
@@ -203,7 +229,6 @@ include('../../includes/navbar.php');
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center; z-index: 3000; }
         .modal-content { background-color: white; padding: 2rem; border-radius: 0.5rem; width: 90%; max-width: 600px; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2); }
         
-        /* Scrollbar */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
@@ -285,6 +310,7 @@ include('../../includes/navbar.php');
                         $row_class = $is_completed ? 'bg-green-50 hover:bg-green-100' : 'bg-red-50 hover:bg-red-100';
                         
                         $record_user_id = (int)$row['user_id'];
+                        // Check if the current user is the one who did the record
                         $can_edit = ($is_completed && ($record_user_id === $current_session_user_id) && $current_session_user_id !== 0);
                         
                         $display_code = '';
@@ -330,10 +356,16 @@ include('../../includes/navbar.php');
                                             <i class="fas fa-check"></i>
                                         </button>
                                     <?php elseif ($can_edit): ?>
-                                        <button onclick="openEditModal(<?php echo $row['id']; ?>)" 
-                                                class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1.5 rounded shadow transition" title="Edit Trip">
+                                        <a href="edit_extra_vehicle.php?id=<?php echo $row['id']; ?>&date=<?php echo $filterDate; ?>" 
+                                        class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1.5 rounded shadow transition" title="Edit Trip">
                                             <i class="fas fa-edit"></i>
+                                        </a>
+                                        
+                                        <button onclick="confirmDelete(<?php echo $row['id']; ?>)" 
+                                                class="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1.5 rounded shadow transition" title="Delete Trip">
+                                            <i class="fas fa-trash-alt"></i>
                                         </button>
+
                                     <?php else: ?>
                                         <span class="text-gray-400 text-xs py-1.5 flex items-center gap-1 cursor-help" title="Locked by <?php echo htmlspecialchars($row['done_by_name'] ?? ''); ?>">
                                             <i class="fas fa-lock"></i>
@@ -522,13 +554,13 @@ include('../../includes/navbar.php');
         .catch(err => { console.error(err); loader.style.display = 'none'; content.innerHTML = 'Error loading details.'; });
     }
 
-    // --- Complete Modal (Simple) ---
+    // --- Complete Modal ---
     function openCompleteModal(id) {
         document.getElementById('completeTripId').value = id;
         document.getElementById('completeModal').style.display = 'flex';
     }
 
-    // --- Edit Modal (Full) ---
+    // --- Edit Modal ---
     function openEditModal(id) {
         const modal = document.getElementById('editModal');
         const form = document.getElementById('editForm');
@@ -593,6 +625,31 @@ include('../../includes/navbar.php');
             rtSel.setAttribute('required', 'required');
             opSel.removeAttribute('required');
             opSel.value = "";
+        }
+    }
+
+    // --- Delete Confirmation (NEW) ---
+    function confirmDelete(id) {
+        if (confirm("Are you sure you want to delete this trip permanently?")) {
+            // Create a temporary form to submit the delete request
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '?date=<?php echo $filterDate; ?>';
+            
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'delete_trip';
+            actionInput.value = '1';
+            
+            const idInput = document.createElement('input');
+            idInput.type = 'hidden';
+            idInput.name = 'trip_id';
+            idInput.value = id;
+            
+            form.appendChild(actionInput);
+            form.appendChild(idInput);
+            document.body.appendChild(form);
+            form.submit();
         }
     }
 

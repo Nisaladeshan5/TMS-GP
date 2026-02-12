@@ -24,6 +24,7 @@ if ($vehicle_no) {
                 vehicle.supplier_code,
                 supplier.supplier,
                 vehicle.capacity,
+                vehicle.standing_capacity,
                 ct.c_type, 
                 vehicle.type,
                 vehicle.purpose,
@@ -56,7 +57,7 @@ if ($vehicle_no) {
         $status_color_class = ($vehicle_data['is_active'] == 1) ? 'bg-green-600' : 'bg-red-600';
 
         // --- 2. 🎯 Check for Assigned Route ---
-        $route_sql = "SELECT route_code FROM route WHERE vehicle_no = ? AND is_active = 1 LIMIT 1";
+        $route_sql = "SELECT route_code, route FROM route WHERE vehicle_no = ? AND is_active = 1 LIMIT 1";
         $route_stmt = $conn->prepare($route_sql);
         $route_stmt->bind_param('s', $vehicle_no);
         $route_stmt->execute();
@@ -65,6 +66,7 @@ if ($vehicle_no) {
         if ($route_result->num_rows > 0) {
             $route_row = $route_result->fetch_assoc();
             $assigned_route_code = htmlspecialchars($route_row['route_code']);
+            $assigned_route = htmlspecialchars($route_row['route']);
         }
         $route_stmt->close();
     }
@@ -146,9 +148,15 @@ include('../../includes/navbar.php');
                             <div class="display-field-view"><?= htmlspecialchars($vehicle_data['supplier']) ?> (<?= htmlspecialchars($vehicle_data['supplier_code']) ?>)</div>
                         </div>
                         
-                        <div>
-                            <label class="label-style-view">Capacity:</label>
-                            <div class="display-field-view"><?= htmlspecialchars($vehicle_data['capacity']) ?></div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="label-style-view">Seating:</label>
+                                <div class="display-field-view"><?= htmlspecialchars($vehicle_data['capacity']) ?></div>
+                            </div>
+                            <div>
+                                <label class="label-style-view">Standing:</label>
+                                <div class="display-field-view"><?= htmlspecialchars($vehicle_data['standing_capacity']) ?></div>
+                            </div>
                         </div>
                         <div>
                             <label class="label-style-view">Type:</label>
@@ -172,7 +180,7 @@ include('../../includes/navbar.php');
                             <div>
                                 <label class="label-style-view">Assigned Route:</label>
                                 <div class="display-field-view font-bold text-indigo-700">
-                                    <?= $assigned_route_code ?>
+                                    <?= $assigned_route_code ?> (<?= $assigned_route ?>)
                                 </div>
                             </div>
                         </div>

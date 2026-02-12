@@ -256,13 +256,13 @@ include('../../../includes/navbar.php');
                         $can_toggle_ac = $can_initial_mark || $can_edit_marked;
 
                         
-                        // AC Status Display Logic
+                        // 1. Determine Display Logic (Visuals only)
                         if ($ac_status_db === 1) {
                             $ac_display = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-200 text-green-800">AC</span>';
                         } elseif ($ac_status_db === 2) {
                             $ac_display = '<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-200 text-red-800">NON-AC</span>';
                         } else {
-                            // NULL or 0
+                            // Default display for non-clickable state
                             $ac_display = '<span class="text-gray-400 italic">---</span>';
                         }
                         
@@ -277,14 +277,22 @@ include('../../../includes/navbar.php');
                             <td class='px-4 py-3 text-xs text-gray-600'>{$recorded_by}</td>
                             
                             <td class='px-4 py-3 text-center'>";
+                            
                             if ($can_toggle_ac) {
+                                // If status is empty, SHOW SELECT ICON
+                                if (empty($ac_status_db)) {
+                                    $ac_display = "<span class='bg-white border border-blue-500 text-blue-600 rounded px-2 py-1 text-xs font-bold flex items-center justify-center gap-2 shadow-sm'>
+                                                        <i class='fa-solid fa-hand-pointer animate-pulse'></i> Select
+                                                   </span>";
+                                }
+
                                 // AC Status clickable area (triggers modal)
                                 echo "<button data-op-code='{$record_op_code}' 
                                                 data-date='{$record_date}'
                                                 data-current-ac='{$ac_status_db}'
                                                 class='ac-status-btn hover:opacity-80 transition transform hover:scale-105' title='Edit AC Status'>
                                                 {$ac_display} 
-                                        </button>";
+                                      </button>";
                             } else {
                                 echo $ac_display; // Display status, but not clickable
                             }
@@ -298,7 +306,7 @@ include('../../../includes/navbar.php');
                                                 data-date='{$record_date}'
                                                 class='delete-attendance-btn bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-md text-xs shadow-sm transition' title='Delete Record'>
                                                 <i class='fas fa-trash-alt'></i>
-                                        </button>";
+                                      </button>";
                             } else {
                                 echo "<span class='text-gray-400 text-xs italic'>Locked</span>";
                             }
@@ -392,6 +400,7 @@ include('../../../includes/navbar.php');
             } else {
                 // Default to AC if unknown/null
                 acRadio.checked = false; 
+                nonAcRadio.checked = false; // Reset both
             }
 
             document.getElementById('acStatusModal').style.display = 'flex';

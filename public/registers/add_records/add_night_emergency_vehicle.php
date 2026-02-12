@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
 
 // Non-AJAX request: page load
 $today_date = date('Y-m-d');
-$night_emergency_vehicle = null; // Changed to a single variable
+$night_emergency_vehicle = null; 
 
 // Fetch a single vehicle and driver from night_emergency_attendance for the current date
 $attendance_sql = "SELECT vehicle_no, driver_NIC FROM night_emergency_attendance WHERE date = ? ORDER BY vehicle_no LIMIT 1";
@@ -61,10 +61,7 @@ if ($stmt_attendance) {
     $stmt_attendance->bind_param('s', $today_date);
     $stmt_attendance->execute();
     $attendance_result = $stmt_attendance->get_result();
-    
-    // Fetch the single row
     $night_emergency_vehicle = $attendance_result->fetch_assoc();
-    
     $stmt_attendance->close();
 }
 
@@ -77,177 +74,224 @@ include('../../../includes/navbar.php');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add Night Emergency Vehicle Record</title>
+    <title>Add Night Emergency Record</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-        }
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-        .toast {
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            color: white;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-        }
-
-        .toast.show {
-            transform: translateY(0);
-            opacity: 1;
-        }
-
-        .toast.success {
-            background-color: #4CAF50;
-        }
-
-        .toast.error {
-            background-color: #F44336;
-        }
-
-        .toast-icon {
-            width: 1.5rem;
-            height: 1.5rem;
-            margin-right: 0.75rem;
-        }
+        /* Toast CSS */
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 9999; display: flex; flex-direction: column; align-items: flex-end; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; min-width: 250px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background-color: #4CAF50; }
+        .toast.error { background-color: #F44336; }
+        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
     </style>
 </head>
-<body class="bg-gray-100 font-sans">
-    <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%]">
-    <div class="text-lg font-semibold ml-3">Registers</div>
-    <div class="flex gap-4">
-        <a href="../night_emergency.php" class="hover:text-yellow-600">Back to Trips</a>
-        <a href="night_emergency_attendance.php" class="hover:text-yellow-600">Attendance</a>
-        <a href="add_night_emergency_attendance.php" class="hover:text-yellow-600">Add Attendance</a>
-        <a href="night_emergency_barcode.php" class="hover:text-yellow-600">Barcode</a>
+
+<body class="bg-gray-100">
+
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Night Emergency Register
+        </div>
+    </div>
+    
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="../night_emergency.php" class="text-gray-300 hover:text-white transition">Register</a>
     </div>
 </div>
-    <div class="w-[85%] ml-[15%]">
-        <div class="container max-w-4xl p-6 md:p-10 bg-white shadow-lg rounded-lg mt-10">
-            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-6 border-b pb-2">Add Night Emergency Vehicle Record</h1>
 
-            <?php if (empty($night_emergency_vehicle)): ?>
-                <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4" role="alert">
-                    <p class="font-bold">No Attendance Found</p>
-                    <p>Night emergency attendance is not recorded for today. No vehicle is available to be selected.</p>
-                </div>
-            <?php else: ?>
-                <form id="addVehicleForm" class="space-y-6">
-                    <input type="hidden" name="add_record" value="1">
+<div class="w-[85%] ml-[15%] pt-24 min-h-screen flex flex-col items-center bg-gray-100">
+    
+    <div class="w-full max-w-3xl bg-white rounded-xl shadow-lg border border-gray-200 p-8">
+        
+        <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-4 flex items-center gap-2">
+            <i class="fas fa-plus-circle text-indigo-600"></i> Add Vehicle Record
+        </h2>
 
-                    <div class="grid md:grid-cols-2 gap-6">
-                        <div>
-                            <label for="vehicle_no" class="block text-sm font-medium text-gray-700">Vehicle No:</label>
-                            <input type="text" id="vehicle_no" name="vehicle_no" required readonly class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 bg-gray-200" value="<?php echo htmlspecialchars($night_emergency_vehicle['vehicle_no']); ?>">
-                        </div>
-                        <div>
-                            <label for="date" class="block text-sm font-medium text-gray-700">Date:</label>
-                            <input type="date" id="date" name="date" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                        </div>
+        <?php if (empty($night_emergency_vehicle)): ?>
+            <div class="bg-amber-50 border-l-4 border-amber-500 text-amber-700 p-4 rounded-md shadow-sm" role="alert">
+                <div class="flex items-center gap-3">
+                    <i class="fas fa-exclamation-triangle text-xl"></i>
+                    <div>
+                        <p class="font-bold">No Attendance Found</p>
+                        <p class="text-sm">Night emergency attendance is not recorded for today. Please add attendance first.</p>
                     </div>
+                </div>
+                <div class="mt-3">
+                    <a href="add_night_emergency_attendance.php" class="text-sm font-bold underline text-red-700 hover:text-red-900">Go to Add Attendance &rarr;</a>
+                </div>
+            </div>
+        <?php else: ?>
+            <form id="addVehicleForm" class="space-y-6">
+                <input type="hidden" name="add_record" value="1">
 
-                    <div class="grid md:grid-cols-2 gap-6">
-                        <div>
-                            <label for="driver" class="block text-sm font-medium text-gray-700">Driver License ID:</label>
-                            <input type="text" id="driver" name="driver" required readonly class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 bg-gray-200" value="<?php echo htmlspecialchars($night_emergency_vehicle['driver_NIC']); ?>">
-                        </div>
-                        <div>
-                            <label for="out_time" class="block text-sm font-medium text-gray-700">Out Time:</label>
-                            <input type="time" id="out_time" name="out_time" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="vehicle_no" class="block text-sm font-semibold text-gray-700 mb-1">Vehicle No</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-car text-gray-400"></i>
+                            </div>
+                            <input type="text" id="vehicle_no" name="vehicle_no" required readonly 
+                                   class="pl-10 block w-full rounded-md border-gray-300 bg-gray-100 text-gray-500 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2.5 cursor-not-allowed font-mono" 
+                                   value="<?php echo htmlspecialchars($night_emergency_vehicle['vehicle_no']); ?>">
                         </div>
                     </div>
 
                     <div>
-                        <label for="description" class="block text-sm font-medium text-gray-700">Description:</label>
-                        <textarea id="description" name="description" rows="3" class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2"></textarea>
+                        <label for="date" class="block text-sm font-semibold text-gray-700 mb-1">Date</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-calendar-alt text-gray-400"></i>
+                            </div>
+                            <input type="date" id="date" name="date" required 
+                                   class="pl-10 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2.5">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="driver" class="block text-sm font-semibold text-gray-700 mb-1">Driver License ID</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-id-card text-gray-400"></i>
+                            </div>
+                            <input type="text" id="driver" name="driver" required readonly 
+                                   class="pl-10 block w-full rounded-md border-gray-300 bg-gray-100 text-gray-500 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2.5 cursor-not-allowed font-mono" 
+                                   value="<?php echo htmlspecialchars($night_emergency_vehicle['driver_NIC']); ?>">
+                        </div>
                     </div>
 
-                    <div class="flex justify-end mt-6">
-                        <a href="../night_emergency.php" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105 mr-3">
-                            Cancel
-                        </a>
-                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
-                            Add Record
-                        </button>
+                    <div>
+                        <label for="out_time" class="block text-sm font-semibold text-gray-700 mb-1">Out Time</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-clock text-gray-400"></i>
+                            </div>
+                            <input type="time" id="out_time" name="out_time" required 
+                                   class="pl-10 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2.5">
+                        </div>
                     </div>
-                </form>
-            <?php endif; ?>
-        </div>
+                </div>
+
+                <div>
+                    <label for="description" class="block text-sm font-semibold text-gray-700 mb-1">Description</label>
+                    <textarea id="description" name="description" rows="3" placeholder="Enter trip details..." 
+                              class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3"></textarea>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                    <a href="../night_emergency.php" class="bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 font-bold py-2 px-6 rounded-md shadow-sm transition duration-300">
+                        Cancel
+                    </a>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105 flex items-center gap-2">
+                        <i class="fas fa-save"></i> Save Record
+                    </button>
+                </div>
+            </form>
+        <?php endif; ?>
     </div>
-    <div id="toast-container"></div>
+</div>
 
-    <script>
-        // Show toast notification
-        function showToast(message, type) {
-            const toastContainer = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="toast-icon">
-                    ${type === 'success'
-                        ? '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />'
-                        : '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.02 3.377 1.77 3.377h14.464c1.75 0 2.636-1.877 1.77-3.377L13.523 5.373a1.75 1.75 0 00-3.046 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />'
-                    }
-                </svg>
-                <span>${message}</span>
-            `;
+<div id="toast-container"></div>
 
-            toastContainer.appendChild(toast);
-            setTimeout(() => toast.classList.add('show'), 10);
+<script>
+    // --- Toast Notification Logic ---
+    function showToast(message, type) {
+        const toastContainer = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = type === 'success' 
+            ? '<i class="fas fa-check-circle text-lg mr-3"></i>' 
+            : '<i class="fas fa-exclamation-circle text-lg mr-3"></i>';
 
-            // Hide and remove
-            setTimeout(() => {
-                toast.classList.remove('show');
-                toast.addEventListener('transitionend', () => toast.remove(), { once: true });
-            }, 2000);
-        }
+        toast.innerHTML = `${icon} <span class="font-medium">${message}</span>`;
 
-        // Handle form submit via AJAX
-        const form = document.getElementById('addVehicleForm');
-        if (form) {
-            form.addEventListener('submit', async function(event) {
-                event.preventDefault();
-                const formData = new FormData(this);
+        toastContainer.appendChild(toast);
+        
+        // Trigger animation
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
 
-                try {
-                    const response = await fetch('add_night_emergency_vehicle.php', {
-                        method: 'POST',
-                        body: formData,
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                    });
+        // Hide and remove after delay
+        setTimeout(() => {
+            toast.classList.remove('show');
+            toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        }, 3000);
+    }
 
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
-                    const result = await response.json();
-
-                    if (result.status === 'success') {
-                        showToast(result.message, 'success');
-                        setTimeout(() => window.location.href = '../night_emergency.php', 2000);
-                    } else {
-                        showToast(result.message, 'error');
-                    }
-                } catch (error) {
-                    console.error('Submission error:', error);
-                    showToast('An unexpected error occurred.', 'error');
-                }
-            });
-        }
-
-        // Set today's date
+    // --- Form Handling ---
+    const form = document.getElementById('addVehicleForm');
+    if (form) {
+        // Set today's date automatically
         document.getElementById('date').value = '<?php echo $today_date; ?>';
-    </script>
+
+        form.addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+
+            // Loading state
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+            try {
+                // Determine current URL for AJAX
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                // Handle JSON response
+                // Note: Ensure your PHP script doesn't output HTML before JSON
+                const text = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(text);
+                } catch (e) {
+                    console.error("Invalid JSON response:", text);
+                    throw new Error("Invalid server response.");
+                }
+
+                if (result.status === 'success') {
+                    showToast(result.message, 'success');
+                    setTimeout(() => window.location.href = '../night_emergency.php', 1500);
+                } else {
+                    showToast(result.message, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                }
+            } catch (error) {
+                console.error('Submission error:', error);
+                showToast(error.message || 'An unexpected error occurred.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        });
+    }
+</script>
+
 </body>
 </html>

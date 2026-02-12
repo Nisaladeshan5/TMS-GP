@@ -1,5 +1,5 @@
 <?php
-// ne_done.php (Finalize Night Emergency Payments with PIN Security)
+// ne_done.php (Finalize Night Emergency Payments - STRICT SECURITY)
 // CRITICAL: Ensure no output occurs before headers in AJAX mode
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
@@ -67,33 +67,35 @@ function calculate_monthly_ne_data($conn, $month, $year) {
 }
 
 // =======================================================================
-// 1. PIN VERIFICATION & AJAX CHECK SETUP
+// 1. PIN VERIFICATION (STRICT MODE - NO PERSISTENCE)
 // =======================================================================
 
 $today_pin = date('dmY'); 
 $is_pin_correct = false;
 $pin_message = '';
 
+// If GET request, unset the session variable to force re-entry
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    unset($_SESSION['pin_verified_ne']);
+}
+
 if (isset($_POST['pin_submit'])) {
     $entered_pin = filter_input(INPUT_POST, 'security_pin', FILTER_SANITIZE_SPECIAL_CHARS);
-    $entered_pin = (string)$entered_pin;
     if ($entered_pin === $today_pin) {
         $is_pin_correct = true;
+        $_SESSION['pin_verified_ne'] = true; 
     } else {
         $pin_message = "Invalid PIN. Please try again.";
     }
+} else {
+    // Check session for AJAX calls
+    if (isset($_SESSION['pin_verified_ne']) && $_SESSION['pin_verified_ne'] === true) {
+        $is_pin_correct = true;
+    }
 }
-
-// PIN STATE MANAGEMENT (Unique Session Key for NE)
-if (isset($_POST['pin_submit']) && $is_pin_correct) {
-     $_SESSION['pin_verified_ne'] = $today_pin; 
-} else if (isset($_SESSION['pin_verified_ne']) && $_SESSION['pin_verified_ne'] === $today_pin) {
-     $is_pin_correct = true;
-}
-
 
 // =======================================================================
-// 2. BACKEND API FOR PAYMENT FINALIZATION (AJAX) - PRIORITY EXECUTION
+// 2. BACKEND API FOR PAYMENT FINALIZATION (AJAX)
 // =======================================================================
 
 if (isset($_POST['finalize_payments'])) {
@@ -101,14 +103,13 @@ if (isset($_POST['finalize_payments'])) {
     ob_end_clean(); 
     header('Content-Type: application/json');
 
-    // Check 1: Security Validation
-    if (!isset($_SESSION['pin_verified_ne']) || $_SESSION['pin_verified_ne'] !== $today_pin) {
+    // Strict Security Check
+    if (!isset($_SESSION['pin_verified_ne']) || $_SESSION['pin_verified_ne'] !== true) {
         echo json_encode(['status' => 'error', 'message' => "Security validation failed. Access denied."]);
         exit;
     }
 
     try {
-        // --- 2.1. Determine the Month/Year to finalize (The PREVIOUS Month) ---
         $target_date = new DateTime('first day of this month');
         $target_date->modify('-1 month'); 
         
@@ -116,16 +117,15 @@ if (isset($_POST['finalize_payments'])) {
         $finalize_year = (int)$target_date->format('Y');
         $target_month_name = $target_date->format('F Y');
 
-        // --- 2.2 Calculate Data ---
+        // Calculate Data
         $payment_data = calculate_monthly_ne_data($conn, $finalize_month, $finalize_year);
 
         if (empty($payment_data)) {
-            echo json_encode(['status' => 'error', 'message' => "No attendance data found for $target_month_name to finalize."]);
+            echo json_encode(['status' => 'error', 'message' => "No attendance data found for $target_month_name."]);
             exit;
         }
 
-        // --- 2.3. Check for Duplicate Insertion ---
-        // Checking monthly_payment_ne table
+        // Check for Duplicates
         $duplicate_check_sql = "SELECT COUNT(*) FROM monthly_payment_ne WHERE month = ? AND year = ?";
         $duplicate_check_stmt = $conn->prepare($duplicate_check_sql);
         $duplicate_check_stmt->bind_param("ii", $finalize_month, $finalize_year);
@@ -134,25 +134,18 @@ if (isset($_POST['finalize_payments'])) {
         $duplicate_check_stmt->close();
 
         if ($count > 0) {
-            echo json_encode(['status' => 'error', 'message' => "$target_month_name payments are ALREADY finalized. Aborting insertion."]);
+            echo json_encode(['status' => 'error', 'message' => "$target_month_name payments are ALREADY finalized."]);
             exit;
         }
         
-        // --- 2.4. Insert Data into monthly_payment_ne ---
+        // Insert Data
         $conn->begin_transaction();
         $success_count = 0;
         $error_occurred = false;
         $specific_error = "";
 
-        // Insert Query
         $insert_sql = "INSERT INTO monthly_payment_ne (op_code, supplier_code, month, year, monthly_payment, worked_days) VALUES (?, ?, ?, ?, ?, ?)";
         $insert_stmt = $conn->prepare($insert_sql);
-
-        if (!$insert_stmt) {
-            $conn->rollback();
-            echo json_encode(['status' => 'error', 'message' => "SQL Insert Prepare failed: " . $conn->error]);
-            exit;
-        }
 
         foreach ($payment_data as $data) {
             // Calculate Total Amount (Days * Rate)
@@ -176,13 +169,12 @@ if (isset($_POST['finalize_payments'])) {
         }
         $insert_stmt->close();
 
-        // Final AJAX Response 
         if ($error_occurred) {
             $conn->rollback();
-            echo json_encode(['status' => 'error', 'message' => "Error finalizing payments. DB Error: " . $specific_error]);
+            echo json_encode(['status' => 'error', 'message' => "DB Error: " . $specific_error]);
         } else {
             $conn->commit();
-            unset($_SESSION['pin_verified_ne']); // Lock again after success
+            unset($_SESSION['pin_verified_ne']); // STRICT: Clear session immediately
             echo json_encode(['status' => 'success', 'message' => "Successfully finalized $success_count Night Emergency records for $target_month_name!"]);
         }
 
@@ -197,15 +189,13 @@ if (isset($_POST['finalize_payments'])) {
 
 
 // =======================================================================
-// 3. HTML DISPLAY LOGIC (If NOT AJAX)
+// 3. HTML DISPLAY LOGIC (Styled)
 // =======================================================================
 
+// --- PIN FORM DISPLAY ---
 if (!$is_pin_correct) {
     ob_end_clean();
     ob_start();
-    
-    // HTML for PIN Entry Form
-    $page_title = "Night Emergency Finalization - Security Check";
     include('../../includes/header.php');
     include('../../includes/navbar.php');
 ?>
@@ -214,74 +204,119 @@ if (!$is_pin_correct) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PIN Access</title>
+    <title>Night Emergency PIN Access</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style> body { font-family: 'Inter', sans-serif; } </style>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen">
-    <main class="w-[85%] ml-[15%] p-8 mt-[5%] flex justify-center items-center">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
-            <h2 class="text-2xl font-bold text-center mb-6 text-blue-600">Secure Payment Finalization</h2>
-            
-            <?php if (!empty($pin_message)): ?>
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
-                    <span class="block sm:inline"><?php echo htmlspecialchars($pin_message); ?></span>
-                </div>
-            <?php endif; ?>
+<body class="bg-gray-100">
+<div id="pageLoader" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-gray-900 bg-opacity-90">
+    <div class="flex flex-col items-center gap-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-yellow-400"></div>
+        <p class="text-gray-300 text-sm tracking-wide">Loading...</p>
+    </div>
+</div>
 
-            <form method="post" action="ne_done.php">
-                <div class="mb-6">
-                    <label for="security_pin" class="block text-sm font-medium text-gray-700 mb-2">Security PIN</label>
-                    <input type="password" name="security_pin" id="security_pin" maxlength="8" required 
-                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-lg text-center tracking-widest"
-                           placeholder="********" autocomplete="off">
-                </div>
-                <button type="submit" name="pin_submit" 
-                        class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-700 transition duration-200">
-                    Verify PIN <i class="fas fa-key ml-2"></i>
-                </button>
-            </form>
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="night_emergency_payment.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                Night Emergency
+            </a>
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                Finalize Payments
+            </span>
         </div>
-    </main>
+    </div>
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="night_emergency_payment.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+            Back
+        </a>
+    </div>
+</div>
+
+<main class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex justify-center items-center">
+    <div class="bg-white p-8 rounded-xl shadow-lg border border-gray-200 w-full max-w-md">
+        <div class="text-center mb-6">
+            <div class="bg-blue-100 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
+                <i class="fas fa-shield-alt"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800">Security Check</h2>
+            <p class="text-sm text-gray-500 mt-2">Enter today's PIN to access finalization.</p>
+        </div>
+
+        <?php if (!empty($pin_message)): ?>
+            <div class="bg-red-50 border-l-4 border-red-500 text-red-700 p-3 rounded mb-6 text-sm flex items-center gap-2">
+                <i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($pin_message); ?>
+            </div>
+        <?php endif; ?>
+
+        <form method="post" action="ne_done.php">
+            <div class="mb-6">
+                <input type="password" name="security_pin" id="security_pin" maxlength="8" required 
+                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-center text-xl tracking-[0.5em] font-mono transition"
+                       placeholder="••••••••" autocomplete="off" autofocus>
+            </div>
+            <button type="submit" name="pin_submit" 
+                    class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-700 transition transform hover:scale-105 flex justify-center items-center gap-2">
+                Verify Access <i class="fas fa-arrow-right"></i>
+            </button>
+        </form>
+    </div>
+</main>
+<script>
+    // 1. PIN Form එක Submit වෙද්දි Loader පෙන්නන්න
+    document.querySelector("form").addEventListener("submit", function() {
+        const loader = document.getElementById("pageLoader");
+        loader.querySelector("p").innerText = "Verifying PIN...";
+        loader.classList.remove("hidden");
+        loader.classList.add("flex");
+    });
+
+    // 2. Back Button එක (හෝ වෙනත් Link) Click කරද්දි Loader පෙන්නන්න
+    document.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", function () {
+            const loader = document.getElementById("pageLoader");
+            loader.querySelector("p").innerText = "Going Back...";
+            loader.classList.remove("hidden");
+            loader.classList.add("flex");
+        });
+    });
+</script>
 </body>
 </html>
 <?php
     exit(); 
 }
 
-// --- MAIN BUTTON DISPLAY (PIN WAS CORRECT) ---
+// --- MAIN BUTTON DISPLAY (PIN CORRECT) ---
 
-// A. Payment Availability Check (Previous Month)
 $payment_available_date = new DateTime('first day of this month');
 $payment_available_date->modify('-1 month'); 
 $available_month = (int)$payment_available_date->format('m');
 $available_year = (int)$payment_available_date->format('Y');
 $available_month_name = $payment_available_date->format('F Y');
 
-// Check if already finalized
 $is_payment_already_done = false;
-$check_done_sql = "SELECT COUNT(*) FROM monthly_payment_ne WHERE month = ? AND year = ? LIMIT 1";
-$check_done_stmt = $conn->prepare($check_done_sql);
+$check_done_stmt = $conn->prepare("SELECT COUNT(*) FROM monthly_payment_ne WHERE month = ? AND year = ? LIMIT 1");
 if ($check_done_stmt) {
     $check_done_stmt->bind_param("ii", $available_month, $available_year);
     $check_done_stmt->execute();
-    $count = $check_done_stmt->get_result()->fetch_row()[0];
-    if ((int)$count > 0) {
-        $is_payment_already_done = true;
-    }
+    if ((int)$check_done_stmt->get_result()->fetch_row()[0] > 0) $is_payment_already_done = true;
     $check_done_stmt->close();
 }
 
-// B. Check if data exists (Attendance data)
-$data_exists_sql = "SELECT 1 FROM night_emergency_attendance WHERE MONTH(date) = ? AND YEAR(date) = ? LIMIT 1";
-$data_exists_stmt = $conn->prepare($data_exists_sql);
-$data_exists_stmt->bind_param("ii", $available_month, $available_year);
-$data_exists_stmt->execute();
-$data_exists = $data_exists_stmt->get_result()->num_rows > 0;
-$data_exists_stmt->close();
+$data_exists_stmt = $conn->prepare("SELECT 1 FROM night_emergency_attendance WHERE MONTH(date) = ? AND YEAR(date) = ? LIMIT 1");
+$data_exists = false;
+if ($data_exists_stmt) {
+    $data_exists_stmt->bind_param("ii", $available_month, $available_year);
+    $data_exists_stmt->execute();
+    if ($data_exists_stmt->get_result()->num_rows > 0) $data_exists = true;
+    $data_exists_stmt->close();
+}
 
-
-$page_title = "Night Emergency Payments - FINALIZATION";
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 ob_end_flush(); 
@@ -292,116 +327,154 @@ ob_end_flush();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Night Emergency Finalization</title>
+    <title>Finalize Night Emergency Payments</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style> body { font-family: 'Inter', sans-serif; } </style>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen">
-    <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-[5%] fixed top-0 left-0 right-0 z-10">
-        <div class="text-lg font-semibold ml-3">Payments</div>
-        <div class="flex gap-4">
-            <a href="payments_category.php" class="hover:text-yellow-600">Staff</a>
-            <a href="factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
-            <a href="factory/sub/sub_route_payments.php" class="hover:text-yellow-600">Sub Route</a>
-            <a href="DH/day_heldup_payments.php" class="hover:text-yellow-600">Day Heldup</a>
-            <a href="NH/nh_payments.php" class="hover:text-yellow-600">Night Heldup</a>
-            <p class="hover:text-yellow-600 text-yellow-500 font-bold">Night Emergency</p>
-            <a href="" class="hover:text-yellow-600">Extra Vehicle</a>
-            <a href="own_vehicle_payments.php" class="hover:text-yellow-600">Manager</a>
+<body class="bg-gray-100">
+<div id="pageLoader" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-gray-900 bg-opacity-90">
+    <div class="flex flex-col items-center gap-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-yellow-400"></div>
+        <p class="text-gray-300 text-sm tracking-wide">Loading...</p>
+    </div>
+</div>
+
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="night_emergency_payment.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                Night Emergency
+            </a>
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                Finalize Payments
+            </span>
         </div>
     </div>
-    
-    <main class="w-[85%] ml-[15%] p-4 mt-[5%] flex justify-center">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg">
-            <h2 class="text-3xl font-extrabold text-gray-800 mb-6 text-center">
-                <?php echo htmlspecialchars($page_title); ?>
-            </h2>
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="night_emergency_payment.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+            <i class="fas fa-calculator"></i> Current Calculations
+        </a>
+    </div>
+</div>
 
-            <div class="flex flex-col gap-4 items-center">
-                <div id="statusMessage" class="px-3 py-2 text-base font-semibold rounded-lg w-full text-center">
-                    <?php if ($is_payment_already_done): ?>
-                        <span class="bg-yellow-500 text-white block p-3 rounded-lg">
-                            <i class="fas fa-info-circle mr-2"></i> Payments for <?php echo htmlspecialchars($available_month_name); ?> are Already Finalized.
-                        </span>
-                    <?php elseif (!$data_exists): ?>
-                            <span class="bg-red-500 text-white block p-3 rounded-lg">
-                               <i class="fas fa-exclamation-triangle mr-2"></i> No Attendance data found for <?php echo htmlspecialchars($available_month_name); ?> to process.
-                            </span>
-                    <?php else: ?>
-                        <span class="bg-blue-100 text-blue-800 block p-3 rounded-lg">
-                            <i class="fas fa-calendar-alt mr-2"></i> Ready to finalize payments for <?php echo htmlspecialchars($available_month_name); ?>.
-                            <br>Click the button below to save the calculated records.
-                        </span>
-                    <?php endif; ?>
+<main class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex justify-center items-start mt-10">
+    <div class="bg-white p-8 rounded-xl shadow-lg border border-gray-200 w-full max-w-lg text-center">
+        
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">Month End Process</h2>
+        <p class="text-sm text-gray-500 mb-8">Finalize <strong>Night Emergency</strong> payments for the previous month.</p>
+
+        <div id="statusMessage" class="mb-8">
+            <?php if ($is_payment_already_done): ?>
+                <div class="bg-green-50 border border-green-200 rounded-xl p-6">
+                    <div class="bg-green-100 text-green-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl">
+                        <i class="fas fa-check"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-green-800">Completed</h3>
+                    <p class="text-green-700 text-sm mt-1">Payments for <strong><?php echo htmlspecialchars($available_month_name); ?></strong> are already finalized.</p>
                 </div>
-
-                <?php 
-                if (!$is_payment_already_done && $data_exists): ?>
-                    <button id="finalizeButton" 
-                            class="w-full mt-4 px-4 py-3 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-700 transition duration-200">
-                        <i class="fas fa-check-double mr-2"></i> Mark as Payments Done (Save History)
-                    </button>
-                <?php endif; ?>
-
-                <a href="night_emergency_payment.php" 
-                   class="mt-4 px-3 py-2 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 transition duration-200 text-center" 
-                   title="Go back to Calculation View">
-                    <i class="fas fa-arrow-left mr-1"></i> Back to Live Calculation
-                </a>
-            </div>
+            <?php elseif (!$data_exists): ?>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+                    <div class="bg-yellow-100 text-yellow-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-yellow-800">No Data</h3>
+                    <p class="text-yellow-700 text-sm mt-1">No attendance data found for <strong><?php echo htmlspecialchars($available_month_name); ?></strong>.</p>
+                </div>
+            <?php else: ?>
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                    <div class="bg-blue-100 text-blue-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-blue-800">Ready to Finalize</h3>
+                    <p class="text-blue-700 text-sm mt-1">
+                        Please confirm to save payments for <br>
+                        <strong class="text-lg"><?php echo htmlspecialchars($available_month_name); ?></strong>
+                    </p>
+                </div>
+            <?php endif; ?>
         </div>
-    </main>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const finalizeButton = document.getElementById('finalizeButton');
-            const statusMessage = document.getElementById('statusMessage');
-            const targetMonth = "<?php echo htmlspecialchars($available_month_name); ?>";
-            const availableMonth = "<?php echo $available_month; ?>";
-            const availableYear = "<?php echo $available_year; ?>";
+        <?php if (!$is_payment_already_done && $data_exists): ?>
+            <button id="finalizeButton" 
+                    class="w-full py-3.5 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-700 transition transform hover:scale-[1.02] flex justify-center items-center gap-2">
+                <i class="fas fa-save"></i> Save & Finalize
+            </button>
+            <p class="text-xs text-gray-400 mt-3">This action saves data to history and cannot be undone here.</p>
+        <?php else: ?>
+            <a href="ne_history.php" class="inline-flex items-center justify-center gap-2 w-full py-3 bg-gray-800 text-white font-semibold rounded-lg hover:bg-gray-900 transition shadow-md">
+                <i class="fas fa-history"></i> View History
+            </a>
+        <?php endif; ?>
 
-            if (finalizeButton) {
-                finalizeButton.addEventListener('click', function() {
-                    const confirmAction = confirm("Are you sure you want to finalize and save Night Emergency payments for " + targetMonth + "? This action cannot be reversed.");
+    </div>
+</main>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const finalizeButton = document.getElementById('finalizeButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const targetMonth = "<?php echo htmlspecialchars($available_month_name); ?>";
+        const availableMonth = "<?php echo $available_month; ?>";
+        const availableYear = "<?php echo $available_year; ?>";
+
+        if (finalizeButton) {
+            finalizeButton.addEventListener('click', function() {
+                if (confirm("Confirm Night Emergency Finalization for " + targetMonth + "?\n\nData will be permanently saved to history.")) {
                     
-                    if (confirmAction) {
-                        statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-blue-100 text-blue-800';
-                        statusMessage.innerHTML = '<i class="fas fa-sync-alt fa-spin mr-2"></i> Processing... Please wait.';
-                        finalizeButton.disabled = true;
+                    finalizeButton.disabled = true;
+                    finalizeButton.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Processing...';
+                    finalizeButton.classList.add('opacity-75', 'cursor-not-allowed');
 
-                        fetch('ne_done.php', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                            },
-                            body: 'finalize_payments=true'
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.status === 'success') {
-                                statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-green-100 text-green-800';
-                                statusMessage.innerHTML = '<i class="fas fa-check-circle mr-2"></i> ' + data.message + ' Redirecting...';
-                                
-                                setTimeout(() => {
-                                    window.location.href = `ne_history.php?month=${availableMonth}&year=${availableYear}`;
-                                }, 3000);
-                            } else {
-                                statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-red-100 text-red-800';
-                                statusMessage.innerHTML = '<i class="fas fa-times-circle mr-2"></i> Failed: ' + data.message;
-                                finalizeButton.disabled = false;
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Fetch Error:', error);
-                            statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-red-100 text-red-800';
-                            statusMessage.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i> Connection Error. Please try again.'; 
+                    fetch('ne_done.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'finalize_payments=true'
+                    })
+                    .then(response => {
+                        if (!response.ok) throw new Error("Server Error: " + response.status);
+                        return response.json().catch(() => { throw new Error("Invalid Server Response"); });
+                    })
+                    .then(data => {
+                        if (data.status === 'success') {
+                            alert(data.message);
+                            // Redirect to history page on success
+                            window.location.href = `ne_history.php?month=${availableMonth}&year=${availableYear}`;
+                        } else {
+                            alert("Failed: " + data.message);
                             finalizeButton.disabled = false;
-                        });
-                    }
-                });
-            }
+                            finalizeButton.innerHTML = '<i class="fas fa-save"></i> Save & Finalize';
+                            finalizeButton.classList.remove('opacity-75', 'cursor-not-allowed');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        alert("Critical Error: " + error.message);
+                        finalizeButton.disabled = false;
+                        finalizeButton.innerHTML = '<i class="fas fa-save"></i> Save & Finalize';
+                        finalizeButton.classList.remove('opacity-75', 'cursor-not-allowed');
+                    });
+                }
+            });
+        }
+    });
+
+    const loader = document.getElementById("pageLoader");
+    function showLoader(text = "Loading...") {
+        loader.querySelector("p").innerText = text;
+        loader.classList.remove("hidden");
+        loader.classList.add("flex");
+    }
+
+    document.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", function () {
+            showLoader("Loading...");
         });
-    </script>
+    });
+</script>
+
 </body>
 </html>
 

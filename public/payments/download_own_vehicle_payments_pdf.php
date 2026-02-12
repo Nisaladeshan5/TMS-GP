@@ -1,4 +1,6 @@
 <?php
+// Note: This file MUST NOT have any whitespace/characters before the opening <?php tag.
+
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
@@ -15,7 +17,7 @@ date_default_timezone_set('Asia/Colombo');
 
 // --- Input Validation ---
 $emp_id = $_GET['emp_id'] ?? die("Employee ID missing.");
-$vehicle_no = $_GET['vehicle_no'] ?? die("Vehicle No missing."); // *** MODIFICATION 1: Get Vehicle No ***
+$vehicle_no = $_GET['vehicle_no'] ?? die("Vehicle No missing.");
 $selected_month = (int)($_GET['month'] ?? die("Month missing."));
 $selected_year = (int)($_GET['year'] ?? die("Year missing."));
 
@@ -23,7 +25,7 @@ if ($selected_month < 1 || $selected_month > 12 || $selected_year < 2020) {
     die("Invalid date parameters.");
 }
 
-// --- FPDF Class Extension (No changes here) ---
+// --- FPDF Class Extension ---
 class PDF extends FPDF
 {
     function RoundedRect($x, $y, $w, $h, $r, $style = '')
@@ -61,16 +63,12 @@ class PDF extends FPDF
     {
         $this->RoundedRect(7.5, 7.5, 195, 40, 1.5);
         $this->Rect(5, 5, 200, 287);
-        // Logo (adjust path if needed)
-        // $this->Image('../assets/logo.png', 12, 5, 25); 
-
         $this->SetFont('Arial', 'B', 12);
         $this->Cell(0, 5, 'GP Garments (Pvt) Ltd', 0, 1, 'C');
         $this->SetFont('Arial', '', 10);
         $this->Cell(0, 5, 'Seethawaka Export Processing Zone', 0, 1, 'C');
         $this->Cell(0, 5, 'Awissawella, Sri Lanka', 0, 1, 'C');
         $this->Ln(5);
-
         $this->SetFont('Arial', 'B', 15);
         $this->Cell(0, 5, 'Managers Vehicle Payment Report', 0, 1, 'C');
     }
@@ -84,7 +82,6 @@ class PDF extends FPDF
 }
 
 // --- Database Functions ---
-
 function get_applicable_fuel_price($conn, $rate_id, $datetime) {
     $sql = "SELECT rate FROM fuel_rate WHERE rate_id = ? AND date <= ? ORDER BY date DESC LIMIT 1";
     $stmt = $conn->prepare($sql);
@@ -97,13 +94,11 @@ function get_applicable_fuel_price($conn, $rate_id, $datetime) {
     return (float)$price;
 }
 
-// *** MODIFICATION 2: Add $vehicle_no parameter ***
 function get_detailed_attendance_records($conn, $emp_id, $vehicle_no, $month, $year) {
     $sql = "SELECT date, time FROM own_vehicle_attendance 
             WHERE emp_id = ? AND vehicle_no = ? AND MONTH(date) = ? AND YEAR(date) = ? 
             ORDER BY date ASC, time ASC";
     $stmt = $conn->prepare($sql);
-    if ($stmt === false) return [];
     $stmt->bind_param("ssii", $emp_id, $vehicle_no, $month, $year);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -113,13 +108,11 @@ function get_detailed_attendance_records($conn, $emp_id, $vehicle_no, $month, $y
     return $records;
 }
 
-// *** MODIFICATION 3: Add $vehicle_no parameter ***
 function get_detailed_extra_records($conn, $emp_id, $vehicle_no, $month, $year) {
     $sql = "SELECT date, out_time, in_time, distance FROM own_vehicle_extra 
             WHERE emp_id = ? AND vehicle_no = ? AND MONTH(date) = ? AND YEAR(date) = ? AND done = 1 AND distance IS NOT NULL 
             ORDER BY date ASC, out_time ASC";
     $stmt = $conn->prepare($sql);
-    if ($stmt === false) return [];
     $stmt->bind_param("ssii", $emp_id, $vehicle_no, $month, $year);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -132,16 +125,15 @@ function get_detailed_extra_records($conn, $emp_id, $vehicle_no, $month, $year) 
 $pdf = new PDF();
 $pdf->AliasNbPages(); 
 $pdf->AddPage();
-$pdf->SetFont('Arial', 'B', 16);
 
-// --- 1. Fetch Employee and Vehicle Base Details (Specific Vehicle) ---
-// *** MODIFICATION 4: Check vehicle_no in base query ***
+// --- 1. Fetch Employee and Vehicle Base Details ---
 $base_details_sql = "
     SELECT 
         e.calling_name,
         ov.vehicle_no,
         ov.fuel_efficiency AS consumption, 
         ov.fixed_amount,
+        ov.paid,
         ov.distance, 
         ov.rate_id
     FROM 
@@ -157,104 +149,99 @@ $base_details = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
 if (!$base_details) {
-    $pdf->SetFont('Arial', '', 12);
-    $pdf->Cell(0, 10, 'Error: Details not found for ID: ' . htmlspecialchars($emp_id) . ' Vehicle: ' . htmlspecialchars($vehicle_no), 0, 1);
-    $pdf->Output('D', 'error_report.pdf');
-    exit;
+    die("Details not found.");
 }
 
 $rate_id = $base_details['rate_id'];
+$is_paid_status = (int)$base_details['paid'];
 $consumption = (float)$base_details['consumption'];
 $daily_distance = (float)$base_details['distance'];
-$fixed_amount = (float)$base_details['fixed_amount'];
+$fixed_amount_orig = (float)$base_details['fixed_amount'];
 
-// --- 2. Fetch Detailed Records (Pass Vehicle No) ---
-// *** MODIFICATION 5: Pass vehicle_no to functions ***
+// පේමන්ට් එක පෙන්වන්නේ paid = 1 නම් පමණි
+$fixed_amount_display = ($is_paid_status === 1) ? $fixed_amount_orig : 0.00;
+
+// --- 2. Fetch Detailed Records ---
 $attendance_records = get_detailed_attendance_records($conn, $emp_id, $vehicle_no, $selected_month, $selected_year);
 $extra_records = get_detailed_extra_records($conn, $emp_id, $vehicle_no, $selected_month, $selected_year);
 
 // --- 3. Run Calculations ---
-$total_monthly_payment = 0.00;
 $total_attendance_days = 0;
 $total_calculated_distance = 0.00;
 $total_extra_distance = 0.00;
 $total_base_payment = 0.00;
 $total_extra_payment = 0.00;
 
-$attendance_breakdown = [];
 $extra_breakdown = [];
 
-// A. Calculate Attendance Component
+// A. Attendance Component
 foreach ($attendance_records as $record) {
+    $total_attendance_days++;
+    $total_calculated_distance += $daily_distance;
+
     $datetime = $record['date'] . ' ' . $record['time'];
     $fuel_price = get_applicable_fuel_price($conn, $rate_id, $datetime);
     $day_rate = 0.00;
     
-    if ($fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
+    if ($is_paid_status === 1 && $fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
         $day_rate = ($consumption / 100) * $daily_distance * $fuel_price;
     }
 
     $total_base_payment += $day_rate;
-    $total_calculated_distance += $daily_distance;
-    $total_attendance_days++;
-
-    $attendance_breakdown[] = [
-        'date' => $record['date'],
-        'time' => $record['time'],
-        'daily_distance' => $daily_distance,
-        'fuel_price' => $fuel_price,
-        'payment' => $day_rate,
-    ];
 }
 
-// B. Calculate Extra Component
+// B. Extra Component
 foreach ($extra_records as $record) {
-    $datetime = $record['date'] . ' ' . $record['out_time'];
-    $extra_distance = (float)$record['distance'];
+    $extra_dist = (float)$record['distance'];
+    $total_calculated_distance += $extra_dist;
+    $total_extra_distance += $extra_dist;
 
+    $datetime = $record['date'] . ' ' . $record['out_time'];
     $fuel_price = get_applicable_fuel_price($conn, $rate_id, $datetime);
-    $extra_payment = 0.00;
+    $extra_pay = 0.00;
     
-    if ($fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
+    if ($is_paid_status === 1 && $fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
         $day_rate_base = ($consumption / 100) * $daily_distance * $fuel_price;
         $rate_per_km = $day_rate_base / $daily_distance; 
-        $extra_payment = $rate_per_km * $extra_distance;
+        $extra_pay = $rate_per_km * $extra_dist;
     }
 
-    $total_extra_payment += $extra_payment;
-    $total_calculated_distance += $extra_distance;
-    $total_extra_distance += $extra_distance;
+    $total_extra_payment += $extra_pay;
 
     $extra_breakdown[] = [
         'date' => $record['date'],
         'out_time' => $record['out_time'],
         'in_time' => $record['in_time'],
-        'distance' => $extra_distance,
+        'distance' => $extra_dist,
         'fuel_price' => $fuel_price,
-        'payment' => $extra_payment,
+        'payment' => $extra_pay,
     ];
 }
 
-$total_monthly_payment = $total_base_payment + $total_extra_payment + $fixed_amount;
-
+$total_monthly_payment = $total_base_payment + $total_extra_payment + $fixed_amount_display;
 
 // --- 4. PDF Content Generation ---
 $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
 
 $pdf->SetFont('Arial', '', 13);
 $pdf->Cell(0, 12, "Payment Statement for $month_name, $selected_year", 0, 1, 'C'); 
-$pdf->SetFont('Arial', '', 11); 
 $pdf->Ln(5);
 
 $pdf->SetFont('Arial', 'B', 12);
 $pdf->Cell(0, 7, 'Employee Details', 0, 1, 'L');
 $pdf->SetFont('Arial', '', 10);
-$pdf->SetTextColor(0, 0, 0);
 
 $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(40, 7, 'Employee ID:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, htmlspecialchars($emp_id), 0, 1);
 $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(40, 7, 'Employee Name:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, htmlspecialchars($base_details['calling_name']), 0, 1);
 $pdf->SetFont('Arial', 'B', 10); $pdf->Cell(40, 7, 'Vehicle No:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, htmlspecialchars($base_details['vehicle_no']), 0, 1);
-$pdf->SetFont('Arial', 'B', 10); $pdf->Cell(40, 7, 'Fixed Allowance:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, 'LKR ' . number_format($fixed_amount, 2), 0, 1);
+$pdf->SetFont('Arial', 'B', 10); $pdf->Cell(40, 7, 'Fixed Allowance:', 0, 0); $pdf->SetFont('Arial', '', 10); $pdf->Cell(0, 7, 'LKR ' . number_format($fixed_amount_display, 2), 0, 1);
+
+if ($is_paid_status === 0) {
+    $pdf->SetTextColor(200, 0, 0);
+    $pdf->SetFont('Arial', 'B', 10);
+    $pdf->Cell(0, 7, 'STATUS: UNPAID (Payment Disabled)', 0, 1, 'L');
+    $pdf->SetTextColor(0, 0, 0);
+}
 
 $pdf->Ln(5);
 
@@ -265,49 +252,44 @@ $pdf->Cell(100, 7, 'Description', 1, 0, 'L', 1);
 $pdf->Cell(80, 7, 'Amount (LKR)', 1, 1, 'R', 1);
 
 $pdf->SetFont('Arial', '', 10);
-$pdf->SetFillColor(255, 255, 255);
+$pdf->Cell(100, 7, 'Total Attendance Payment (' . $total_attendance_days . ' days)', 1, 0, 'L');
+$pdf->Cell(80, 7, number_format($total_base_payment, 2), 1, 1, 'R');
 
-$pdf->Cell(100, 7, 'Total Attendance Payment (' . $total_attendance_days . ' days)', 1, 0, 'L', 1);
-$pdf->Cell(80, 7, number_format($total_base_payment, 2), 1, 1, 'R', 1);
+$pdf->Cell(100, 7, 'Extra Distance Payment (' . number_format($total_extra_distance, 2) . ' km)', 1, 0, 'L');
+$pdf->Cell(80, 7, number_format($total_extra_payment, 2), 1, 1, 'R'); 
 
-$pdf->Cell(100, 7, 'Extra Distance Payment (' . number_format($total_extra_distance, 2) . ' km)', 1, 0, 'L', 1);
-$pdf->Cell(80, 7, number_format($total_extra_payment, 2), 1, 1, 'R', 1); 
-
-$pdf->Cell(100, 7, 'Fixed Allowance', 1, 0, 'L', 1);
-$pdf->Cell(80, 7, number_format($fixed_amount, 2), 1, 1, 'R', 1);
+$pdf->Cell(100, 7, 'Fixed Allowance', 1, 0, 'L');
+$pdf->Cell(80, 7, number_format($fixed_amount_display, 2), 1, 1, 'R');
 
 $pdf->SetFont('Arial', 'B', 10);
 $pdf->SetFillColor(180, 180, 255);
 $pdf->Cell(100, 7, 'NET TOTAL PAYMENTS', 1, 0, 'L', 1);
 $pdf->Cell(80, 7, number_format($total_monthly_payment, 2), 1, 1, 'R', 1);
-$pdf->SetFillColor(255, 255, 255);
 $pdf->Ln(10);
 
 if (!empty($extra_breakdown)) {
     $pdf->SetFont('Arial', 'BU', 10);
-    $pdf->Cell(0, 6, 'Extra Trip Breakdown ', 0, 1, 'L');
+    $pdf->Cell(0, 6, 'Extra Trip Breakdown Detail', 0, 1, 'L');
     $pdf->SetFont('Arial', 'B', 8);
     $pdf->SetFillColor(240, 240, 240);
     $pdf->Cell(25, 5, 'Date', 1, 0, 'L', 1);
     $pdf->Cell(20, 5, 'Out Time', 1, 0, 'L', 1);
     $pdf->Cell(20, 5, 'In Time', 1, 0, 'L', 1);
-    $pdf->Cell(30, 5, 'Fuel Price (LKR)', 1, 0, 'R', 1);
+    $pdf->Cell(30, 5, 'Fuel Price', 1, 0, 'R', 1);
     $pdf->Cell(30, 5, 'Distance (km)', 1, 0, 'R', 1);
     $pdf->Cell(35, 5, 'Payment (LKR)', 1, 1, 'R', 1);
 
     $pdf->SetFont('Arial', '', 8);
     foreach ($extra_breakdown as $item) {
         $pdf->Cell(25, 5, $item['date'], 1, 0, 'L');
-        $pdf->Cell(20, 5, $item['out_time'] ?? '---', 1, 0, 'L');
-        $pdf->Cell(20, 5, $item['in_time'] ?? '---', 1, 0, 'L');
+        $pdf->Cell(20, 5, $item['out_time'], 1, 0, 'L');
+        $pdf->Cell(20, 5, $item['in_time'], 1, 0, 'L');
         $pdf->Cell(30, 5, number_format($item['fuel_price'], 2), 1, 0, 'R');
         $pdf->Cell(30, 5, number_format($item['distance'], 2), 1, 0, 'R');
         $pdf->Cell(35, 5, number_format($item['payment'], 2), 1, 1, 'R');
     }
-    $pdf->Ln(5);
 }
 
-// *** MODIFICATION 6: Filename includes vehicle_no ***
 $filename = "OwnVehicle_Payment_{$emp_id}_{$vehicle_no}_" . date('Y_m', mktime(0, 0, 0, $selected_month, 1, $selected_year)) . ".pdf";
 $pdf->Output('D', $filename);
 

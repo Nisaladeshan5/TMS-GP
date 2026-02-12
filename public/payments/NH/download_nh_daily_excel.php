@@ -1,5 +1,5 @@
 <?php
-// download_nh_daily_excel.php - Exports Night Heldup Daily Details to CSV (With Night Shift Logic)
+// download_nh_daily_excel.php - Exports Night Heldup Daily Details to Excel (.xls)
 
 // 1. Session & DB Setup
 require_once '../../../includes/session_check.php';
@@ -26,30 +26,9 @@ if (empty($op_code)) {
 // Format Dates
 $monthNum = str_pad($monthNum, 2, '0', STR_PAD_LEFT);
 $filterYearMonth = "$year-$monthNum";
-$filename = "Night_Heldup_Daily_{$op_code}_{$year}_{$monthNum}.csv";
+$filename = "Night_Heldup_Daily_{$op_code}_{$year}_{$monthNum}.xls"; // Changed extension to .xls
 
-// 3. Set Headers for Download
-header('Content-Type: text/csv');
-header('Content-Disposition: attachment; filename="' . $filename . '"');
-header('Pragma: no-cache');
-header('Expires: 0');
-
-// Open output stream
-$output = fopen('php://output', 'w');
-
-// 4. CSV Column Headers
-fputcsv($output, [
-    'Date', 
-    'Vehicle No', 
-    'Rate (LKR)', 
-    'Slab Limit (km)', 
-    'Daily Total Distance (km)', 
-    'Payment Distance (km)', 
-    'Daily Payment (LKR)',
-    'Calculation Method'
-]);
-
-// 5. Fetch Rates & Slab for this Op Code
+// 3. Fetch Rates & Slab for this Op Code
 $service_sql = "SELECT slab_limit_distance, extra_rate AS rate_per_km FROM op_services WHERE op_code = ? LIMIT 1";
 $svc_stmt = $conn->prepare($service_sql);
 $svc_stmt->bind_param("s", $op_code);
@@ -61,7 +40,7 @@ $svc_stmt->close();
 $slab_limit = (float)($service_data['slab_limit_distance'] ?? 0);
 $rate_per_km = (float)($service_data['rate_per_km'] ?? 0);
 
-// 6. Fetch Data (Grouped by Night Shift Date)
+// 4. Fetch Data (Grouped by Night Shift Date)
 // Logic: If time < 7AM, shift date is yesterday.
 $sql = "
     SELECT 
@@ -86,11 +65,44 @@ $stmt->bind_param("ss", $op_code, $filterYearMonth);
 $stmt->execute();
 $result = $stmt->get_result();
 
+// --- EXCEL GENERATION STARTS HERE ---
+
+// 5. Set Headers for Excel Download
+header("Content-Type: application/vnd.ms-excel");
+header("Content-Disposition: attachment; filename=\"$filename\"");
+header("Pragma: no-cache");
+header("Expires: 0");
+
+// 6. Start Outputting HTML Table (Excel interprets this as a spreadsheet)
+echo '<html xmlns:x="urn:schemas-microsoft-com:office:excel">';
+echo '<head><meta http-equiv="content-type" content="text/plain; charset=UTF-8"/></head>';
+echo '<body>';
+echo '<table border="1" style="border-collapse: collapse;">';
+
+// Table Header Row with Styling
+echo '<thead>';
+echo '<tr style="color: #FFFFFF; font-weight: bold;">';
+echo '<th style="background-color: #4F81BD; width: 120px; padding: 5px;">Date</th>';
+echo '<th style="background-color: #4F81BD; width: 120px; padding: 5px;">Vehicle No</th>';
+echo '<th style="background-color: #4F81BD; width: 100px; padding: 5px;">Rate (LKR)</th>';
+echo '<th style="background-color: #4F81BD; width: 120px; padding: 5px;">Slab Limit (km)</th>';
+echo '<th style="background-color: #4F81BD; width: 150px; padding: 5px;">Daily Total (km)</th>';
+echo '<th style="background-color: #4F81BD; width: 150px; padding: 5px;">Payment Dist (km)</th>';
+echo '<th style="background-color: #4F81BD; width: 150px; padding: 5px;">Payment (LKR)</th>';
+echo '<th style="background-color: #4F81BD; width: 200px; padding: 5px;">Method</th>';
+echo '</tr>';
+echo '</thead>';
+
+echo '<tbody>';
+
+$total_payment = 0;
+
 // 7. Loop and Calculate Logic
 while ($row = $result->fetch_assoc()) {
     $actual_distance = (float)$row['total_daily_distance'];
     $payable_distance = 0;
     $method = '';
+    $row_style = '';
 
     // Calculation Logic
     if (strpos($op_code, 'NH') === 0) {
@@ -98,6 +110,7 @@ while ($row = $result->fetch_assoc()) {
         if ($actual_distance < $slab_limit) {
             $payable_distance = $slab_limit;
             $method = 'Min Guarantee (Slab)';
+            $row_style = 'background-color: #FFFFCC;'; // Light yellow for slab applied
         } else {
             $payable_distance = $actual_distance;
             $method = 'Actual Distance';
@@ -113,22 +126,34 @@ while ($row = $result->fetch_assoc()) {
     }
 
     $daily_payment = $payable_distance * $rate_per_km;
+    $total_payment += $daily_payment;
 
-    // Write Row to CSV
-    fputcsv($output, [
-        $row['effective_date'], // Use the calculated effective date
-        $row['vehicle_no'],
-        number_format($rate_per_km, 2),
-        number_format($slab_limit, 2),
-        number_format($actual_distance, 2),
-        number_format($payable_distance, 2),
-        number_format($daily_payment, 2),
-        $method
-    ]);
+    // Output Table Row
+    echo "<tr style='{$row_style}'>";
+    echo "<td style='text-align: center;'>" . $row['effective_date'] . "</td>";
+    echo "<td style='text-align: center; font-weight: bold;'>" . htmlspecialchars($row['vehicle_no']) . "</td>";
+    echo "<td style='text-align: center;'>" . number_format($rate_per_km, 2) . "</td>";
+    echo "<td style='text-align: right;'>" . number_format($slab_limit, 2) . "</td>";
+    echo "<td style='text-align: right;'>" . number_format($actual_distance, 2) . "</td>";
+    echo "<td style='text-align: right; font-weight: bold;'>" . number_format($payable_distance, 2) . "</td>";
+    echo "<td style='text-align: right; font-weight: bold; color: #0000FF;'>" . number_format($daily_payment, 2) . "</td>";
+    echo "<td style='text-align: center;'>" . $method . "</td>";
+    echo "</tr>";
 }
+
+// Summary Row
+echo '<tr style="font-weight: bold;">';
+echo '<td colspan="6" style="background-color: #E0E0E0; text-align: right; padding: 5px;">TOTAL MONTHLY PAYMENT:</td>';
+echo '<td style="background-color: #E0E0E0; text-align: right; padding: 5px; color: #000080;">' . number_format($total_payment, 2) . '</td>';
+echo '<td style="background-color: #E0E0E0;></td>';
+echo '</tr>';
+
+echo '</tbody>';
+echo '</table>';
+echo '</body>';
+echo '</html>';
 
 $stmt->close();
 $conn->close();
-fclose($output);
 exit();
 ?>

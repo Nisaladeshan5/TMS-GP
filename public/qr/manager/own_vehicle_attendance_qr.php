@@ -1,6 +1,5 @@
 <?php
 // Note: This file MUST NOT have any whitespace/characters before the opening <?php tag.
-
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
@@ -9,25 +8,12 @@ include('../../../includes/db.php');
 date_default_timezone_set('Asia/Colombo');
 
 // --- Database Functions ---
-
 function fetch_details_by_vehicle_no($conn, $vehicle_no) {
-    $sql = "
-        SELECT 
-            ov.emp_id,
-            e.calling_name, 
-            ov.vehicle_no
-        FROM own_vehicle AS ov
-        LEFT JOIN employee AS e ON ov.emp_id = e.emp_id 
-        WHERE ov.vehicle_no = ? 
-        LIMIT 1
-    ";
-
+    $sql = "SELECT ov.emp_id, ov.vehicle_no, ov.is_active, e.calling_name 
+            FROM own_vehicle AS ov
+            LEFT JOIN employee AS e ON ov.emp_id = e.emp_id 
+            WHERE ov.vehicle_no = ? LIMIT 1";
     $stmt = $conn->prepare($sql);
-    if (!$stmt) { 
-        // Log error but don't crash yet, handle in logic
-        error_log("Vehicle Lookup Prepare Failed: " . $conn->error);
-        return null; 
-    }
     $stmt->bind_param('s', $vehicle_no);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -38,40 +24,25 @@ function fetch_details_by_vehicle_no($conn, $vehicle_no) {
         return [
             'emp_id' => $row['emp_id'],
             'calling_name' => $row['calling_name'] ?? 'N/A', 
-            'vehicle_no' => $row['vehicle_no']
+            'vehicle_no' => $row['vehicle_no'],
+            'is_active' => (int)$row['is_active']
         ];
     }
     return null;
 }
 
-/**
- * Checks attendance status for the day.
- * Returns the existing row if found, otherwise returns null.
- */
 function get_daily_attendance_record($conn, $emp_id, $date) {
-    // We request 'out_time' specifically. If this column is missing in DB, prepare() will fail.
     $sql = "SELECT time, out_time FROM own_vehicle_attendance WHERE emp_id = ? AND date = ?";
-    
     $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        // If the DB structure is wrong (e.g. missing out_time column), this throws an error directly
-        throw new Exception("DB Read Error (Check 'out_time' column): " . $conn->error);
-    }
-    
     $stmt->bind_param('ss', $emp_id, $date);
     $stmt->execute();
     $result = $stmt->get_result();
     $row = $result->fetch_assoc(); 
     $stmt->close();
-    
     return $row;
 }
 
-
-// ---------------------------------------------------------------------
 // --- AJAX HANDLER ---
-// ---------------------------------------------------------------------
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     if (ob_get_length()) ob_clean(); 
     header('Content-Type: application/json');
@@ -80,94 +51,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     $today_date = date('Y-m-d');
     $current_time = date('H:i:s');
     
-    if (empty($vehicle_no)) {
-        echo json_encode(['success' => false, 'message' => 'Vehicle No is required.']);
-        if (isset($conn)) $conn->close();
-        exit(); 
-    }
-
     $details = fetch_details_by_vehicle_no($conn, $vehicle_no);
 
-    if (!$details || empty($details['emp_id'])) {
-        echo json_encode(['success' => false, 'message' => "Error: Vehicle No {$vehicle_no} not linked to any Employee ID."]);
-        if (isset($conn)) $conn->close();
+    if (!$details) {
+        echo json_encode(['success' => false, 'message' => "Vehicle <b>{$vehicle_no}</b> not found."]);
         exit();
     }
     
+    if ($details['is_active'] !== 1) {
+        echo json_encode(['success' => false, 'message' => "ACCESS DENIED!<br>Vehicle is <b>INACTIVE</b>.<br>Contact Admin."]);
+        exit();
+    }
+
     $emp_id = $details['emp_id'];
     $calling_name = $details['calling_name'];
 
     $conn->begin_transaction();
-
     try {
-        // 2. Check existing attendance record for today
         $existing_record = get_daily_attendance_record($conn, $emp_id, $today_date);
-
         if (!$existing_record) {
-            // --- CASE A: No Record -> INSERT (IN TIME) ---
-            
-            $attendance_sql = "INSERT INTO own_vehicle_attendance (emp_id, date, time, vehicle_no) VALUES (?, ?, ?, ?)";
-            $stmt = $conn->prepare($attendance_sql);
+            $stmt = $conn->prepare("INSERT INTO own_vehicle_attendance (emp_id, date, time, vehicle_no) VALUES (?, ?, ?, ?)");
             $stmt->bind_param('ssss', $emp_id, $today_date, $current_time, $vehicle_no);
-            
-            if (!$stmt->execute()) {
-                throw new Exception("Check-IN Insert Failed: " . $stmt->error);
-            }
-            $stmt->close();
-            
-            $message = "Check-IN Recorded: {$calling_name} ({$vehicle_no}) at {$current_time}.";
-
+            $stmt->execute();
+            $message = "Check-IN Recorded:<br><b class='text-emerald-600'>{$calling_name}</b><br>at {$current_time}";
         } else {
-            // --- CASE B: Record Exists ---
-            
-            // Check if out_time is NULL or empty ('00:00:00')
-            if (empty($existing_record['out_time']) || $existing_record['out_time'] == '00:00:00') {
-                // --- Sub-CASE B1: UPDATE (OUT TIME) ---
-                
-                $update_sql = "UPDATE own_vehicle_attendance SET out_time = ? WHERE emp_id = ? AND date = ?";
-                $stmt = $conn->prepare($update_sql);
-                $stmt->bind_param('sss', $current_time, $emp_id, $today_date);
-                
-                if (!$stmt->execute()) {
-                    throw new Exception("Check-OUT Update Failed: " . $stmt->error);
-                }
-                $stmt->close();
-
-                $message = "Check-OUT Recorded.";
-
-            } else {
-                // --- Sub-CASE B2: Already Completed ---
-                throw new Exception("Attendance already completed for today.");
-            }
+            $stmt = $conn->prepare("UPDATE own_vehicle_attendance SET out_time = ? WHERE emp_id = ? AND date = ?");
+            $stmt->bind_param('sss', $current_time, $emp_id, $today_date);
+            $stmt->execute();
+            $message = "Check-OUT Recorded:<br><b class='text-amber-600'>{$vehicle_no}</b><br>at {$current_time}";
         }
-
         $conn->commit();
         echo json_encode(['success' => true, 'message' => $message]);
-
     } catch (Exception $e) {
         $conn->rollback();
-        $error_msg = $e->getMessage();
-        
-        // Handle explicit "Duplicate entry" error nicely if it still happens
-        if (strpos($conn->error, 'Duplicate entry') !== false || strpos($error_msg, 'Duplicate entry') !== false) {
-             echo json_encode(['success' => false, 'message' => "Error: Record exists but could not read it."]);
-        } 
-        else if (strpos($error_msg, 'Attendance already completed') !== false) {
-             echo json_encode(['success' => false, 'message' => $error_msg]);
-        } 
-        else {
-             // Return the REAL database error (like "Unknown column")
-             echo json_encode(['success' => false, 'message' => $error_msg]);
-        }
+        echo json_encode(['success' => false, 'message' => "DB Error"]);
     }
-
-    if (isset($conn)) $conn->close();
     exit(); 
 }
 
-// ---------------------------------------------------------------------
-// HTML SECTION (Keep your existing HTML below)
-// ---------------------------------------------------------------------
 include('../../../includes/header.php');
 include('../../../includes/navbar.php');
 ?>
@@ -176,143 +97,173 @@ include('../../../includes/navbar.php');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Own Vehicle Attendance Scan</title>
+    <title>Own Vehicle Attendance</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
-        .main-card {
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-        }
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-        }
-        .toast {
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            color: white;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-            min-width: 250px;
-        }
-        .toast.show { transform: translateY(0); opacity: 1; }
-        .toast.success { background-color: #4CAF50; } 
-        .toast.error { background-color: #F44336; } 
-        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
+        body { font-family: 'Inter', sans-serif; }
+        /* Parana Modal Style Ekama Fix Kala */
+        .modal { opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
+        .modal.active { opacity: 1; visibility: visible; }
+        .modal-content { transform: scale(0.95); transition: transform 0.3s ease; }
+        .modal.active .modal-content { transform: scale(1); }
+        .pattern-dots { background-image: radial-gradient(#ffffff22 1px, transparent 1px); background-size: 20px 20px; }
     </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+<body class="bg-slate-950 text-white">
 
-    <div class="w-full">
-        <div class="w-[85%] ml-[15%]">
-            <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-full">
-                <div class="text-lg font-semibold ml-3">Registers</div>
-                <div class="flex gap-4 pr-4">
-                    <a href="../../registers/non_paid/own_vehicle_attendance.php" class="hover:text-yellow-400 transition">Attendance Register</a>
+<div class="fixed top-0 left-[15%] w-[85%] bg-slate-900/90 backdrop-blur border-b border-slate-800 h-16 flex justify-between items-center px-6 z-40 shadow-lg">
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Own Vehicle Management
+        </div>
+    </div>
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="../../registers/non_paid/own_vehicle_attendance.php" class="text-slate-400 hover:text-indigo-400 transition flex items-center gap-2">
+            <i class="fas fa-list-alt"></i> View Register
+        </a>
+    </div>
+</div>
+
+<div class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex flex-col justify-center items-center">
+    <div class="w-full max-w-lg bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-hidden">
+        
+        <div class="bg-indigo-700 p-6 text-center relative overflow-hidden">
+            <div class="absolute inset-0 bg-black opacity-20 pattern-dots"></div>
+            <div class="relative z-10">
+                <div class="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg border border-slate-700 text-indigo-400">
+                    <i class="fas fa-qrcode text-3xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-white tracking-tight">Scan Vehicle Code</h2>
+                <p class="text-indigo-200 text-sm mt-1">Place cursor in box & scan barcode</p>
+            </div>
+        </div>
+
+        <div class="p-8">
+            <div class="relative mb-6">
+                <label for="vehicleNoInput" class="block text-sm font-bold text-indigo-400 mb-2 uppercase tracking-wide">Vehicle Number</label>
+                <div class="relative group">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <i class="fas fa-car text-slate-500 group-focus-within:text-indigo-400 transition-colors"></i>
+                    </div>
+                    <input type="text" id="vehicleNoInput" 
+                           class="block w-full pl-12 pr-4 py-4 bg-slate-950 border-2 border-slate-700 rounded-xl text-white text-xl font-mono focus:ring-0 focus:border-indigo-500 transition-colors uppercase placeholder-slate-600 text-center shadow-inner" 
+                           placeholder="SCAN HERE..." autofocus oninput="this.value=this.value.toUpperCase();">
+                    
+                    <div class="absolute top-0 right-4 h-full flex items-center">
+                        <span class="relative flex h-3 w-3">
+                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-500 opacity-75"></span>
+                          <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-400"></span>
+                        </span>
+                    </div>
                 </div>
             </div>
 
-            <div class="main-card bg-white p-6 sm:p-10 rounded-xl shadow-2xl w-full max-w-lg mx-auto mt-6">
-                
-                <h1 class="text-3xl font-extrabold mb-8 text-center text-gray-900 border-b-2 border-indigo-100 pb-3">
-                    Own Vehicle Attendance <span class="text-indigo-600">(Scan)</span>
-                </h1>
-
-                <div class="mb-8">
-                    <label for="vehicleNoInput" class="block text-gray-700 text-base font-semibold mb-2">Scan Vehicle QR/Barcode:</label>
-                    <input type="text" id="vehicleNoInput" class="shadow-md appearance-none border border-gray-300 rounded-xl w-full py-4 px-6 text-gray-700 leading-tight focus:ring-4 focus:ring-indigo-300 focus:outline-none transition duration-150" placeholder="Scan here..." autofocus oninput="this.value=this.value.toUpperCase();">
-                </div>
-
-                <div id="statusMessage" class="mt-4 p-4 bg-gray-50 border border-gray-200 text-gray-700 rounded-lg text-center font-medium">
-                    Ready to scan vehicle.
-                </div>
+            <div id="statusMessage" class="rounded-lg p-4 text-center text-sm font-medium bg-slate-800 text-slate-400 border border-slate-700 flex items-center justify-center gap-2 min-h-[60px]">
+                <i class="fas fa-info-circle"></i> Ready to scan...
             </div>
         </div>
     </div>
-    <div id="toast-container"></div>
+</div>
 
-    <script>
+<div id="confirmation-modal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60 backdrop-blur-sm px-4">
+    <div class="modal-content bg-white rounded-lg shadow-2xl w-full max-w-md p-6 relative">
+        <button onclick="closeCustomModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+            <i class="fas fa-times text-lg"></i>
+        </button>
+
+        <div class="flex flex-col items-center text-center">
+            <div id="modal-icon-container" class="w-16 h-16 rounded-full flex items-center justify-center mb-4 text-3xl shadow-inner">
+                <i id="modal-icon" class="fas"></i>
+            </div>
+            
+            <h3 id="modal-title" class="text-xl font-bold text-gray-800 mb-2"></h3>
+            
+            <p id="modal-message" class="text-gray-600 mb-6 px-4 text-sm"></p>
+            
+            <div class="flex gap-3 w-full justify-center">
+                <button onclick="closeCustomModal()" id="modal-btn" class="px-8 py-2 rounded-lg text-white font-medium shadow-md transition hover:shadow-lg w-1/2 uppercase tracking-wide text-xs">
+                    OK (Enter)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
     const vehicleNoInput = document.getElementById('vehicleNoInput');
+    const modal = document.getElementById('confirmation-modal');
     const statusMessage = document.getElementById('statusMessage');
     let scanTimeout;
 
-    function showToast(message, type) {
-        const toastContainer = document.getElementById('toast-container') || document.body.appendChild(document.createElement('div'));
-        if (toastContainer.id !== 'toast-container') toastContainer.id = 'toast-container';
+    function openCustomModal(success, title, message) {
+        const iconContainer = document.getElementById('modal-icon-container');
+        const icon = document.getElementById('modal-icon');
+        const btn = document.getElementById('modal-btn');
+        
+        if (success) {
+            iconContainer.className = "w-16 h-16 rounded-full flex items-center justify-center mb-4 text-3xl shadow-inner bg-green-100 text-green-500";
+            icon.className = "fas fa-check-circle";
+            btn.className = "px-8 py-2 rounded-lg text-white font-medium shadow-md transition hover:shadow-lg w-1/2 uppercase tracking-wide text-xs bg-green-600 hover:bg-green-700";
+        } else {
+            iconContainer.className = "w-16 h-16 rounded-full flex items-center justify-center mb-4 text-3xl shadow-inner bg-red-100 text-red-500";
+            icon.className = "fas fa-exclamation-triangle";
+            btn.className = "px-8 py-2 rounded-lg text-white font-medium shadow-md transition hover:shadow-lg w-1/2 uppercase tracking-wide text-xs bg-red-600 hover:bg-red-700";
+        }
+        
+        document.getElementById('modal-title').innerText = title;
+        document.getElementById('modal-message').innerHTML = message;
+        modal.classList.add('active');
+    }
 
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="toast-icon">
-                ${type === 'success'
-                    ? '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />'
-                    : '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.02 3.377 1.77 3.377h14.464c1.75 0 2.636-1.877 1.77-3.377L13.523 5.373a1.75 1.75 0 00-3.046 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />'
-                }
-            </svg>
-            <span>${message}</span>
-        `;
-        toastContainer.appendChild(toast);
-        setTimeout(() => toast.classList.add('show'), 10);
-        setTimeout(() => {
-            toast.classList.remove('show');
-            toast.addEventListener('transitionend', () => toast.remove(), { once: true });
-        }, 5000); 
+    function closeCustomModal() {
+        modal.classList.remove('active');
+        vehicleNoInput.value = '';
+        setTimeout(() => vehicleNoInput.focus(), 150);
     }
 
     function submitAttendance(vehicleNo) {
-        statusMessage.textContent = `Processing scan for Vehicle: ${vehicleNo}...`;
-        statusMessage.className = 'mt-4 p-4 bg-blue-100 border border-blue-200 text-blue-700 rounded-lg text-center font-medium';
+        statusMessage.innerHTML = '<i class="fas fa-spinner fa-spin text-indigo-400"></i> Processing...';
+        statusMessage.className = 'rounded-lg p-4 text-center text-sm font-medium bg-indigo-900/20 text-indigo-300 border border-indigo-900/50 flex items-center justify-center gap-2';
 
         const formData = new FormData();
         formData.append('add_record', '1');
         formData.append('vehicle_no', vehicleNo);
 
-        fetch('own_vehicle_attendance_qr.php', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => { if (!response.ok) throw new Error('Network response was not ok'); return response.json(); })
+        fetch('own_vehicle_attendance_qr.php', { method: 'POST', body: formData })
+        .then(res => res.json())
         .then(data => {
-            if (data.success) {
-                showToast(data.message, 'success');
-                statusMessage.textContent = `Scan successful. Ready for next scan.`;
-                statusMessage.className = 'mt-4 p-4 bg-green-100 border border-green-200 text-green-700 rounded-lg text-center font-medium';
+            if(data.success) {
+                openCustomModal(true, "CONFIRMED", data.message);
+                statusMessage.className = 'rounded-lg p-4 text-center text-sm font-medium bg-emerald-900/20 text-emerald-400 border border-emerald-900/50 flex items-center justify-center gap-2';
+                statusMessage.innerHTML = `<i class="fas fa-check-circle"></i> Last Success: ${vehicleNo}`;
             } else {
-                showToast(data.message, 'error');
-                statusMessage.textContent = `Error processing scan. Ready for next scan.`;
-                statusMessage.className = 'mt-4 p-4 bg-red-100 border border-red-200 text-red-700 rounded-lg text-center font-medium';
+                openCustomModal(false, "ERROR", data.message);
+                statusMessage.className = 'rounded-lg p-4 text-center text-sm font-medium bg-red-900/20 text-red-400 border border-red-900/50 flex items-center justify-center gap-2';
+                statusMessage.innerHTML = `<i class="fas fa-times-circle"></i> Scan Error: ${vehicleNo}`;
             }
         })
-        .catch(error => {
-            console.error('Submission error:', error);
-            showToast('Network error or server failed.', 'error');
-            statusMessage.textContent = `Network Error. Ready for next scan.`;
-            statusMessage.className = 'mt-4 p-4 bg-yellow-100 border border-yellow-200 text-yellow-700 rounded-lg text-center font-medium';
-        })
-        .finally(() => {
-            vehicleNoInput.value = '';
-            vehicleNoInput.focus();
-        });
+        .catch(() => openCustomModal(false, "Connection Error", "Network error occurred."));
     }
 
-    vehicleNoInput.addEventListener('input', function(event) {
+    vehicleNoInput.addEventListener('input', () => {
         clearTimeout(scanTimeout);
         scanTimeout = setTimeout(() => {
-            const vehicleNo = vehicleNoInput.value.trim().toUpperCase();
-            if (vehicleNo) { submitAttendance(vehicleNo); }
-        }, 50); 
+            const val = vehicleNoInput.value.trim();
+            if(val.length > 3) submitAttendance(val);
+        }, 400);
     });
-    
-    vehicleNoInput.focus();
-    </script>
+
+    window.addEventListener('keydown', (e) => {
+        if(e.key === 'Enter' && modal.classList.contains('active')) closeCustomModal();
+    });
+
+    document.addEventListener('click', () => {
+        if(!modal.classList.contains('active')) vehicleNoInput.focus();
+    });
+</script>
+
 </body>
 </html>

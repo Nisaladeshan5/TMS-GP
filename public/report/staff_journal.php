@@ -152,6 +152,7 @@ if ($result->num_rows > 0) {
         $fullDescription = $descriptionPrefix . $combinedRoutes;
         
         $accNo = $row['acc_no'];
+        $supplierCode = $row['supplier_code'];
 
         $output .= '
             <tr>
@@ -161,7 +162,7 @@ if ($result->num_rows > 0) {
                 <td></td> 
                 <td></td> 
                 <td>Vendor</td>
-                <td style="mso-number-format:\'\@\'">' . htmlspecialchars($accNo) . '</td>
+                <td style="mso-number-format:\'\@\'">' . htmlspecialchars($supplierCode) . '</td>
                 <td>' . htmlspecialchars($row['beneficiaress_name']) . '</td>
                 <td>' . htmlspecialchars($approvalStatus) . '</td>
                 <td>' . htmlspecialchars($currencyCode) . '</td>

@@ -1,13 +1,12 @@
 <?php
 // night_emergency_barcode.php
-// Client-side code to handle UI logic and AJAX calls
 include('../../../includes/db.php');
 include('../../../includes/header.php');
 include('../../../includes/navbar.php');
 
 date_default_timezone_set('Asia/Colombo');
 
-// --- PHP Database Logic (Error handling added) ---
+// --- PHP Database Logic ---
 $vehicles = [];
 $db_error = false;
 if (!isset($conn) || mysqli_connect_error()) {
@@ -31,88 +30,138 @@ if (!isset($conn) || mysqli_connect_error()) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Night Emergency Scan</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #f0f4f8 0%, #e0e7ec 100%);
-        }
-        .btn-submit:hover {
-            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4), 0 2px 4px -1px rgba(59, 130, 246, 0.2);
-        }
-        .btn-override-cancel:hover {
-            box-shadow: 0 4px 6px -1px rgba(75, 85, 99, 0.4), 0 2px 4px -1px rgba(75, 85, 99, 0.2);
-        }
+        /* Deep Dark Background for maximum contrast */
+        body { font-family: 'Inter', sans-serif; background-color: #020617; /* Very Dark Slate */ overflow: hidden; }
+        
+        /* Smooth Button Effects */
+        .btn-action { transition: all 0.2s ease; }
+        .btn-action:hover { transform: translateY(-2px); filter: brightness(110%); }
+        .btn-action:active { transform: translateY(0); }
+
+        /* Custom Scrollbar - Minimal */
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #1e293b; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #475569; border-radius: 20px; }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen p-4">
-<div class="w-[85%] ml-[15%] mt-10">
 
-<div class="bg-white p-6 sm:p-10 rounded-xl shadow-2xl w-full max-w-xl mx-auto transform transition duration-500 hover:shadow-3xl">
-    <h1 class="text-3xl font-extrabold mb-8 text-center text-gray-900 border-b-2 border-indigo-100 pb-3">
-        Night Emergency Scan Terminal
-    </h1>
+<body class="bg-slate-950 h-screen w-screen overflow-hidden text-white">
 
-    <?php if ($db_error): ?>
-        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-            <strong class="font-bold">Error!</strong>
-            <span class="block sm:inline"> Database connection failed. Cannot fetch vehicle list.</span>
+<div class="fixed top-0 left-[15%] w-[85%] bg-slate-900/90 backdrop-blur border-b border-slate-800 h-16 flex justify-between items-center px-6 shadow-2xl z-50">
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Scan Terminal <span class="text-xs font-normal text-slate-400 ml-1">(Night Emergency)</span>
         </div>
-    <?php endif; ?>
+    </div>
+    
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <span class="text-slate-500 text-xs uppercase tracking-wider font-bold">EMERGENCY MODE</span>
+    </div>
+</div>
 
-    <form id="attendanceForm" method="POST" action="night_emergency_barcode_handler.php">
-        
-        <div id="step1" class="mb-8">
-            <label for="operationalCode" class="block text-gray-700 text-base font-semibold mb-3">Scan Operational Code:</label>
-            <input type="text" id="operationalCode" name="operational_code"
-                    class="shadow-md appearance-none border border-gray-300 rounded-xl w-full py-4 px-6 text-gray-700 leading-tight focus:ring-4 focus:ring-indigo-300 focus:outline-none transition duration-150"
-                    placeholder="Scan operational barcode..." autofocus>
-        </div>
-
-        <div id="step2" class="hidden bg-indigo-50 border border-indigo-200 text-indigo-900 p-5 sm:p-6 rounded-xl mb-6 shadow-inner space-y-5">
-            <h2 class="text-xl font-bold text-indigo-700 border-b border-indigo-200 pb-3">
-                Vehicle & Driver Info
-            </h2>
+<div class="w-[85%] ml-[15%] mt-16 h-[calc(100vh-4rem)] flex items-center justify-center p-4">
+    
+    <div class="w-full max-w-lg bg-slate-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
             
-            <div class="space-y-2">
-                <label for="vehicleNoSelect" class="block text-gray-700 text-sm font-bold">Vehicle Number:</label>
-                <select id="vehicleNoSelect" name="vehicle_no_select" class="shadow appearance-none border border-gray-300 rounded-lg w-full py-2 px-3 text-gray-700 focus:ring-2 focus:ring-indigo-400 transition" required>
-                    <option value="">--- Select Registered Vehicle ---</option>
-                    <?php foreach ($vehicles as $vehicle): ?>
-                        <option value="<?= htmlspecialchars($vehicle) ?>"><?= htmlspecialchars($vehicle) ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <input type="text" id="vehicleNoInput" name="vehicle_no_input" class="shadow appearance-none border border-gray-300 rounded-lg w-full py-2 px-3 text-gray-700 focus:ring-2 focus:ring-yellow-400 hidden" placeholder="Enter vehicle number (e.g., ABC-1234)">
+        <div class="bg-indigo-600 p-4 text-center shadow-lg">
+            <h1 class="text-xl font-bold text-white flex justify-center items-center gap-2">
+                <i class="fas fa-ambulance"></i> Night Emergency
+            </h1>
+        </div>
+
+        <div class="p-6 overflow-y-auto custom-scroll relative">
+            
+            <?php if ($db_error): ?>
+                <div class="bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded-xl relative mb-4 text-sm font-bold text-center">
+                    <i class="fas fa-exclamation-triangle mr-2"></i> Database Error
+                </div>
+            <?php endif; ?>
+
+            <form id="attendanceForm" method="POST" action="night_emergency_barcode_handler.php">
                 
-                <button type="button" id="unknownVehicleBtn" class="btn-override-cancel bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 w-full transition duration-150 mt-2">
-                    Unknown Vehicle / Out-of-Fleet
-                </button>
-            </div>
-            
-            <div class="space-y-2">
-                <label for="driverInput" class="block text-gray-700 text-sm font-bold">Driver License ID:</label>
-                <div class="flex items-center space-x-2">
-                    <input type="text" id="driverInput" name="driver_nic" class="shadow appearance-none border border-gray-300 rounded-lg w-full py-2 px-3 text-gray-700 focus:ring-2 focus:ring-yellow-400 transition bg-gray-200" placeholder="Awaiting vehicle selection..." readonly required>
-                    <button type="button" id="unknownDriverBtn" class="btn-override-cancel bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-gray-400 transition duration-150">
-                        Override
-                    </button>
+                <div id="step1" class="mb-5 transition-all duration-300">
+                    <label class="block text-xs font-bold text-cyan-400 mb-2 uppercase tracking-wider">
+                        Scan Operational Code
+                    </label>
+                    <div class="relative">
+                        <input type="text" id="operationalCode" name="operational_code"
+                               class="w-full pl-4 pr-10 py-3 bg-slate-950 rounded-xl text-white text-xl font-mono tracking-widest outline-none ring-2 ring-slate-700 focus:ring-cyan-500 transition shadow-inner placeholder-slate-600"
+                               placeholder="SCAN HERE..." autofocus>
+                        <i class="fas fa-barcode absolute right-4 top-4 text-slate-500"></i>
+                    </div>
                 </div>
-                <p id="driverNameLabel" class="text-gray-600 text-sm mt-1 font-medium pl-1"></p>
-            </div>
-            
-            <div class="mt-6 pt-3 border-t border-indigo-100">
-                <div class="flex items-center">
-                    <input type="checkbox" id="verifyDetails" name="verify" required class="form-checkbox h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                    <label for="verifyDetails" class="ml-3 text-gray-700 text-sm font-medium cursor-pointer">I verify the vehicle and driver details are correct.</label>
-                </div>
-            </div>
-            
-            <button type="submit" class="btn-submit bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-300 shadow-md w-full mt-4 transition duration-300 ease-in-out transform hover:scale-[1.01]">
-                Record Dispatch
-            </button>
-        </div>
-    </form>
 
-    <div id="statusMessage" class="mt-8 p-4 rounded-xl text-center font-medium hidden shadow-md"></div>
+                <div id="step2" class="hidden animate-fade-in-up">
+                    
+                    <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
+                        <span class="text-slate-500 text-xs font-bold uppercase">Transaction Info</span>
+                        <span class="text-sm font-black px-3 py-1 rounded shadow-lg uppercase tracking-wider bg-red-500 text-white">DISPATCH</span>
+                    </div>
+
+                    <div class="bg-slate-800/50 rounded-xl p-3 mb-3">
+                        
+                        <div class="grid grid-cols-2 gap-4 mb-2">
+                            
+                            <div class="bg-slate-900/80 p-3 rounded-lg border border-white">
+                                <div class="flex justify-between items-center mb-1">
+                                    <label class="text-[10px] font-bold text-cyan-400 uppercase">Vehicle</label>
+                                    <div class="flex items-center gap-1">
+                                        <input type="checkbox" id="unknownVehicleToggle" class="w-3 h-3 accent-cyan-500 cursor-pointer">
+                                        <span class="text-[9px] text-slate-500 uppercase">Unknown</span>
+                                    </div>
+                                </div>
+                                
+                                <select id="vehicleNoSelect" name="vehicle_no_select" 
+                                        class="w-full bg-transparent text-white font-mono font-bold text-base outline-none appearance-none cursor-pointer">
+                                    <option value="" class="bg-slate-900 text-slate-400">SELECT...</option>
+                                    <?php foreach ($vehicles as $vehicle): ?>
+                                        <option value="<?= htmlspecialchars($vehicle) ?>" class="bg-slate-900"><?= htmlspecialchars($vehicle) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+
+                                <input type="text" id="vehicleNoInput" name="vehicle_no_input" 
+                                       class="hidden w-full bg-transparent border-b border-cyan-500 text-white font-mono font-bold text-base focus:outline-none placeholder-slate-600" 
+                                       placeholder="TYPE NO">
+                            </div>
+
+                            <div class="bg-slate-900/80 p-3 rounded-lg border border-white">
+                                <div class="flex justify-between items-center mb-1">
+                                    <label class="text-[10px] font-bold text-cyan-400 uppercase">Driver NIC</label>
+                                    <div class="flex items-center gap-1">
+                                        <input type="checkbox" id="unknownDriverToggle" class="w-3 h-3 accent-cyan-500 cursor-pointer">
+                                        <span class="text-[9px] text-slate-500 uppercase">Edit</span>
+                                    </div>
+                                </div>
+                                
+                                <input type="text" id="driverInput" name="driver_nic" 
+                                       class="w-full bg-transparent text-slate-400 font-mono font-bold text-base outline-none focus:outline-none" 
+                                       placeholder="WAITING..." readonly required>
+                            </div>
+                        </div>
+                        
+                        <p id="driverNameLabel" class="text-[10px] text-slate-400 text-center uppercase tracking-wider font-medium h-4"></p>
+
+                    </div>
+
+                    <label class="flex items-center justify-center gap-2 p-3 rounded-lg bg-slate-800 hover:bg-slate-700 cursor-pointer transition select-none group mb-3">
+                        <input type="checkbox" id="verifyDetails" name="verify" required class="w-4 h-4 accent-yellow-500 cursor-pointer">
+                        <span class="text-sm font-bold text-slate-400 group-hover:text-yellow-400 transition">Confirm details are correct</span>
+                    </label>
+
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl shadow-lg btn-action tracking-wide">
+                        RECORD
+                    </button>
+
+                </div>
+            </form>
+
+            <div id="statusMessage" class="mt-4 p-3 rounded-xl text-center text-sm font-bold hidden shadow-lg tracking-wide"></div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -126,250 +175,249 @@ if (!isset($conn) || mysqli_connect_error()) {
 
     const vehicleSelect = document.getElementById('vehicleNoSelect');
     const vehicleInput = document.getElementById('vehicleNoInput');
-    const unknownVehicleBtn = document.getElementById('unknownVehicleBtn');
-    const unknownDriverBtn = document.getElementById('unknownDriverBtn');
+    const unknownVehicleToggle = document.getElementById('unknownVehicleToggle'); // Changed to toggle
+    
     const driverInput = document.getElementById('driverInput');
+    const unknownDriverToggle = document.getElementById('unknownDriverToggle'); // Changed to toggle
     const driverNameLabel = document.getElementById('driverNameLabel');
 
     let isUnknownVehicle = false;
-    let isUnknownDriver = true; // Default to true until a vehicle is selected
+    let isUnknownDriver = true; 
     
     // --- Utility Functions ---
     function showMessage(message, type='info'){
         statusMessageDiv.textContent = message;
-        statusMessageDiv.className = 'mt-8 p-4 rounded-xl text-center font-medium shadow-md border';
-        if(type==='success') statusMessageDiv.classList.add('bg-green-100','text-green-800','border-green-300');
-        else if(type==='error') statusMessageDiv.classList.add('bg-red-100','text-red-800','border-red-300');
-        else statusMessageDiv.classList.add('bg-blue-100','text-blue-800','border-blue-300');
+        statusMessageDiv.className = `mt-4 p-3 rounded-xl text-center text-sm font-bold shadow-lg tracking-wide transition-all duration-300 ${
+            type === 'success' ? 'bg-emerald-900/90 text-emerald-200 border border-emerald-600' :
+            type === 'error' ? 'bg-red-900/90 text-red-200 border border-red-600' :
+            'bg-blue-900/90 text-blue-200 border border-blue-600'
+        }`;
         statusMessageDiv.classList.remove('hidden');
-        setTimeout(()=>{ statusMessageDiv.classList.add('hidden'); },5000);
+        statusMessageDiv.style.display = 'block';
+        setTimeout(()=>{ 
+            statusMessageDiv.style.display = 'none'; 
+            statusMessageDiv.classList.add('hidden');
+        }, 5000);
     }
 
+    // Styles for Readonly vs Editable (Matches Staff Page logic)
     function setDriverInputReadonly(readonly){
         driverInput.readOnly = readonly;
-        driverInput.classList.toggle('bg-gray-200',readonly);
+        if(readonly) {
+            // Readonly style (Slate text, no border)
+            driverInput.classList.remove('border-b', 'border-cyan-500', 'text-white');
+            driverInput.classList.add('text-slate-400');
+        } else {
+            // Editable style (White text, Cyan border bottom)
+            driverInput.classList.remove('text-slate-400');
+            driverInput.classList.add('border-b', 'border-cyan-500', 'text-white');
+        }
     }
 
     function clearDriverInfo(){
         driverInput.value = '';
-        driverNameLabel.textContent = 'Enter driver License ID...';
-        setDriverInputReadonly(false); // Enable input for manual entry
+        driverNameLabel.textContent = '';
+        setDriverInputReadonly(false); 
         isUnknownDriver = true;
-        unknownDriverBtn.textContent = 'Registered Driver?';
+        unknownDriverToggle.checked = true; // Set checkbox checked
         driverInput.focus();
     }
     
     // --- Event Handlers ---
     
-    // Vehicle selection (Registered Vehicle selected)
+    // 1. Vehicle Selection (Dropdown)
     vehicleSelect.addEventListener('change', function(){
         const vehicleNo = this.value;
         if(vehicleNo){
             driverNameLabel.textContent = 'Fetching assigned driver...';
             setDriverInputReadonly(true); 
             isUnknownDriver = false; 
-            unknownDriverBtn.textContent='Override';
+            unknownDriverToggle.checked = false; // Uncheck edit
             
             fetch('get_driver_info.php',{
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({vehicle_no:vehicleNo})
             })
-            .then(res => {
-                if (!res.ok) throw new Error("Server response not ok: " + res.status);
-                return res.json();
-            })
+            .then(res => res.json())
             .then(data=>{
                 if(data.status==='success' && data.driver_nic){
                     driverInput.value=data.driver_nic;
-                    driverNameLabel.textContent=`Assigned Driver: ${data.calling_name || 'Name Unknown'}`;
+                    driverNameLabel.textContent=`Assigned: ${data.calling_name || ''}`;
                     setDriverInputReadonly(true);
                 }else{ 
-                    clearDriverInfo();
-                    driverNameLabel.textContent='No assigned driver found. Please enter manually.';
+                    // No driver found, enable edit
+                    driverInput.value = '';
+                    driverNameLabel.textContent = 'No assigned driver. Enter manually.';
+                    setDriverInputReadonly(false);
+                    isUnknownDriver = true;
+                    unknownDriverToggle.checked = true;
                 }
             }).catch(e=>{ 
                 clearDriverInfo(); 
-                showMessage('Error fetching driver info: ' + e.message,'error'); 
             });
         }else{ 
-            clearDriverInfo(); 
-            driverNameLabel.textContent = 'Please select a vehicle or enter driver manually.';
+            // Reset
+            driverInput.value = '';
+            driverNameLabel.textContent = '';
         }
     });
     
-    // Unknown Vehicle Toggle
-    unknownVehicleBtn.addEventListener('click',()=>{
-        isUnknownVehicle=!isUnknownVehicle;
-        vehicleSelect.classList.toggle('hidden',isUnknownVehicle);
-        vehicleInput.classList.toggle('hidden',!isUnknownVehicle);
+    // 2. Unknown Vehicle Toggle (Checkbox Logic)
+    unknownVehicleToggle.addEventListener('change', function(){
+        isUnknownVehicle = this.checked;
         
-        vehicleInput.required=isUnknownVehicle;
-        vehicleSelect.required=!isUnknownVehicle;
-        
-        unknownVehicleBtn.textContent=isUnknownVehicle?'Select Registered Vehicle':'Unknown Vehicle / Out-of-Fleet';
-        
-        if(isUnknownVehicle){ 
-            vehicleInput.focus(); 
-            clearDriverInfo(); 
-            driverNameLabel.textContent='Enter vehicle and driver manually.';
-        }
-        else{ 
-            vehicleSelect.focus(); 
+        if(isUnknownVehicle){
+            // Show Input, Hide Select
+            vehicleSelect.classList.add('hidden');
+            vehicleInput.classList.remove('hidden');
+            vehicleInput.required = true;
+            vehicleSelect.required = false;
+            
+            vehicleInput.focus();
+            
+            // If unknown vehicle, driver must be manual
+            clearDriverInfo();
+            driverNameLabel.textContent = 'Unknown vehicle requires manual driver entry.';
+        } else {
+            // Show Select, Hide Input
+            vehicleInput.classList.add('hidden');
+            vehicleSelect.classList.remove('hidden');
+            vehicleSelect.required = true;
+            vehicleInput.required = false;
+            
+            vehicleSelect.focus();
             if(vehicleSelect.value) vehicleSelect.dispatchEvent(new Event('change'));
-            else clearDriverInfo();
+            else {
+                 driverInput.value = '';
+                 setDriverInputReadonly(true);
+                 unknownDriverToggle.checked = false;
+            }
         }
     });
 
-    // Driver Override Toggle
-    unknownDriverBtn.addEventListener('click',()=>{
+    // 3. Driver Edit Toggle (Checkbox Logic)
+    unknownDriverToggle.addEventListener('change', function(){
         const selectedVehicle = isUnknownVehicle ? vehicleInput.value.trim() : vehicleSelect.value;
         
-        // Allow toggling only when a registered vehicle is selected
-        if (selectedVehicle && !isUnknownVehicle) {
-            isUnknownDriver = !isUnknownDriver;
-            setDriverInputReadonly(!isUnknownDriver); // Toggle readonly status
+        // Only allow toggling if a vehicle is selected (or we are in manual vehicle mode)
+        if(selectedVehicle || isUnknownVehicle) {
+            isUnknownDriver = this.checked;
+            setDriverInputReadonly(!isUnknownDriver); // If checked (true), readonly is false
             
-            if(isUnknownDriver){ 
-                driverInput.value=''; 
-                driverNameLabel.textContent='Manual entry enabled. Enter License ID.'; 
-                unknownDriverBtn.textContent='Use Default';
+            if(isUnknownDriver){
+                // Manual Mode
+                driverInput.value = '';
                 driverInput.focus();
-            } else { 
-                unknownDriverBtn.textContent='Override'; 
-                vehicleSelect.dispatchEvent(new Event('change')); // Restore default driver info
+                driverNameLabel.textContent = 'Manual Entry';
+            } else {
+                // Auto Mode - try to fetch again
+                if(!isUnknownVehicle && vehicleSelect.value) {
+                    vehicleSelect.dispatchEvent(new Event('change'));
+                }
             }
-        } else if (isUnknownVehicle) {
-             showMessage('Driver must be entered manually for Unknown Vehicles.','info');
         } else {
-             showMessage('Please select a registered vehicle first to use the Override feature.','info');
+             // Revert if no vehicle selected
+             this.checked = false;
+             showMessage('Select a vehicle first.', 'error');
         }
     });
 
-    // OPERATIONAL CODE Scan Logic (Step 1)
+    // 4. Operational Code Scan
     operationalCodeInput.addEventListener('input', function(){
         const code=this.value.trim();
-        const expectedLength = 7; // Assuming operational code is 5 chars
+        const expectedLength = 7; 
 
         if(code.length >= expectedLength){
-            operationalCodeInput.value=code.substring(0, expectedLength); // Truncate and enforce max length
+            operationalCodeInput.value=code.substring(0, expectedLength); 
             
-            // AJAX call to check_operational_code.php
             fetch('check_operational_code.php',{
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({operational_code:code.substring(0, expectedLength)})
             })
-            .then(res => {
-                if (!res.ok) throw new Error("Server error during operational code check: " + res.status);
-                return res.json();
-            })
+            .then(res => res.json())
             .then(data=>{
                 if(data.exists){
                     step1.classList.add('hidden'); 
                     step2.classList.remove('hidden');
                     
-                    // Reset to default step2 state
+                    // Reset Step 2 UI
                     isUnknownVehicle = false;
+                    unknownVehicleToggle.checked = false;
                     vehicleInput.classList.add('hidden');
                     vehicleSelect.classList.remove('hidden');
                     vehicleSelect.required = true;
                     vehicleInput.required = false;
-                    unknownVehicleBtn.textContent='Unknown Vehicle / Out-of-Fleet';
+                    
+                    vehicleSelect.value = "";
+                    driverInput.value = "";
+                    unknownDriverToggle.checked = false;
+                    setDriverInputReadonly(true);
 
                     vehicleSelect.focus();
-                    showMessage('Operational code verified. Proceeding to vehicle details.','success');
-                    
-                    if(vehicleSelect.value) vehicleSelect.dispatchEvent(new Event('change'));
-                    else clearDriverInfo(); 
+                    showMessage('Code verified.', 'success');
                 }
                 else{ 
-                    showMessage(data.message || 'Operational code is invalid or already recorded today.','error'); 
+                    showMessage(data.message || 'Invalid code.', 'error'); 
                     operationalCodeInput.value=''; 
                     operationalCodeInput.focus(); 
                 }
             }).catch(e=>{ 
-                // This catch block handles the internal error you initially reported
-                showMessage('An internal server error occurred while checking the Operational Code. Please check the console/network tab for the PHP error.','error'); 
-                console.error('Operational Code Check Fetch Error:', e);
+                showMessage('Error checking code.', 'error'); 
                 operationalCodeInput.value=''; 
-                operationalCodeInput.focus(); 
             });
         }
     });
 
-    // Form Submission Handler
+    // 5. Submit Form
     attendanceForm.addEventListener('submit', function(e){
         e.preventDefault();
         
         if(driverInput.value.trim() === '') {
-            showMessage('Driver License ID is required.','error');
+            showMessage('Driver License ID is required.', 'error');
             driverInput.focus();
             return;
         }
 
         const formData = new FormData(this);
-        
-        // Get the correct Vehicle No. and Status
         const vehicleNo = isUnknownVehicle ? vehicleInput.value.trim() : vehicleSelect.value;
         const vehicleStatus = isUnknownVehicle ? 0 : 1;
         const driverNic = driverInput.value.trim();
         const driverStatus = isUnknownDriver ? 0 : 1;
-        
-        // Get the scanned operational code from the input field
         const operationalCode = operationalCodeInput.value.trim();
 
-        // Overriding the form data values to ensure correct submission
-        formData.set('operational_code', operationalCode); // *** CRITICAL FIX: Ensure operational_code is submitted ***
+        formData.set('operational_code', operationalCode); 
         formData.set('vehicle_no',vehicleNo);
         formData.set('vehicle_status',vehicleStatus);
         formData.set('driver_nic',driverNic);
         formData.set('driver_status',driverStatus);
         
-        // Final Fetch to handler
         fetch('night_emergency_barcode_handler.php',{method:'POST',body:formData})
-        .then(res => {
-            if (!res.ok) throw new Error("Handler server error: " + res.status);
-            return res.json();
-        })
+        .then(res => res.json())
         .then(data=>{
-            showMessage(data.message,data.status);
+            showMessage(data.message, data.status);
             
-            // --- Reset UI ---
-            operationalCodeInput.value=''; vehicleInput.value=''; vehicleSelect.value=''; document.getElementById('verifyDetails').checked=false;
-            isUnknownVehicle=false; 
+            // Reset ALL
+            operationalCodeInput.value=''; 
+            vehicleInput.value=''; 
+            vehicleSelect.value=''; 
+            document.getElementById('verifyDetails').checked=false;
             
-            // Ensure driver is reset to the 'awaiting vehicle' state
-            driverInput.value = '';
-            driverNameLabel.textContent = 'Awaiting vehicle selection...';
-            setDriverInputReadonly(true);
-            isUnknownDriver = true;
-            unknownDriverBtn.textContent = 'Override';
-
-
-            // Reset Vehicle/Driver controls visibility
-            vehicleSelect.classList.remove('hidden'); vehicleInput.classList.add('hidden');
-            unknownVehicleBtn.textContent='Unknown Vehicle / Out-of-Fleet';
-
-            // Back to Step 1
             step2.classList.add('hidden'); 
             step1.classList.remove('hidden'); 
             operationalCodeInput.focus();
         }).catch(e=>{ 
-            showMessage('Critical submission error. Try again.','error'); 
-            console.error('Submission Fetch Error:', e);
-            
-            // Force reset to step 1 on critical error
+            showMessage('Submission error.', 'error');
             step2.classList.add('hidden'); 
             step1.classList.remove('hidden'); 
             operationalCodeInput.focus();
         });
     });
 
-    setDriverInputReadonly(true); // Default to read-only on load
+    setDriverInputReadonly(true); 
     operationalCodeInput.focus();
 });
-
 </script>
 </body>
 </html>

@@ -7,7 +7,7 @@ error_reporting(E_ALL);
 // Start output buffering immediately
 ob_start();
 
-// Include necessary files
+// Include necessary files (Factory Pathing)
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -20,40 +20,25 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 
 date_default_timezone_set('Asia/Colombo');
 
-// Ensure db.php inclusion is checked for success if possible, 
-// though failure here usually leads to a quick crash.
 include('../../../includes/db.php'); 
 if (!isset($conn) || $conn->connect_error) {
-    // If we fail here, we must rely on error logging or external tools.
     error_log("FATAL: Database connection failed.");
-    // Do NOT echo JSON here unless you are in the AJAX block
 }
 
 // =======================================================================
-// 0. HELPER FUNCTIONS (REQUIRED for Calculation/Insertion Logic)
+// 0. HELPER FUNCTIONS (Factory Logic)
 // =======================================================================
 
-// A. Fetch Fuel Price changes within the selected Month and Year
+// A. Fetch Fuel Price changes
 function get_fuel_price_changes_in_month($conn, $rate_id, $month, $year)
 {
-    // Ensure $rate_id is treated as an integer for the bind_param
     $rate_id = (int)$rate_id;
-
     $start_date = "$year-$month-01";
     $end_date = date('Y-m-t', strtotime($start_date)); 
 
-    $sql = "
-        SELECT date, rate
-        FROM fuel_rate
-        WHERE rate_id = ? 
-        AND date <= ? 
-        ORDER BY date DESC, id DESC
-    ";
+    $sql = "SELECT date, rate FROM fuel_rate WHERE rate_id = ? AND date <= ? ORDER BY date DESC, id DESC";
     $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        error_log("Fuel Rate Prepare failed: " . $conn->error);
-        return [];
-    }
+    if (!$stmt) return [];
     
     $stmt->bind_param("is", $rate_id, $end_date);
     $stmt->execute();
@@ -62,144 +47,96 @@ function get_fuel_price_changes_in_month($conn, $rate_id, $month, $year)
     $stmt->close();
     
     $slabs = [];
-    
     foreach ($changes as $change) {
         $change_date = $change['date'];
         $rate = (float)$change['rate'];
-        
         if (strtotime($change_date) < strtotime($start_date)) {
             $slabs[date('Y-m-d', strtotime($start_date))] = $rate;
             break; 
         }
-        
         $slabs[$change_date] = $rate;
     }
-    
     ksort($slabs);
     return $slabs;
 }
 
-// B. Core Calculation Logic
+// B. Core Calculation Logic (Factory Tables)
 function calculate_total_payment($conn, $route_code, $supplier_code, $month, $year, $route_distance, $fixed_amount, $with_fuel, $consumption_id, $rate_id, $consumption_rates, $default_km_per_liter)
 {
-    // Explicitly cast core input variables
     $route_distance = (float)$route_distance;
     $fixed_amount = (float)$fixed_amount;
     $with_fuel = (int)$with_fuel;
     
-    // Fetch trip counts per day
-    $trips_sql = "
-        SELECT date, COUNT(id) AS daily_trips 
-        FROM factory_transport_vehicle_register 
-        WHERE route = ? AND supplier_code = ? 
-        AND MONTH(date) = ? AND YEAR(date) = ? AND is_active = 1
-        GROUP BY date
-    ";
+    // Factory Table: factory_transport_vehicle_register
+    $trips_sql = "SELECT date, COUNT(id) AS daily_trips FROM factory_transport_vehicle_register WHERE route = ? AND supplier_code = ? AND MONTH(date) = ? AND YEAR(date) = ? AND is_active = 1 GROUP BY date";
     $trips_stmt = $conn->prepare($trips_sql);
-    if (!$trips_stmt) {
-         error_log("Trips SQL Prepare failed: " . $conn->error);
-         return ['total_payment' => 0, 'total_trips' => 0, 'effective_trip_rate' => 0];
-    }
+    if (!$trips_stmt) return ['total_payment' => 0, 'total_trips' => 0, 'effective_trip_rate' => 0];
     
     $trips_stmt->bind_param("ssii", $route_code, $supplier_code, $month, $year);
     $trips_stmt->execute();
-    $trips_result = $trips_stmt->get_result();
-    $daily_trip_counts = $trips_result->fetch_all(MYSQLI_ASSOC);
+    $daily_trip_counts = $trips_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $trips_stmt->close();
     
     $total_calculated_payment = 0.00;
     $total_trip_count = 0;
     $trip_rate = 0.00; 
 
-    if (empty($daily_trip_counts)) {
-        return ['total_payment' => 0, 'total_trips' => 0, 'effective_trip_rate' => 0];
-    }
+    if (empty($daily_trip_counts)) return ['total_payment' => 0, 'total_trips' => 0, 'effective_trip_rate' => 0];
     
     $price_slabs = [];
-    // Only fetch price slabs if fuel is involved and rate_id is present
     if ($with_fuel === 1 && $rate_id !== null) {
         $price_slabs = get_fuel_price_changes_in_month($conn, $rate_id, $month, $year);
     }
     
-    // Get km_per_liter, ensure it's a float, and prevent zero division
     $km_per_liter = (float)($consumption_rates[$consumption_id] ?? $default_km_per_liter);
-    if ($km_per_liter <= 0) {
-        $km_per_liter = $default_km_per_liter;
-    }
+    if ($km_per_liter <= 0) $km_per_liter = $default_km_per_liter;
 
     foreach ($daily_trip_counts as $daily_data) {
         $trip_date = $daily_data['date'];
         $daily_trips = (int)$daily_data['daily_trips'];
         $total_trip_count += $daily_trips;
 
-        // Find fuel price for this date
         $latest_fuel_price = 0.00;
         if ($with_fuel === 1 && !empty($price_slabs)) {
             foreach ($price_slabs as $change_date => $rate) {
-                if (strtotime($trip_date) >= strtotime($change_date)) {
-                    $latest_fuel_price = (float)$rate;
-                }
+                if (strtotime($trip_date) >= strtotime($change_date)) $latest_fuel_price = (float)$rate;
             }
         }
         
-        // Calculate Fuel Cost per KM
         $calculated_fuel_amount_per_km = 0.00;
         if ($with_fuel === 1 && $consumption_id !== null && $latest_fuel_price > 0) {
             $calculated_fuel_amount_per_km = $latest_fuel_price / $km_per_liter;
         }
 
-        // Total Rate per KM
         $rate_per_km = $fixed_amount + $calculated_fuel_amount_per_km;
-
-        // Rate per TRIP (Ensure division by 2 doesn't result in NaN if distance is 0)
         $trip_rate = ($route_distance > 0) ? ($rate_per_km * ($route_distance / 2)) : 0.00; 
-
-        // Daily Payment
         $daily_payment = $trip_rate * $daily_trips;
         $total_calculated_payment += $daily_payment;
     }
 
-    return [
-        'total_payment' => $total_calculated_payment, 
-        'total_trips' => $total_trip_count,
-        'effective_trip_rate' => $trip_rate 
-    ];
+    return ['total_payment' => $total_calculated_payment, 'total_trips' => $total_trip_count, 'effective_trip_rate' => $trip_rate];
 }
 
-// C. Get Total Reduction Amount (from the 'reduction' table)
+// C. Get Total Reduction Amount
 function get_total_adjustment_amount($conn, $route_code, $supplier_code, $month, $year)
 {
-    // Existing logic is sound, explicitly ensuring return is float
     $total_adjustment = 0.00;
-    $reduction_sql = "
-        SELECT SUM(amount) AS total_adjustment_amount 
-        FROM reduction 
-        WHERE route_code = ? AND supplier_code = ? AND MONTH(date) = ? AND YEAR(date) = ?
-    ";
+    $reduction_sql = "SELECT SUM(amount) AS total_adjustment_amount FROM reduction WHERE route_code = ? AND supplier_code = ? AND MONTH(date) = ? AND YEAR(date) = ?";
     $reduction_stmt = $conn->prepare($reduction_sql);
     
-    if (!$reduction_stmt) {
-        error_log("SQL Prepare failed for reduction table: " . $conn->error);
-        return 0.00; 
-    }
+    if (!$reduction_stmt) return 0.00; 
     
     $reduction_stmt->bind_param("ssii", $route_code, $supplier_code, $month, $year);
     if ($reduction_stmt->execute()) {
-        $reduction_result = $reduction_stmt->get_result();
-        $row = $reduction_result->fetch_assoc();
+        $row = $reduction_stmt->get_result()->fetch_assoc();
         $total_adjustment = (float)($row['total_adjustment_amount'] ?? 0); 
-        $reduction_result->free();
-    } else {
-         error_log("Reduction Query execution failed: " . $reduction_stmt->error);
     }
     $reduction_stmt->close();
-
     return $total_adjustment;
 }
 
-
 // =======================================================================
-// 1. PIN VERIFICATION & AJAX CHECK SETUP
+// 1. PIN VERIFICATION
 // =======================================================================
 
 $today_pin = date('dmY');
@@ -217,16 +154,14 @@ if (isset($_POST['pin_submit'])) {
 }
 
 // =======================================================================
-// 2. BACKEND API FOR PAYMENT FINALIZATION (AJAX) - PRIORITY EXECUTION
+// 2. BACKEND API FOR PAYMENT FINALIZATION (AJAX) - FACTORY
 // =======================================================================
 
 if (isset($_POST['finalize_payments'])) {
     
-    // CRITICAL: Clear the buffer one last time before echoing JSON
     ob_end_clean(); 
     header('Content-Type: application/json');
 
-    // --- 2.1. Determine the Month/Year to finalize (The PREVIOUS Month) ---
     try {
         $target_date = new DateTime('first day of this month');
         $target_date->modify('-1 month'); 
@@ -238,10 +173,8 @@ if (isset($_POST['finalize_payments'])) {
         $selected_year = $finalize_year;
         $payment_data = []; 
 
-        // Fetch consumption rates needed for calculation
         $consumption_rates = [];
-        $consumption_sql = "SELECT c_id, distance FROM consumption"; 
-        $consumption_result = $conn->query($consumption_sql);
+        $consumption_result = $conn->query("SELECT c_id, distance FROM consumption"); 
         if ($consumption_result) {
             while ($row = $consumption_result->fetch_assoc()) {
                 $consumption_rates[$row['c_id']] = (float)$row['distance']; 
@@ -249,74 +182,43 @@ if (isset($_POST['finalize_payments'])) {
         }
         $default_km_per_liter = 1.00;
 
-        // Fetch all unique route/supplier combinations that ran trips last month
+        // FACTORY Query
         $payments_sql = "
-            SELECT 
-                ftvr.route AS route_code, 
-                ftvr.supplier_code, 
-                r.route, 
-                r.fixed_amount, 
-                r.distance AS route_distance, 
-                r.with_fuel, 
-                v.fuel_efficiency, 
-                v.rate_id 
+            SELECT ftvr.route AS route_code, ftvr.supplier_code, r.route, r.fixed_amount, r.distance AS route_distance, r.with_fuel, v.fuel_efficiency, v.rate_id 
             FROM factory_transport_vehicle_register ftvr 
             JOIN route r ON ftvr.route = r.route_code 
             LEFT JOIN vehicle v ON r.vehicle_no = v.vehicle_no 
-            WHERE MONTH(ftvr.date) = ? 
-            AND YEAR(ftvr.date) = ? 
-            AND r.purpose = 'factory'
+            WHERE MONTH(ftvr.date) = ? AND YEAR(ftvr.date) = ? AND r.purpose = 'factory'
             GROUP BY ftvr.route, ftvr.supplier_code
         ";
 
         $payments_stmt = $conn->prepare($payments_sql);
-        
-        if (!$payments_stmt) {
-            error_log("SQL Fetch Prepare failed (Section 2): " . $conn->error);
-            echo json_encode(['status' => 'error', 'message' => "SQL Fetch Prepare failed (Section 2): " . $conn->error]);
-            exit;
-        }
+        if (!$payments_stmt) { echo json_encode(['status' => 'error', 'message' => "SQL Error: " . $conn->error]); exit; }
         
         $payments_stmt->bind_param("ii", $selected_month, $selected_year);
-        if (!$payments_stmt->execute()) {
-             error_log("SQL Fetch Execute failed (Section 2): " . $payments_stmt->error);
-             echo json_encode(['status' => 'error', 'message' => "SQL Fetch Execute failed (Section 2): " . $payments_stmt->error]);
-             exit;
-        }
+        if (!$payments_stmt->execute()) { echo json_encode(['status' => 'error', 'message' => "SQL Exec Error: " . $payments_stmt->error]); exit; }
         
         $payments_result = $payments_stmt->get_result();
 
         if ($payments_result && $payments_result->num_rows > 0) {
-            
             while ($payment_row = $payments_result->fetch_assoc()) {
                 $route_code = $payment_row['route_code'];
                 $supplier_code = $payment_row['supplier_code'];
-                
-                // CRITICAL: Handle NULLs from DB by providing default numeric values
                 $route_distance = (float)($payment_row['route_distance'] ?? 0.0); 
                 $fixed_amount = (float)($payment_row['fixed_amount'] ?? 0.0); 
                 $with_fuel = (int)($payment_row['with_fuel'] ?? 0);
                 
-                $consumption_id = $payment_row['fuel_efficiency'] ?? null;
-                $rate_id = $payment_row['rate_id'] ?? null;
-                
-                // If route distance is 0, skip calculation
                 if ($route_distance <= 0) continue; 
                 
                 $calculation_results = calculate_total_payment(
                     $conn, $route_code, $supplier_code, $selected_month, $selected_year,
-                    $route_distance, $fixed_amount, $with_fuel, $consumption_id, $rate_id,
+                    $route_distance, $fixed_amount, $with_fuel, $payment_row['fuel_efficiency'] ?? null, $payment_row['rate_id'] ?? null,
                     $consumption_rates, $default_km_per_liter
                 );
 
-                // Skip insertion if no trips recorded (total_trips == 0)
-                if ($calculation_results['total_trips'] === 0) {
-                     continue; 
-                }
+                if ($calculation_results['total_trips'] === 0) continue; 
 
-                $adjustment_vs_db = get_total_adjustment_amount($conn, $route_code, $supplier_code, $selected_month, $selected_year);
-                $adjustment_vs_db = $adjustment_vs_db * -1; 
-
+                $adjustment_vs_db = get_total_adjustment_amount($conn, $route_code, $supplier_code, $selected_month, $selected_year) * -1; 
                 $calculated_total_payment = $calculation_results['total_payment'] + $adjustment_vs_db; 
 
                 $total_trip_count = $calculation_results['total_trips'];
@@ -327,34 +229,22 @@ if (isset($_POST['finalize_payments'])) {
                 $fuel_payment_per_trip = $trip_rate - $fixed_payment_per_trip;
 
                 $one_way_distance = (float)$route_distance / 2;
-                if ($one_way_distance > 0) {
-                    $fuel_payment_per_km = $fuel_payment_per_trip / $one_way_distance;
-                } else {
-                    $fuel_payment_per_km = 0.00; 
-                }
-
-                $monthly_fixed_amount = $fixed_payment_per_trip * $total_trip_count;
-                $monthly_fuel_amount = $fuel_payment_per_trip * $total_trip_count;
-                $monthly_payment_before_adjustment = $monthly_fixed_amount + $monthly_fuel_amount;
-                $final_monthly_payment = $calculated_total_payment; 
+                $fuel_payment_per_km = ($one_way_distance > 0) ? ($fuel_payment_per_trip / $one_way_distance) : 0.00;
 
                 $payment_data[] = [
                     'route_code' => $route_code, 'supplier_code' => $supplier_code, 
                     'fixed_amount' => $fixed_amount, 'fuel_amount' => $fuel_payment_per_km,
                     'route_distance' => $route_distance, 'total_distance' => $total_distance_calculated, 
-                    'monthly_payment' => $final_monthly_payment, 
+                    'monthly_payment' => $calculated_total_payment, 
                     'month' => $finalize_month, 'year' => $finalize_year,
                 ];
             }
             $payments_stmt->close();
         }
         
-        if (empty($payment_data)) {
-            echo json_encode(['status' => 'error', 'message' => "No trips found for " . $target_date->format('F Y') . " to finalize."]);
-            exit;
-        }
+        if (empty($payment_data)) { echo json_encode(['status' => 'error', 'message' => "No factory trips found for " . $target_date->format('F Y')]); exit; }
 
-        // --- 2.2. Check for Duplicate Insertion (Prevent double finalization) ---
+        // Check Duplicates in monthly_payments_f (Factory Table)
         $duplicate_check_sql = "SELECT COUNT(*) FROM monthly_payments_f WHERE month = ? AND year = ?";
         $duplicate_check_stmt = $conn->prepare($duplicate_check_sql);
         $duplicate_check_stmt->bind_param("ii", $finalize_month, $finalize_year);
@@ -362,12 +252,9 @@ if (isset($_POST['finalize_payments'])) {
         $count = (int)$duplicate_check_stmt->get_result()->fetch_row()[0];
         $duplicate_check_stmt->close();
 
-        if ($count > 0) {
-            echo json_encode(['status' => 'error', 'message' => $target_date->format('F Y') . " payments are ALREADY finalized in the history table. Aborting insertion."]);
-            exit;
-        }
+        if ($count > 0) { echo json_encode(['status' => 'error', 'message' => "Factory Payments for " . $target_date->format('F Y') . " already finalized."]); exit; }
         
-        // --- 2.3. Insert Data into monthly_payments_sf ---
+        // Insert Data into monthly_payments_f
         $conn->begin_transaction();
         $success_count = 0;
         $error_occurred = false;
@@ -375,13 +262,6 @@ if (isset($_POST['finalize_payments'])) {
 
         $insert_sql = "INSERT INTO monthly_payments_f (route_code, supplier_code, month, year, fixed_amount, fuel_amount, route_distance, monthly_payment, total_distance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $insert_stmt = $conn->prepare($insert_sql);
-
-        if (!$insert_stmt) {
-            $conn->rollback();
-            error_log("SQL Insert Prepare failed: " . $conn->error);
-            echo json_encode(['status' => 'error', 'message' => "SQL Insert Prepare failed: " . $conn->error]);
-            exit;
-        }
 
         foreach ($payment_data as $data) {
             $insert_stmt->bind_param("ssiiddidd", 
@@ -393,45 +273,35 @@ if (isset($_POST['finalize_payments'])) {
             if (!$insert_stmt->execute()) {
                 $error_occurred = true;
                 $specific_error = $insert_stmt->error;
-                error_log("Payment insertion failed for {$data['route_code']} / {$data['supplier_code']}: " . $specific_error);
                 break; 
             }
             $success_count++;
         }
         $insert_stmt->close();
 
-        // Final AJAX Response 
         if ($error_occurred) {
             $conn->rollback();
-            echo json_encode(['status' => 'error', 'message' => "Error finalizing payments. Transaction rolled back. DB Error: " . $specific_error]);
+            echo json_encode(['status' => 'error', 'message' => "Transaction Failed: " . $specific_error]);
         } else {
             $conn->commit();
-            echo json_encode(['status' => 'success', 'message' => "Successfully finalized and saved $success_count payments for " . $target_date->format('F Y') . "!"]);
+            echo json_encode(['status' => 'success', 'message' => "Finalized $success_count factory records for " . $target_date->format('F Y') . "!"]);
         }
 
     } catch (Exception $e) {
-        // Catch any PHP exceptions that weren't SQL errors (e.g., date errors, severe logic failure)
         $conn->rollback();
-        error_log("FATAL EXCEPTION during finalization: " . $e->getMessage() . " on line " . $e->getLine());
-        echo json_encode(['status' => 'error', 'message' => "A severe system error occurred during processing. Please check logs. Error: " . $e->getMessage()]);
+        echo json_encode(['status' => 'error', 'message' => "System Error: " . $e->getMessage()]);
     }
-
-    exit; // EXIT after JSON response
+    exit; 
 }
 
 // =======================================================================
-// 3. HTML DISPLAY LOGIC (If NOT AJAX and PIN is still required/was correct)
+// 3. HTML DISPLAY LOGIC (Styled)
 // =======================================================================
 
 // --- PIN FORM DISPLAY ---
 if (!$is_pin_correct) {
-    // CRITICAL: Clean buffer before showing HTML content
     ob_end_clean();
-    // Restart buffering for the HTML output
     ob_start();
-    
-    // HTML for PIN Entry Form (RETAINS ORIGINAL PIN FORM)
-    $page_title = "Payments Finalization - PIN Access";
     include('../../../includes/header.php');
     include('../../../includes/navbar.php');
 ?>
@@ -440,79 +310,122 @@ if (!$is_pin_correct) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PIN Access</title>
+    <title>Factory PIN Access</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style> body { font-family: 'Inter', sans-serif; } </style>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen">
-    <main class="w-[85%] ml-[15%] p-8 mt-[5%] flex justify-center items-center">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
-            <h2 class="text-2xl font-bold text-center mb-6 text-blue-600">Secure Payment Finalization</h2>
-            
-            <?php if (!empty($pin_message)): ?>
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-                    <span class="block sm:inline"><?php echo htmlspecialchars($pin_message); ?></span>
-                </div>
-            <?php endif; ?>
+<body class="bg-gray-100">
+<div id="pageLoader" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-gray-900 bg-opacity-90">
+    <div class="flex flex-col items-center gap-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-yellow-400"></div>
+        <p class="text-gray-300 text-sm tracking-wide">Loading...</p>
+    </div>
+</div>
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="factory_route_payments.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                Factory Payments
+            </a>
 
-            <form method="post" action="f_payments_done.php">
-                <div class="mb-6">
-                    <label for="security_pin" class="block text-sm font-medium text-gray-700 mb-2">Security PIN</label>
-                    <input type="password" name="security_pin" id="security_pin" maxlength="8" required 
-                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-lg text-center tracking-widest"
-                           placeholder="********" autocomplete="off">
-                </div>
-                <button type="submit" name="pin_submit" 
-                        class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-700 transition duration-200">
-                    Verify PIN <i class="fas fa-key ml-2"></i>
-                </button>
-            </form>
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                Finalize Payments
+            </span>
         </div>
-    </main>
+    </div>
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="factory_route_payments.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+            Back
+        </a>
+    </div>
+</div>
+
+<main class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex justify-center items-center">
+    <div class="bg-white p-8 rounded-xl shadow-lg border border-gray-200 w-full max-w-md">
+        <div class="text-center mb-6">
+            <div class="bg-blue-100 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
+                <i class="fas fa-shield-alt"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800">Security Check</h2>
+            <p class="text-sm text-gray-500 mt-2">Enter today's PIN to access factory finalization.</p>
+        </div>
+        
+        <?php if (!empty($pin_message)): ?>
+            <div class="bg-red-50 border-l-4 border-red-500 text-red-700 p-3 rounded mb-6 text-sm flex items-center gap-2">
+                <i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($pin_message); ?>
+            </div>
+        <?php endif; ?>
+
+        <form method="post" action="f_payments_done.php">
+            <div class="mb-6">
+                <input type="password" name="security_pin" id="security_pin" maxlength="8" required 
+                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-center text-xl tracking-[0.5em] font-mono transition"
+                       placeholder="••••••••" autocomplete="off" autofocus>
+            </div>
+            <button type="submit" name="pin_submit" 
+                    class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-700 transition transform hover:scale-105 flex justify-center items-center gap-2">
+                Verify Access <i class="fas fa-arrow-right"></i>
+            </button>
+        </form>
+    </div>
+</main>
+<script>
+    // 1. PIN Form එක Submit වෙද්දි Loader පෙන්නන්න
+    document.querySelector("form").addEventListener("submit", function() {
+        const loader = document.getElementById("pageLoader");
+        loader.querySelector("p").innerText = "Verifying PIN...";
+        loader.classList.remove("hidden");
+        loader.classList.add("flex");
+    });
+
+    // 2. Back Button එක (හෝ වෙනත් Link) Click කරද්දි Loader පෙන්නන්න
+    document.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", function () {
+            const loader = document.getElementById("pageLoader");
+            loader.querySelector("p").innerText = "Going Back...";
+            loader.classList.remove("hidden");
+            loader.classList.add("flex");
+        });
+    });
+</script>
 </body>
 </html>
 <?php
-    exit(); // Exit after PIN form submission if PIN was wrong or not yet entered
+    exit(); 
 }
 
-// --- MAIN BUTTON DISPLAY (PIN WAS CORRECT) ---
+// --- MAIN BUTTON DISPLAY (PIN CORRECT) ---
 
-// A. Payment Availability Check (Determine Previous Month's Status)
 $payment_available_date = new DateTime('first day of this month');
 $payment_available_date->modify('-1 month'); 
 $available_month = (int)$payment_available_date->format('m');
 $available_year = (int)$payment_available_date->format('Y');
 $available_month_name = $payment_available_date->format('F Y');
 
-// Check if this month/year combination already exists in the history table
 $is_payment_already_done = false;
-$check_done_sql = "SELECT COUNT(*) FROM monthly_payments_f WHERE month = ? AND year = ? LIMIT 1";
-$check_done_stmt = $conn->prepare($check_done_sql);
+$check_done_stmt = $conn->prepare("SELECT COUNT(*) FROM monthly_payments_f WHERE month = ? AND year = ? LIMIT 1");
 if ($check_done_stmt) {
     $check_done_stmt->bind_param("ii", $available_month, $available_year);
     $check_done_stmt->execute();
-    $count = $check_done_stmt->get_result()->fetch_row()[0];
-    if ((int)$count > 0) {
-        $is_payment_already_done = true;
-    }
+    if ((int)$check_done_stmt->get_result()->fetch_row()[0] > 0) $is_payment_already_done = true;
     $check_done_stmt->close();
 }
 
+$data_exists = false;
+$data_exists_stmt = $conn->prepare("SELECT 1 FROM factory_transport_vehicle_register ftvr JOIN route r ON ftvr.route = r.route_code WHERE MONTH(ftvr.date) = ? AND YEAR(ftvr.date) = ? AND r.purpose = 'factory' LIMIT 1");
+if ($data_exists_stmt) {
+    $data_exists_stmt->bind_param("ii", $available_month, $available_year);
+    $data_exists_stmt->execute();
+    if ($data_exists_stmt->get_result()->num_rows > 0) $data_exists = true;
+    $data_exists_stmt->close();
+}
 
-// B. Check if there is data to process for the previous month
-$data_exists_sql = "SELECT 1 FROM factory_transport_vehicle_register ftvr JOIN route r ON ftvr.route = r.route_code WHERE MONTH(ftvr.date) = ? AND YEAR(ftvr.date) = ? AND r.purpose = 'factory' LIMIT 1";
-$data_exists_stmt = $conn->prepare($data_exists_sql);
-$data_exists_stmt->bind_param("ii", $available_month, $available_year);
-$data_exists_stmt->execute();
-$data_exists_result = $data_exists_stmt->get_result();
-$data_exists = $data_exists_result->num_rows > 0;
-$data_exists_stmt->close();
-
-
-$page_title = "Factory Monthly Payments - FINALIZATION";
 include('../../../includes/header.php');
 include('../../../includes/navbar.php');
-// FINAL STEP: Flush and turn off buffering for the main HTML output
 ob_end_flush(); 
 ?>
 
@@ -521,125 +434,152 @@ ob_end_flush();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Route Payments Finalization</title>
+    <title>Finalize Factory Payments</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style> body { font-family: 'Inter', sans-serif; } </style>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen">
-    <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-[5%] fixed top-0 left-0 right-0 z-10">
-        <div class="text-lg font-semibold ml-3">Payments</div>
-        <div class="flex gap-4">
-            <p class="hover:text-yellow-600 text-yellow-500 font-bold">Staff</p>
-            <a href="factory/factory_route_payments.php" class="hover:text-yellow-600">Factory</a>
-            </div>
+<body class="bg-gray-100">
+<div id="pageLoader" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-gray-900 bg-opacity-90">
+    <div class="flex flex-col items-center gap-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-yellow-400"></div>
+        <p class="text-gray-300 text-sm tracking-wide">Loading...</p>
     </div>
-    
-    <main class="w-[85%] ml-[15%] p-4 mt-[5%] flex justify-center">
-        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg">
-            <h2 class="text-3xl font-extrabold text-gray-800 mb-6 text-center">
-                <?php echo htmlspecialchars($page_title); ?>
-            </h2>
+</div>
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="factory_route_payments.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                Factory Payments
+            </a>
 
-            <div class="flex flex-col gap-4 items-center">
-                <div id="statusMessage" class="px-3 py-2 text-base font-semibold rounded-lg w-full text-center">
-                    <?php if ($is_payment_already_done): ?>
-                        <span class="bg-yellow-500 text-white block p-3 rounded-lg">
-                            <i class="fas fa-info-circle mr-2"></i> Payments for <?php echo htmlspecialchars($available_month_name); ?> are Already Finalized.
-                        </span>
-                    <?php elseif (!$data_exists): ?>
-                           <span class="bg-red-500 text-white block p-3 rounded-lg">
-                               <i class="fas fa-exclamation-triangle mr-2"></i> No trip data found for <?php echo htmlspecialchars($available_month_name); ?> to process.
-                           </span>
-                    <?php else: ?>
-                        <span class="bg-blue-100 text-blue-800 block p-3 rounded-lg">
-                            <i class="fas fa-calendar-alt mr-2"></i> Ready to finalize payments for <?php echo htmlspecialchars($available_month_name); ?>.
-                            <br>Click the button below to save the records.
-                        </span>
-                    <?php endif; ?>
-                </div>
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
 
-                <?php 
-                if (!$is_payment_already_done && $data_exists): ?>
-                    <button id="finalizeButton" 
-                             class="w-full mt-4 px-4 py-3 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-700 transition duration-200">
-                        <i class="fas fa-check-double mr-2"></i> Mark as Payments Done (Save History)
-                    </button>
-                <?php endif; ?>
-
-                <a href="factory_route_payments.php" 
-                   class="mt-4 px-3 py-2 bg-teal-600 text-white font-semibold rounded-lg shadow-md hover:bg-teal-700 transition duration-200 text-center" 
-                   title="Go back to Calculation View">
-                    <i class="fas fa-arrow-left mr-1"></i> Back to Live Calculation
-                </a>
-            </div>
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                Finalize Payments
+            </span>
         </div>
-    </main>
+    </div>
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="factory_route_payments.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+            <i class="fas fa-calculator"></i> Current Calculations
+        </a>
+    </div>
+</div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const finalizeButton = document.getElementById('finalizeButton');
-            const statusMessage = document.getElementById('statusMessage');
-            const targetMonth = "<?php echo htmlspecialchars($available_month_name); ?>";
+<main class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex justify-center items-start mt-10">
+    <div class="bg-white p-8 rounded-xl shadow-lg border border-gray-200 w-full max-w-lg text-center">
+        
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">Month End Process</h2>
+        <p class="text-sm text-gray-500 mb-8">Finalize <strong>Factory</strong> route payments for the previous month.</p>
 
-            if (finalizeButton) {
-                finalizeButton.addEventListener('click', function() {
-                    const confirmAction = confirm("Are you sure you want to finalize and save payments for " + targetMonth + "? This action cannot be reversed (data will be written to history table).");
-                    
-                    if (confirmAction) {
-                        // Display processing status
-                        statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-blue-100 text-blue-800';
-                        statusMessage.innerHTML = '<i class="fas fa-sync-alt fa-spin mr-2"></i> Processing... Please wait.';
-                        finalizeButton.disabled = true;
+        <div id="statusMessage" class="mb-8">
+            <?php if ($is_payment_already_done): ?>
+                <div class="bg-green-50 border border-green-200 rounded-xl p-6">
+                    <div class="bg-green-100 text-green-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl">
+                        <i class="fas fa-check"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-green-800">Completed</h3>
+                    <p class="text-green-700 text-sm mt-1">Payments for <strong><?php echo htmlspecialchars($available_month_name); ?></strong> are already finalized.</p>
+                </div>
+            <?php elseif (!$data_exists): ?>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+                    <div class="bg-yellow-100 text-yellow-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-yellow-800">No Data</h3>
+                    <p class="text-yellow-700 text-sm mt-1">No factory trip records found for <strong><?php echo htmlspecialchars($available_month_name); ?></strong>.</p>
+                </div>
+            <?php else: ?>
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                    <div class="bg-blue-100 text-blue-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-blue-800">Ready to Finalize</h3>
+                    <p class="text-blue-700 text-sm mt-1">
+                        Please confirm to save payments for <br>
+                        <strong class="text-lg"><?php echo htmlspecialchars($available_month_name); ?></strong>
+                    </p>
+                </div>
+            <?php endif; ?>
+        </div>
 
-                        fetch('f_payments_done.php', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                            },
-                            body: 'finalize_payments=true'
-                        })
-                        .then(response => {
-                             // IMPORTANT: Check for non-200 status (like 500)
-                             if (!response.ok) {
-                                 // Read the raw text for the server error message
-                                 return response.text().then(text => {
-                                      throw new Error(`Server responded with status ${response.status}. Raw output: ${text.substring(0, 200)}...`);
-                                 });
-                             }
-                            
-                             const contentType = response.headers.get("content-type");
-                             if (contentType && contentType.indexOf("application/json") !== -1) {
-                                 return response.json();
-                             } else {
-                                 return response.text().then(text => {
-                                      finalizeButton.disabled = false; 
-                                     throw new Error("Received non-JSON content. Raw output: " + text.substring(0, 200) + "...");
-                                 });
-                             }
-                        })
-                        .then(data => {
-                            if (data.status === 'success') {
-                                statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-green-100 text-green-800';
-                                statusMessage.innerHTML = '<i class="fas fa-check-circle mr-2"></i> ' + data.message;
+        <?php if (!$is_payment_already_done && $data_exists): ?>
+            <button id="finalizeButton" 
+                    class="w-full py-3.5 bg-green-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-green-700 transition transform hover:scale-[1.02] flex justify-center items-center gap-2">
+                <i class="fas fa-save"></i> Save & Finalize
+            </button>
+            <p class="text-xs text-gray-400 mt-3">This action saves data to history and cannot be undone here.</p>
+        <?php else: ?>
+            <a href="f_payments_history.php" class="inline-flex items-center justify-center gap-2 w-full py-3 bg-gray-800 text-white font-semibold rounded-lg hover:bg-gray-900 transition shadow-md">
+                <i class="fas fa-history"></i> View Factory History
+            </a>
+        <?php endif; ?>
 
-                            } else {
-                                statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-red-100 text-red-800';
-                                statusMessage.innerHTML = '<i class="fas fa-times-circle mr-2"></i> Failed: ' + data.message;
-                                finalizeButton.disabled = false;
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Fetch Error:', error);
-                            
-                            statusMessage.className = 'px-3 py-2 text-base font-semibold rounded-lg w-full text-center bg-red-100 text-red-800';
-                            statusMessage.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i> Critical Error: ' + error.message; 
+    </div>
+</main>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const finalizeButton = document.getElementById('finalizeButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const targetMonth = "<?php echo htmlspecialchars($available_month_name); ?>";
+
+        if (finalizeButton) {
+            finalizeButton.addEventListener('click', function() {
+                if (confirm("Confirm Factory Finalization for " + targetMonth + "?\n\nData will be permanently saved to history.")) {
+                    // Update UI
+                    finalizeButton.disabled = true;
+                    finalizeButton.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Processing...';
+                    finalizeButton.classList.add('opacity-75', 'cursor-not-allowed');
+
+                    fetch('f_payments_done.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'finalize_payments=true'
+                    })
+                    .then(response => {
+                        if (!response.ok) throw new Error("Server Error: " + response.status);
+                        return response.json().catch(() => { throw new Error("Invalid Server Response"); });
+                    })
+                    .then(data => {
+                        if (data.status === 'success') {
+                            alert(data.message);
+                            location.reload(); 
+                        } else {
+                            alert("Failed: " + data.message);
                             finalizeButton.disabled = false;
-                        });
-                    }
-                });
-            }
+                            finalizeButton.innerHTML = '<i class="fas fa-save"></i> Save & Finalize';
+                            finalizeButton.classList.remove('opacity-75', 'cursor-not-allowed');
+                        }
+                    })
+                    .catch(error => {
+                        console.error(error);
+                        alert("Critical Error: " + error.message);
+                        finalizeButton.disabled = false;
+                        finalizeButton.innerHTML = '<i class="fas fa-save"></i> Save & Finalize';
+                        finalizeButton.classList.remove('opacity-75', 'cursor-not-allowed');
+                    });
+                }
+            });
+        }
+    });
+
+    const loader = document.getElementById("pageLoader");
+    function showLoader(text = "Loading...") {
+        loader.querySelector("p").innerText = text;
+        loader.classList.remove("hidden");
+        loader.classList.add("flex");
+    }
+
+    document.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", function () {
+            showLoader("Loading...");
         });
-    </script>
+    });
+</script>
+
 </body>
 </html>
 

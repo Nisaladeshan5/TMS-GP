@@ -6,7 +6,6 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../../includes/login.php");
     exit();
@@ -15,28 +14,23 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 include('../../../includes/db.php');
 date_default_timezone_set('Asia/Colombo');
 
-// Error reporting settings
 ini_set('display_errors', 1); 
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
-// Get the logged-in User ID from the session
 $logged_in_user_id = $_SESSION['user_id'] ?? null; 
 
 // --- Database Functions ---
 
-/**
- * Fetches Employee IDs AND Names for the dropdown
- */
 function fetch_own_vehicle_employee_ids($conn) {
     $emp_list = [];
-    $sql = "
-        SELECT DISTINCT ov.emp_id, e.calling_name
-        FROM own_vehicle ov
-        LEFT JOIN employee e ON ov.emp_id = e.emp_id
-        WHERE ov.vehicle_no IS NOT NULL AND ov.vehicle_no != ''
-        ORDER BY ov.emp_id ASC
-    ";
+    
+    // --- CHANGE 1: Added e.department to SELECT ---
+    $sql = "SELECT DISTINCT ov.emp_id, e.calling_name, e.department
+            FROM own_vehicle ov
+            LEFT JOIN employee e ON ov.emp_id = e.emp_id
+            WHERE ov.vehicle_no IS NOT NULL AND ov.vehicle_no != '' AND ov.is_active = 1
+            ORDER BY ov.emp_id ASC";
     
     try {
         $result = $conn->query($sql);
@@ -44,51 +38,41 @@ function fetch_own_vehicle_employee_ids($conn) {
             while ($row = $result->fetch_assoc()) {
                 $emp_list[] = [
                     'emp_id' => $row['emp_id'],
-                    'calling_name' => $row['calling_name'] ?? 'Unknown'
+                    'calling_name' => $row['calling_name'] ?? 'Unknown',
+                    // --- CHANGE 2: Capture Department ---
+                    'department' => $row['department'] ?? '' 
                 ];
             }
         }
-        if (isset($result)) $result->free();
-    } catch (Exception $e) {
-        error_log("Employee ID Fetch Error: " . $e->getMessage());
-        return []; 
-    }
+    } catch (Exception $e) { return []; }
     return $emp_list;
 }
 
-/**
- * Fetches ONLY Vehicle No by Employee ID (Name is no longer needed via AJAX)
- */
-function fetch_vehicle_by_id($conn, $emp_id) {
-    $details = null;
-
-    $sql = "SELECT vehicle_no FROM own_vehicle WHERE emp_id = ? LIMIT 1";
+// UPDATED: Fetches ALL vehicles for a specific employee (Returns Array)
+function fetch_vehicles_by_emp_id($conn, $emp_id) {
+    $vehicles = [];
+    $sql = "SELECT vehicle_no FROM own_vehicle WHERE emp_id = ? AND vehicle_no != '' AND is_active = 1";
 
     $stmt = $conn->prepare($sql);
-    if (!$stmt) { 
-        error_log("Employee Prepare Failed: " . $conn->error);
-        return null; 
-    }
+    if (!$stmt) return [];
+    
     $stmt->bind_param('s', $emp_id);
     $stmt->execute();
     $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
+    
+    while ($row = $result->fetch_assoc()) {
+        $vehicles[] = $row['vehicle_no'];
+    }
     $stmt->close();
     
-    if ($row) {
-        $details = ['vehicle_no' => $row['vehicle_no'] ?? ''];
-    } else {
-        $details = ['vehicle_no' => ''];
-    }
-    
-    return $details;
+    return $vehicles;
 }
 
 // ---------------------------------------------------------------------
 // --- AJAX POST HANDLERS ---
 // ---------------------------------------------------------------------
 
-// 1. Handler for fetching vehicle details
+// 1. Handler for fetching vehicle details (Returns List now)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_details']) && isset($_POST['emp_id'])) {
     if (ob_get_length()) ob_clean(); 
     header('Content-Type: application/json');
@@ -100,12 +84,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_details']) && i
         exit(); 
     }
 
-    $details = fetch_vehicle_by_id($conn, $emp_id);
+    $vehicles = fetch_vehicles_by_emp_id($conn, $emp_id);
     
-    if ($details) {
-        echo json_encode(['status' => 'success', 'details' => $details]);
+    if (!empty($vehicles)) {
+        echo json_encode(['status' => 'success', 'vehicles' => $vehicles]);
     } else {
-        echo json_encode(['status' => 'error', 'message' => 'Vehicle details not found.']);
+        echo json_encode(['status' => 'error', 'message' => 'No vehicles found for this employee.']);
     }
 
     if (isset($conn)) $conn->close();
@@ -127,7 +111,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     
     $current_user_id = $logged_in_user_id;
 
-    // Validation
     if (empty($emp_id) || empty($vehicle_no) || empty($date) || empty($out_time) || empty($in_time) || !is_numeric($distance)) {
         echo json_encode(['status' => 'error', 'message' => 'All fields are required correctly.']);
         exit();
@@ -210,7 +193,10 @@ include('../../../includes/navbar.php');
                             <option value="" disabled selected>Select an Employee</option>
                             <?php foreach ($employee_ids_list as $emp): ?>
                                 <option value="<?php echo htmlspecialchars($emp['emp_id']); ?>">
-                                    <?php echo htmlspecialchars($emp['emp_id'] . ' - ' . $emp['calling_name']); ?>
+                                    <?php 
+                                        $deptInfo = !empty($emp['department']) ? ' (' . $emp['department'] . ')' : '';
+                                        echo htmlspecialchars($emp['emp_id'] . ' - ' . $emp['calling_name'] . $deptInfo); 
+                                    ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -218,9 +204,10 @@ include('../../../includes/navbar.php');
                     
                     <div>
                         <label for="vehicle_no" class="block text-sm font-medium text-gray-700">Vehicle No (Assigned):</label>
-                        <input type="text" id="vehicle_no" name="vehicle_no" required 
-                            class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2" 
-                            placeholder="Auto-filled or Enter Manually">
+                        <select id="vehicle_no" name="vehicle_no" required 
+                            class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2 bg-gray-50 cursor-not-allowed">
+                            <option value="" disabled selected>Select Employee First</option>
+                        </select>
                     </div>
 
                     <div>
@@ -264,7 +251,7 @@ include('../../../includes/navbar.php');
 
     <script>
         const empIdSelect = document.getElementById('emp_id_select');
-        const vehicleNoInput = document.getElementById('vehicle_no'); 
+        const vehicleNoSelect = document.getElementById('vehicle_no'); 
         const form = document.getElementById('addExtraForm');
 
         function showToast(message, type) {
@@ -277,16 +264,18 @@ include('../../../includes/navbar.php');
             setTimeout(() => { toast.classList.remove('show'); toast.remove(); }, 4000); 
         }
 
-        function resetAutoFields() {
-            vehicleNoInput.value = '';
-            vehicleNoInput.classList.remove('bg-yellow-100');
+        // Reset Dropdown logic
+        function resetVehicleDropdown(placeholder = 'Select Employee First') {
+            vehicleNoSelect.innerHTML = `<option value="" disabled selected>${placeholder}</option>`;
+            vehicleNoSelect.classList.add('bg-gray-50', 'cursor-not-allowed');
+            vehicleNoSelect.classList.remove('bg-white');
         }
 
         async function fetchDetailsByEmpId(empId) {
-            if (!empId) { resetAutoFields(); return; }
+            if (!empId) { resetVehicleDropdown(); return; }
 
-            vehicleNoInput.value = 'Fetching...';
-            vehicleNoInput.classList.add('bg-yellow-100');
+            // Loading state
+            vehicleNoSelect.innerHTML = '<option>Loading...</option>';
 
             const formData = new FormData();
             formData.append('fetch_details', '1');
@@ -296,16 +285,40 @@ include('../../../includes/navbar.php');
                 const response = await fetch('add_own_vehicle_extra.php', { method: 'POST', body: formData });
                 const result = await response.json();
 
-                if (result.status === 'success') {
-                    vehicleNoInput.value = result.details.vehicle_no;
-                    vehicleNoInput.classList.remove('bg-yellow-100');
+                vehicleNoSelect.innerHTML = ''; // Clear previous
+
+                if (result.status === 'success' && result.vehicles.length > 0) {
+                    
+                    // Add "Select Vehicle" option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.text = "Select Vehicle";
+                    defaultOption.value = "";
+                    defaultOption.disabled = true;
+                    if(result.vehicles.length > 1) defaultOption.selected = true; 
+                    vehicleNoSelect.add(defaultOption);
+
+                    // Add vehicles from DB
+                    result.vehicles.forEach((veh, index) => {
+                        const option = document.createElement('option');
+                        option.value = veh;
+                        option.text = veh;
+                        // Auto-select if only one vehicle exists
+                        if (result.vehicles.length === 1 && index === 0) {
+                            option.selected = true;
+                        }
+                        vehicleNoSelect.add(option);
+                    });
+
+                    // Enable Dropdown
+                    vehicleNoSelect.classList.remove('bg-gray-50', 'cursor-not-allowed');
+                    vehicleNoSelect.classList.add('bg-white');
+
                 } else {
-                    resetAutoFields();
-                    vehicleNoInput.placeholder = 'Not Found! Enter Manually.';
-                    showToast(result.message, 'error');
+                    resetVehicleDropdown('No vehicles found');
+                    showToast(result.message || 'No vehicles found', 'error');
                 }
             } catch (error) {
-                resetAutoFields();
+                resetVehicleDropdown('Error loading vehicles');
                 showToast('Network error occurred.', 'error');
             }
         }
@@ -319,13 +332,12 @@ include('../../../includes/navbar.php');
                 event.preventDefault();
 
                 // Basic validation
-                if (!vehicleNoInput.value.trim()) {
-                    showToast('Vehicle No cannot be empty.', 'error');
+                if (!vehicleNoSelect.value.trim()) {
+                    showToast('Please select a Vehicle No.', 'error');
                     return;
                 }
 
                 const formData = new FormData(this);
-                formData.set('vehicle_no', vehicleNoInput.value.toUpperCase().trim());
                 
                 try {
                     const response = await fetch('add_own_vehicle_extra.php', { method: 'POST', body: formData });

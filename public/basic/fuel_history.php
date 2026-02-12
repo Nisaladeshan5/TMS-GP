@@ -11,14 +11,106 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 
 include('../../includes/db.php');
 
-// --- Filter Logic ---
-$filter_rate_id = isset($_GET['rate_id']) ? $_GET['rate_id'] : 'all'; // Default to ALL for reports
-$from_date = isset($_GET['from_date']) ? $_GET['from_date'] : '';
-$to_date = isset($_GET['to_date']) ? $_GET['to_date'] : '';
+// --- HELPER FUNCTION: GET DATA ---
+function getFuelData($conn, $filters) {
+    $rate_id = $filters['rate_id'] ?? 'all';
+    $from_date = $filters['from_date'] ?? '';
+    $to_date = $filters['to_date'] ?? '';
 
-$history_data = [];
+    $sql = "SELECT rate_id, type, rate, date FROM fuel_rate WHERE 1=1";
+    $params = [];
+    $types = '';
 
-// 1. Fetch Unique Fuel Types for the Filter Dropdown
+    if ($rate_id != 'all' && !empty($rate_id)) {
+        $sql .= " AND rate_id = ?";
+        $params[] = $rate_id;
+        $types .= 'i';
+    }
+
+    if (!empty($from_date)) {
+        $sql .= " AND date >= ?";
+        $params[] = $from_date;
+        $types .= 's';
+    }
+
+    if (!empty($to_date)) {
+        $sql .= " AND date <= ?";
+        $params[] = $to_date;
+        $types .= 's';
+    }
+
+    // Order by Date DESC (Newest first), then by Type
+    $sql .= " ORDER BY date DESC, type ASC";
+
+    $stmt = $conn->prepare($sql);
+    if (!empty($params)) {
+        $stmt->bind_param($types, ...$params);
+    }
+    $stmt->execute();
+    return $stmt->get_result();
+}
+
+// --- HELPER FUNCTION: RENDER ROWS ---
+function renderTableRows($result) {
+    if ($result && $result->num_rows > 0) {
+        while ($row = $result->fetch_assoc()) {
+            
+            // Fuel Icon based on type (Just for visual)
+            $icon_color = 'text-gray-500 bg-gray-100';
+            if (stripos($row['type'], 'petrol') !== false) $icon_color = 'text-yellow-600 bg-yellow-100';
+            elseif (stripos($row['type'], 'diesel') !== false) $icon_color = 'text-blue-600 bg-blue-100';
+            
+            echo "<tr class='hover:bg-blue-50 transition duration-150 border-b border-gray-200 group'>
+                    <td class='px-6 py-4 text-left font-mono text-gray-600 text-sm'>
+                        " . date('Y-m-d', strtotime($row['date'])) . "
+                    </td>
+                    <td class='px-6 py-4'>
+                        <div class='flex items-center gap-3'>
+                            <div class='w-8 h-8 rounded-full flex items-center justify-center {$icon_color}'>
+                                <i class='fas fa-gas-pump text-xs'></i>
+                            </div>
+                            <span class='font-medium text-gray-800 text-sm'>" . htmlspecialchars($row['type']) . "</span>
+                        </div>
+                    </td>
+                    <td class='px-6 py-4 text-right'>
+                        <span class='font-bold text-emerald-600 font-mono text-sm bg-emerald-50 px-2 py-1 rounded border border-emerald-100'>
+                            Rs. " . number_format($row['rate'], 2) . "
+                        </span>
+                    </td>
+                    <td class='px-6 py-4 text-center'>
+                         <span class='inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-green-100 text-green-700 border border-green-200'>
+                            Recorded
+                        </span>
+                    </td>
+                  </tr>";
+        }
+    } else {
+        echo '<tr>
+                <td colspan="4" class="px-6 py-12 text-center text-gray-500">
+                    <div class="flex flex-col items-center justify-center">
+                        <i class="fas fa-search-minus text-3xl mb-2 text-gray-300"></i>
+                        <p class="text-sm font-medium">No history records found.</p>
+                        <p class="text-xs text-gray-400">Try adjusting the filters.</p>
+                    </div>
+                </td>
+              </tr>';
+    }
+}
+
+// --- 1. AJAX FILTER HANDLER ---
+if (isset($_GET['ajax_filter'])) {
+    $filters = [
+        'rate_id' => $_GET['rate_id'] ?? 'all',
+        'from_date' => $_GET['from_date'] ?? '',
+        'to_date' => $_GET['to_date'] ?? ''
+    ];
+    $result = getFuelData($conn, $filters);
+    renderTableRows($result);
+    exit; 
+}
+
+// --- 2. PAGE LOAD DATA ---
+// Fetch Fuel Types for Dropdown
 $types_sql = "SELECT DISTINCT rate_id, type FROM fuel_rate ORDER BY type ASC";
 $types_result = $conn->query($types_sql);
 $fuel_types = [];
@@ -28,30 +120,13 @@ if ($types_result->num_rows > 0) {
     }
 }
 
-// 2. Build Query with Filters
-$sql = "SELECT rate_id, type, rate, date FROM fuel_rate WHERE 1=1";
-
-if ($filter_rate_id != 'all') {
-    $sql .= " AND rate_id = " . intval($filter_rate_id);
-}
-
-if (!empty($from_date)) {
-    $sql .= " AND date >= '" . $conn->real_escape_string($from_date) . "'";
-}
-
-if (!empty($to_date)) {
-    $sql .= " AND date <= '" . $conn->real_escape_string($to_date) . "'";
-}
-
-// Order by Date DESC (Newest first), then by Type
-$sql .= " ORDER BY date DESC, type ASC";
-
-$result = $conn->query($sql);
-if ($result && $result->num_rows > 0) {
-    while ($row = $result->fetch_assoc()) {
-        $history_data[] = $row;
-    }
-}
+// Initial Data Load
+$filters = [
+    'rate_id' => 'all',
+    'from_date' => '',
+    'to_date' => ''
+];
+$initial_result = getFuelData($conn, $filters);
 
 include('../../includes/header.php');
 include('../../includes/navbar.php');
@@ -62,139 +137,247 @@ include('../../includes/navbar.php');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fuel Rate History Report</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        /* Custom Print Settings */
-        @media print {
-            body { background: white; }
-            .no-print { display: none !important; }
-            /* Reset sidebar margins for full width print */
-            .print-full-width { margin: 0 !important; width: 100% !important; }
-            /* Ensure table borders print clearly */
-            table, th, td { border: 1px solid #ddd !important; }
-        }
-    </style>
-</head>
-<body class="bg-gray-100 text-gray-800">
+    <title>Fuel Rate History</title>
     
-    <div class="flex justify-center items-start w-[85%] ml-[15%] min-h-screen pt-10 print-full-width">
-        <div class="w-full max-w-6xl mx-auto p-6 bg-white rounded-lg shadow-md print:shadow-none print:p-0">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        #filterDrawer { transition: max-height 0.4s ease-in-out, opacity 0.3s ease-in-out; overflow: hidden; }
+        .drawer-closed { max-height: 0; opacity: 0; padding-top: 0 !important; padding-bottom: 0 !important; border-bottom-width: 0 !important; pointer-events: none; }
+        .drawer-open { max-height: 400px; opacity: 1; pointer-events: auto; }
+        .table-loading { opacity: 0.5; pointer-events: none; }
+    </style>
+    
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
+</head>
+
+<body class="bg-gray-100 overflow-hidden text-sm">
+
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-14 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <!-- <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Fuel Rate History
+        </div> -->
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                Fuel
+            </a>
+
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                History
+            </span>
+        </div>
+    </div>
+    
+    <div class="flex items-center gap-3 text-sm font-medium">
+        <button onclick="toggleFilters()" id="filterToggleBtn" class="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-md shadow-md transition border border-gray-500 focus:outline-none focus:ring-1 focus:ring-yellow-400">
+            <i class="fas fa-filter text-yellow-400"></i> 
+            <span id="filterBtnText">Show Filters</span>
+            <i id="filterArrow" class="fas fa-chevron-down text-[10px] transition-transform duration-300"></i>
+        </button>
+
+        <span class="text-gray-500">|</span>
+
+        <a href="fuel.php" class="text-gray-300 hover:text-white transition flex items-center gap-1">
+            <i class="fas fa-gas-pump"></i> Fuel Rates
+        </a>
+    </div>
+</div>
+
+<div class="w-[85%] ml-[15%] pt-14 h-screen flex flex-col relative">
+    
+    <div id="filterDrawer" class="bg-white shadow-lg border-b border-gray-300 drawer-closed absolute top-14 left-0 w-full z-40 px-6 py-4">
+        <div class="flex justify-between items-center mb-3">
+            <h3 class="text-xs font-bold text-gray-700 uppercase flex items-center gap-2">
+                <i class="fas fa-search text-blue-500"></i> Filter History
+            </h3>
+            <div class="flex gap-2">
+                <button type="button" id="clearFiltersBtn" class="text-[10px] font-semibold text-gray-500 hover:text-red-600 px-3 py-1 bg-gray-100 rounded hover:bg-gray-200 transition">
+                    Clear All
+                </button>
+                <button type="button" id="downloadPdfBtn" class="text-[10px] font-semibold text-white bg-red-600 hover:bg-red-700 px-3 py-1 rounded shadow transition flex items-center gap-1">
+                    <i class="fas fa-file-pdf"></i> Download PDF
+                </button>
+            </div>
+        </div>
+        
+        <form id="filterForm" class="grid grid-cols-1 md:grid-cols-3 gap-4 pb-2" onsubmit="return false;">
+            <div>
+                <label class="block text-[10px] font-semibold text-gray-500 mb-1">Fuel Type</label>
+                <select id="filter_rate_id" onchange="applyFilters()" class="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer bg-white">
+                    <option value="all">All Types</option>
+                    <?php foreach ($fuel_types as $type): ?>
+                        <option value="<?php echo $type['rate_id']; ?>">
+                            <?php echo htmlspecialchars($type['type']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
             
-            <div class="flex justify-between items-center mb-6 border-b pb-4 print:hidden">
-                <div>
-                    <h2 class="text-3xl font-bold text-gray-800">Fuel Rate History Log</h2>
-                    <p class="text-gray-500 text-sm mt-1">View and print historical price changes.</p>
-                </div>
-                <div class="flex gap-2">
-                    <a href="generate_fuel_pdf.php?rate_id=<?php echo $filter_rate_id; ?>&from_date=<?php echo $from_date; ?>&to_date=<?php echo $to_date; ?>" target="_blank" class="bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-red-700 transition-colors flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                        </svg>
-                        Download Report
-                    </a>
-                    <a href="fuel.php?view=list" class="bg-gray-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-gray-700 transition-colors flex items-center">
-                        Back
-                    </a>
-                </div>
+            <div>
+                <label class="block text-[10px] font-semibold text-gray-500 mb-1">From Date</label>
+                <input type="date" id="filter_from_date" onchange="applyFilters()" class="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none">
             </div>
 
-            <div class="hidden print:block mb-6 text-center border-b pb-4">
-                <h1 class="text-2xl font-bold uppercase">Fuel Rate History Report</h1>
-                <p class="text-sm text-gray-600 mt-1">Generated on: <?php echo date('Y-m-d H:i:s'); ?></p>
-                <div class="mt-2 text-sm">
-                    <strong>Filter:</strong> 
-                    <?php 
-                        echo ($filter_rate_id == 'all') ? 'All Fuel Types' : 'Specific Type (ID: '.$filter_rate_id.')'; 
-                        if($from_date || $to_date) echo " | Date: " . ($from_date ? $from_date : 'Start') . " to " . ($to_date ? $to_date : 'Now');
-                    ?>
-                </div>
+            <div>
+                <label class="block text-[10px] font-semibold text-gray-500 mb-1">To Date</label>
+                <input type="date" id="filter_to_date" onchange="applyFilters()" class="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none">
             </div>
-
-            <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200 print:hidden">
-                <form method="GET" action="fuel_history.php" class="flex flex-wrap items-end gap-4">
-                    
-                    <div class="flex flex-col">
-                        <label for="rate_id" class="font-semibold text-blue-800 text-sm mb-1">Fuel Type:</label>
-                        <select name="rate_id" id="rate_id" class="border border-gray-300 rounded-md px-3 py-2 w-48 focus:ring-2 focus:ring-blue-500 outline-none">
-                            <option value="all">All Types</option>
-                            <?php foreach ($fuel_types as $type): ?>
-                                <option value="<?php echo $type['rate_id']; ?>" <?php echo ($filter_rate_id == $type['rate_id']) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($type['type']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="flex flex-col">
-                        <label for="from_date" class="font-semibold text-blue-800 text-sm mb-1">From:</label>
-                        <input type="date" name="from_date" value="<?php echo $from_date; ?>" class="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-
-                    <div class="flex flex-col">
-                        <label for="to_date" class="font-semibold text-blue-800 text-sm mb-1">To:</label>
-                        <input type="date" name="to_date" value="<?php echo $to_date; ?>" class="border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-
-                    <div class="flex gap-2 pb-[1px]">
-                        <button type="submit" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded hover:bg-blue-700 transition">
-                            Filter
-                        </button>
-                        <a href="fuel_history.php" class="bg-gray-400 text-white font-semibold py-2 px-4 rounded hover:bg-gray-500 transition">
-                            Reset
-                        </a>
-                    </div>
-                </form>
-            </div>
-
-            <div class="overflow-hidden rounded-lg border border-gray-200 shadow-sm print:border-black print:shadow-none">
-                <table class="min-w-full bg-white print:text-sm">
-                    <thead class="bg-gray-800 text-white print:bg-gray-200 print:text-black">
+        </form>
+    </div>
+    
+    <div class="flex-grow overflow-hidden bg-gray-100 p-2 mt-1 transition-all duration-300">
+        <div class="bg-white shadow-lg rounded-lg border border-gray-200 h-full flex flex-col">
+            <div id="tableScrollContainer" class="overflow-auto flex-grow rounded-lg">
+                <table class="w-full table-auto border-collapse relative">
+                    <thead class="bg-gradient-to-r from-blue-600 to-blue-700 text-white text-xs sticky top-0 z-10 shadow-md">
                         <tr>
-                            <th class="py-3 px-6 text-left text-xs font-medium uppercase tracking-wider border-b">Effective Date</th>
-                            <th class="py-3 px-6 text-left text-xs font-medium uppercase tracking-wider border-b">Fuel Type</th>
-                            <th class="py-3 px-6 text-left text-xs font-medium uppercase tracking-wider border-b">Rate (Rs.)</th>
-                            <th class="py-3 px-6 text-right text-xs font-medium uppercase tracking-wider border-b">Status</th>
+                            <th class="px-6 py-3 text-left font-semibold tracking-wide w-1/4">Effective Date</th>
+                            <th class="px-6 py-3 text-left font-semibold tracking-wide w-1/4">Fuel Type</th>
+                            <th class="px-6 py-3 text-right font-semibold tracking-wide w-1/4">Rate (Rs.)</th>
+                            <th class="px-6 py-3 text-center font-semibold tracking-wide w-1/4">Status</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200">
-                        <?php if (count($history_data) > 0): ?>
-                            <?php foreach ($history_data as $row): ?>
-                                <tr class="hover:bg-gray-50 transition-colors">
-                                    <td class="py-4 px-6 whitespace-nowrap text-sm text-gray-700">
-                                        <?php echo date('Y-m-d', strtotime($row['date'])); ?>
-                                    </td>
-                                    <td class="py-4 px-6 whitespace-nowrap">
-                                        <span class="text-sm font-bold text-blue-700 print:text-black">
-                                            <?php echo htmlspecialchars($row['type']); ?>
-                                        </span>
-                                    </td>
-                                    <td class="py-4 px-6 whitespace-nowrap text-sm font-semibold text-gray-900">
-                                        Rs. <?php echo number_format($row['rate'], 2); ?>
-                                    </td>
-                                    <td class="py-4 px-6 whitespace-nowrap text-right">
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 print:bg-transparent print:text-black print:border print:border-gray-400">
-                                            Active
-                                        </span>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="4" class="py-8 text-center text-gray-500">
-                                    No records found for the selected dates/type.
-                                </td>
-                            </tr>
-                        <?php endif; ?>
+                    <tbody id="fuelTableBody" class="text-gray-700 divide-y divide-gray-200 text-sm bg-white">
+                        <?php renderTableRows($initial_result); ?>
                     </tbody>
                 </table>
             </div>
-
-            <div class="mt-4 text-sm text-gray-500 text-right font-semibold">
-                Total Records: <?php echo count($history_data); ?>
-            </div>
-
+        </div>
+        
+        <div class="mt-2 text-[10px] text-gray-400 text-right pr-2">
+            Showing records based on current filters
         </div>
     </div>
+</div>
+
+<script>
+    // --- UI Logic (Drawer) ---
+    const filterDrawer = document.getElementById('filterDrawer');
+    const filterBtnText = document.getElementById('filterBtnText');
+    const filterArrow = document.getElementById('filterArrow');
+    const tableScrollContainer = document.getElementById('tableScrollContainer');
+    const isFilterOpen = localStorage.getItem('fuelFilterOpen') === 'true';
+
+    // Set initial state
+    if (isFilterOpen) {
+        openFiltersUI();
+    }
+
+    function toggleFilters() {
+        if (filterDrawer.classList.contains('drawer-closed')) {
+            openFiltersUI();
+            localStorage.setItem('fuelFilterOpen', 'true');
+        } else {
+            closeFiltersUI();
+            localStorage.setItem('fuelFilterOpen', 'false');
+        }
+    }
+
+    function openFiltersUI() {
+        filterDrawer.classList.remove('drawer-closed');
+        filterDrawer.classList.add('drawer-open');
+        filterBtnText.innerText = "Hide Filters";
+        filterArrow.style.transform = "rotate(180deg)";
+    }
+
+    function closeFiltersUI() {
+        filterDrawer.classList.remove('drawer-open');
+        filterDrawer.classList.add('drawer-closed');
+        filterBtnText.innerText = "Show Filters";
+        filterArrow.style.transform = "rotate(0deg)";
+    }
+
+    // Close drawer when scrolling table
+    if (tableScrollContainer) {
+        tableScrollContainer.addEventListener('scroll', function() {
+            if (!filterDrawer.classList.contains('drawer-closed')) {
+                closeFiltersUI();
+                localStorage.setItem('fuelFilterOpen', 'false');
+            }
+        });
+        tableScrollContainer.addEventListener('click', function() {
+            if (!filterDrawer.classList.contains('drawer-closed')) {
+                closeFiltersUI();
+                localStorage.setItem('fuelFilterOpen', 'false');
+            }
+        });
+    }
+
+    // --- AJAX Filter Logic ---
+    function applyFilters() {
+        const rateId = document.getElementById('filter_rate_id').value;
+        const fromDate = document.getElementById('filter_from_date').value;
+        const toDate = document.getElementById('filter_to_date').value;
+
+        const params = new URLSearchParams();
+        if (rateId) params.append('rate_id', rateId);
+        if (fromDate) params.append('from_date', fromDate);
+        if (toDate) params.append('to_date', toDate);
+
+        // Update URL
+        const newUrl = window.location.pathname + '?' + params.toString();
+        window.history.pushState({path: newUrl}, '', newUrl);
+
+        // Add AJAX flag
+        params.append('ajax_filter', '1');
+
+        const tbody = document.getElementById('fuelTableBody');
+        tbody.classList.add('table-loading');
+
+        fetch(window.location.pathname + '?' + params.toString())
+            .then(response => response.text())
+            .then(html => {
+                tbody.innerHTML = html;
+                tbody.classList.remove('table-loading');
+            })
+            .catch(error => {
+                console.error('Error fetching data:', error);
+                tbody.classList.remove('table-loading');
+            });
+    }
+
+    // --- Clear Filters ---
+    document.getElementById('clearFiltersBtn').addEventListener('click', function() {
+        document.getElementById('filter_rate_id').value = 'all';
+        document.getElementById('filter_from_date').value = '';
+        document.getElementById('filter_to_date').value = '';
+        applyFilters();
+    });
+
+    // --- PDF Download (Opens in new tab with current filters) ---
+    document.getElementById('downloadPdfBtn').addEventListener('click', function() {
+        const rateId = document.getElementById('filter_rate_id').value;
+        const fromDate = document.getElementById('filter_from_date').value;
+        const toDate = document.getElementById('filter_to_date').value;
+        
+        const params = new URLSearchParams();
+        params.append('rate_id', rateId);
+        params.append('from_date', fromDate);
+        params.append('to_date', toDate);
+        
+        window.open('generate_fuel_pdf.php?' + params.toString(), '_blank');
+    });
+
+</script>
+
 </body>
 </html>
+<?php $conn->close(); ?>

@@ -9,29 +9,67 @@ if (session_status() == PHP_SESSION_NONE) { session_start(); }
 $is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
 if (!isset($user_role) && isset($_SESSION['role'])) { $user_role = $_SESSION['role']; }
 
-// --- HANDLE STATUS TOGGLE (POST REQUEST) ---
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['toggle_status'])) {
-    if ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])) {
-        $record_id = $_POST['record_id'];
-        $current_status = $_POST['current_status'];
-        $new_status = ($current_status == 1) ? 0 : 1; 
-        $redirect_date = $_POST['redirect_date'];
+// ---------------------------------------------------------
+// 1. FETCH SUPPLIERS FOR DROPDOWN (NEW CODE)
+// ---------------------------------------------------------
+$suppliers_list = [];
+$sql_sup = "SELECT supplier_code, supplier FROM supplier WHERE is_active = 1 ORDER BY supplier ASC";
+$res_sup = $conn->query($sql_sup);
+if ($res_sup) {
+    while ($row_s = $res_sup->fetch_assoc()) {
+        $suppliers_list[] = $row_s;
+    }
+}
 
-        $update_sql = "UPDATE factory_transport_vehicle_register SET is_active = ? WHERE id = ?";
-        $stmt_update = $conn->prepare($update_sql);
-        $stmt_update->bind_param('ii', $new_status, $record_id);
+// --- HANDLE POST REQUESTS ---
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    
+    // A. HANDLE STATUS TOGGLE
+    if (isset($_POST['toggle_status'])) {
+        if ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])) {
+            $record_id = $_POST['record_id'];
+            $current_status = $_POST['current_status'];
+            $new_status = ($current_status == 1) ? 0 : 1; 
+            $redirect_date = $_POST['redirect_date'];
 
-        if ($stmt_update->execute()) {
-            $msg = ($new_status == 1) ? "Shift Enabled Successfully" : "Shift Disabled Successfully";
-            echo "<script>window.location.href='?status=success&message=" . urlencode($msg) . "&date=" . $redirect_date . "';</script>";
-            exit();
+            $update_sql = "UPDATE factory_transport_vehicle_register SET is_active = ? WHERE id = ?";
+            $stmt_update = $conn->prepare($update_sql);
+            $stmt_update->bind_param('ii', $new_status, $record_id);
+
+            if ($stmt_update->execute()) {
+                $msg = ($new_status == 1) ? "Shift Enabled Successfully" : "Shift Disabled Successfully";
+                echo "<script>window.location.href='?status=success&message=" . urlencode($msg) . "&date=" . $redirect_date . "';</script>";
+                exit();
+            } else {
+                echo "<script>window.location.href='?status=error&message=" . urlencode("Update Failed") . "&date=" . $redirect_date . "';</script>";
+                exit();
+            }
         } else {
-            echo "<script>window.location.href='?status=error&message=" . urlencode("Update Failed") . "&date=" . $redirect_date . "';</script>";
+            echo "<script>window.location.href='?status=error&message=" . urlencode("Permission Denied") . "';</script>";
             exit();
         }
-    } else {
-        echo "<script>window.location.href='?status=error&message=" . urlencode("Permission Denied") . "';</script>";
-        exit();
+    }
+
+    // B. HANDLE SUPPLIER UPDATE (NEW LOGIC)
+    if (isset($_POST['update_supplier_action'])) {
+        if ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])) {
+            $record_id     = $_POST['record_id'];
+            $new_sup_code  = $_POST['supplier_code'];
+            $redirect_date = $_POST['redirect_date'];
+
+            // Note: Updating 'factory_transport_vehicle_register'
+            $upd_sup_sql = "UPDATE factory_transport_vehicle_register SET supplier_code = ? WHERE id = ?";
+            $stmt_sup    = $conn->prepare($upd_sup_sql);
+            $stmt_sup->bind_param('si', $new_sup_code, $record_id);
+
+            if ($stmt_sup->execute()) {
+                echo "<script>window.location.href='?status=success&message=" . urlencode("Supplier Updated Successfully") . "&date=" . $redirect_date . "';</script>";
+                exit();
+            } else {
+                echo "<script>window.location.href='?status=error&message=" . urlencode("Supplier Update Failed") . "&date=" . $redirect_date . "';</script>";
+                exit();
+            }
+        }
     }
 }
 
@@ -42,7 +80,6 @@ elseif (isset($_GET['date'])) { $filterDate = $_GET['date']; }
 
 // ---------------------------------------------------------
 // NEW LOGIC: FETCH MAX PAYMENT MONTH/YEAR FOR FACTORY
-// Note: Assuming table name is 'monthly_payments_f' for Factory. Update if needed.
 // ---------------------------------------------------------
 $max_payment_val = 0; 
 $sql_pay = "SELECT year, month FROM monthly_payments_f ORDER BY year DESC, month DESC LIMIT 1";
@@ -52,11 +89,12 @@ if ($result_pay && $result_pay->num_rows > 0) {
     $row_pay = $result_pay->fetch_assoc();
     $max_payment_val = ($row_pay['year'] * 100) + $row_pay['month'];
 }
-// ---------------------------------------------------------
 
-// 1. Fetch Running Chart details from 'transport' DB
-// ADDED: f.is_active to the SELECT list
-$sql = "SELECT f.id, f.vehicle_no, f.actual_vehicle_no, f.vehicle_status, f.shift, f.driver_NIC, f.driver_status, r.route AS route_name, r.route_code, f.in_time, f.date, f.is_active
+// 1. Fetch Running Chart details
+// ADDED: f.supplier_code to the SELECT list
+$sql = "SELECT f.id, f.vehicle_no, f.actual_vehicle_no, f.vehicle_status, f.shift, f.driver_NIC, f.driver_status, 
+        f.supplier_code, -- <--- NEW COLUMN
+        r.route AS route_name, r.route_code, f.in_time, f.date, f.is_active
         FROM factory_transport_vehicle_register f
         LEFT JOIN route r ON f.route = r.route_code
         WHERE DATE(f.date) = ?";
@@ -114,10 +152,12 @@ while ($row = $result->fetch_assoc()) {
             'morning_vehicle' => null, 'morning_actual_vehicle' => null, 
             'morning_vehicle_status' => null, 'morning_driver' => null, 
             'morning_driver_status' => null, 'morning_in' => null,
+            'morning_supplier' => null, // <--- New Key
             'evening_id' => null, 'evening_active' => null,
             'evening_vehicle' => null, 'evening_actual_vehicle' => null, 
             'evening_vehicle_status' => null, 'evening_driver' => null, 
             'evening_driver_status' => null, 'evening_in' => null,
+            'evening_supplier' => null, // <--- New Key
             'morning_match' => true, 
             'evening_match' => true 
         ];
@@ -131,6 +171,7 @@ while ($row = $result->fetch_assoc()) {
         $grouped[$group_key][$shift_prefix . 'active'] = $row['is_active'];
         $grouped[$group_key][$shift_prefix . 'vehicle'] = $row['vehicle_no'];
         $grouped[$group_key][$shift_prefix . 'actual_vehicle'] = $row['actual_vehicle_no'];
+        $grouped[$group_key][$shift_prefix . 'supplier'] = $row['supplier_code']; // <--- Store Supplier
         $grouped[$group_key][$shift_prefix . 'vehicle_status'] = $row['vehicle_status'];
         $grouped[$group_key][$shift_prefix . 'driver'] = $row['driver_NIC'];
         $grouped[$group_key][$shift_prefix . 'driver_status'] = $row['driver_status'];
@@ -268,13 +309,16 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                         $morning_time = ($entry['morning_in'] !== null) ? date('H:i', strtotime($entry['morning_in'])) : '-';
                         $evening_time = ($entry['evening_in'] !== null) ? date('H:i', strtotime($entry['evening_in'])) : '-';
 
-                        // Variables for JS Modal
+                        // Variables for JS Modal (Added Suppliers)
                         $js_route = htmlspecialchars($entry['route_name'], ENT_QUOTES);
                         $js_date = $entry['date'];
                         $js_m_id = $entry['morning_id'] ?? 'null';
                         $js_m_stat = $entry['morning_active'] ?? 'null';
+                        $js_m_sup  = $entry['morning_supplier'] ?? ''; // New
+
                         $js_e_id = $entry['evening_id'] ?? 'null';
                         $js_e_stat = $entry['evening_active'] ?? 'null';
+                        $js_e_sup  = $entry['evening_supplier'] ?? ''; // New
 
                         // --- VISUAL LOGIC FOR DISABLED STATE ---
                         $is_m_disabled = ($entry['morning_id'] !== null && $entry['morning_active'] == 0);
@@ -306,7 +350,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                         $evening_vehicle_cell_class = ($entry['evening_vehicle_status'] == 0) ? 'bg-red-200' : '';
                         $evening_driver_cell_class = ($entry['evening_driver_status'] == 0) ? 'bg-red-200' : '';
 
-                        // --- BUTTON GENERATION ---
+                        // --- BUTTON GENERATION (Updated to pass Suppliers) ---
                         $action_btn = "";
                         $show_action_column = ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer']));
                         
@@ -317,8 +361,9 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                             $is_editable = ($record_val > $max_payment_val);
 
                             if ($is_editable) {
+                                // Updated onClick with supplier vars
                                 $action_btn = "<td class='border px-2 py-2 text-center align-middle'>
-                                    <button onclick=\"openModal('$js_date', '$js_route', $js_m_id, $js_m_stat, $js_e_id, $js_e_stat)\" 
+                                    <button onclick=\"openModal('$js_date', '$js_route', $js_m_id, $js_m_stat, '$js_m_sup', $js_e_id, $js_e_stat, '$js_e_sup')\" 
                                     class='bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 font-bold py-1 px-3 rounded shadow-sm text-xs transition duration-150 ease-in-out'>
                                             Manage
                                     </button>
@@ -361,8 +406,9 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                 $m_btn_only = "";
                                 if ($action_btn) {
                                     if (strpos($action_btn, 'Manage') !== false) {
+                                         // Updated onClick
                                          $m_btn_only = "<td class='border px-2 py-2 text-center align-middle'>
-                                            <button onclick=\"openModal('$js_date', '$js_route', $js_m_id, $js_m_stat, null, null)\" 
+                                            <button onclick=\"openModal('$js_date', '$js_route', $js_m_id, $js_m_stat, '$js_m_sup', null, null, null)\" 
                                             class='bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 font-bold py-1 px-3 rounded shadow-sm text-xs'>Manage</button>
                                         </td>";
                                     } else {
@@ -389,8 +435,9 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                 $e_btn_only = "";
                                 if ($action_btn) {
                                     if (strpos($action_btn, 'Manage') !== false) {
+                                         // Updated onClick
                                          $e_btn_only = "<td class='border px-2 py-2 text-center align-middle'>
-                                            <button onclick=\"openModal('$js_date', '$js_route', null, null, $js_e_id, $js_e_stat)\" 
+                                            <button onclick=\"openModal('$js_date', '$js_route', null, null, null, $js_e_id, $js_e_stat, '$js_e_sup')\" 
                                             class='bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300 font-bold py-1 px-3 rounded shadow-sm text-xs'>Manage</button>
                                         </td>";
                                     } else {
@@ -437,12 +484,30 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
             </div>
             <hr class="mb-4">
             <div class="space-y-4">
+                
                 <div id="morningSection" class="bg-gray-50 p-4 rounded-lg border border-gray-200 hidden">
-                    <div class="flex justify-between items-center">
+                    <div class="flex justify-between items-center mb-2">
                         <span class="font-semibold text-gray-700">☀️ Morning Shift</span>
                         <span id="morningStatusText" class="text-xs font-bold px-2 py-1 rounded"></span>
                     </div>
-                    <form method="POST" class="mt-3">
+
+                    <form method="POST" class="mb-3 border-b pb-3">
+                        <input type="hidden" name="record_id" id="morningSupId">
+                        <input type="hidden" name="update_supplier_action" value="1">
+                        <input type="hidden" name="redirect_date" value="<?php echo htmlspecialchars($filterDate); ?>">
+                        <label class="block text-xs text-gray-500 mb-1">Supplier</label>
+                        <div class="flex gap-2">
+                            <select name="supplier_code" id="morningSupplierSelect" class="w-full border rounded text-sm p-1">
+                                <option value="">Select Supplier</option>
+                                <?php foreach($suppliers_list as $sup): ?>
+                                    <option value="<?php echo $sup['supplier_code']; ?>"><?php echo $sup['supplier']; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="submit" class="bg-indigo-600 text-white text-xs px-2 rounded hover:bg-indigo-700">Save</button>
+                        </div>
+                    </form>
+
+                    <form method="POST">
                         <input type="hidden" name="record_id" id="morningId">
                         <input type="hidden" name="current_status" id="morningStatus">
                         <input type="hidden" name="redirect_date" value="<?php echo htmlspecialchars($filterDate); ?>">
@@ -450,12 +515,30 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                         <button type="submit" id="morningBtn" class="w-full py-2 px-4 rounded text-white font-bold transition duration-200"></button>
                     </form>
                 </div>
+
                 <div id="eveningSection" class="bg-gray-50 p-4 rounded-lg border border-gray-200 hidden">
-                    <div class="flex justify-between items-center">
+                    <div class="flex justify-between items-center mb-2">
                         <span class="font-semibold text-gray-700">🌙 Evening Shift</span>
                         <span id="eveningStatusText" class="text-xs font-bold px-2 py-1 rounded"></span>
                     </div>
-                    <form method="POST" class="mt-3">
+
+                    <form method="POST" class="mb-3 border-b pb-3">
+                        <input type="hidden" name="record_id" id="eveningSupId">
+                        <input type="hidden" name="update_supplier_action" value="1">
+                        <input type="hidden" name="redirect_date" value="<?php echo htmlspecialchars($filterDate); ?>">
+                        <label class="block text-xs text-gray-500 mb-1">Supplier</label>
+                        <div class="flex gap-2">
+                            <select name="supplier_code" id="eveningSupplierSelect" class="w-full border rounded text-sm p-1">
+                                <option value="">Select Supplier</option>
+                                <?php foreach($suppliers_list as $sup): ?>
+                                    <option value="<?php echo $sup['supplier_code']; ?>"><?php echo $sup['supplier']; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="submit" class="bg-indigo-600 text-white text-xs px-2 rounded hover:bg-indigo-700">Save</button>
+                        </div>
+                    </form>
+
+                    <form method="POST">
                         <input type="hidden" name="record_id" id="eveningId">
                         <input type="hidden" name="current_status" id="eveningStatus">
                         <input type="hidden" name="redirect_date" value="<?php echo htmlspecialchars($filterDate); ?>">
@@ -463,6 +546,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                         <button type="submit" id="eveningBtn" class="w-full py-2 px-4 rounded text-white font-bold transition duration-200"></button>
                     </form>
                 </div>
+
                 <div id="noDataMessage" class="hidden text-center text-gray-500 py-4">No actionable records found.</div>
             </div>
             <div class="flex justify-end pt-2 mt-4">
@@ -492,8 +576,8 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
         window.history.replaceState(null, null, window.location.pathname + (urlParams.get('date') ? '?date=' + urlParams.get('date') : ''));
     }
 
-    // Modal Functions
-    function openModal(date, route, mId, mStat, eId, eStat) {
+    // Modal Functions (UPDATED FOR SUPPLIER)
+    function openModal(date, route, mId, mStat, mSup, eId, eStat, eSup) {
         document.getElementById('modalRouteName').textContent = route;
         document.getElementById('modalDate').textContent = date;
         const mSection = document.getElementById('morningSection');
@@ -508,7 +592,12 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
             hasAction = true;
             mSection.classList.remove('hidden');
             document.getElementById('morningId').value = mId;
+            document.getElementById('morningSupId').value = mId; // For Supplier Update
             document.getElementById('morningStatus').value = mStat;
+            
+            // Set Dropdown Value
+            document.getElementById('morningSupplierSelect').value = mSup;
+
             const btn = document.getElementById('morningBtn');
             const txt = document.getElementById('morningStatusText');
             if (mStat == 1) {
@@ -527,7 +616,12 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
             hasAction = true;
             eSection.classList.remove('hidden');
             document.getElementById('eveningId').value = eId;
+            document.getElementById('eveningSupId').value = eId; // For Supplier Update
             document.getElementById('eveningStatus').value = eStat;
+            
+            // Set Dropdown Value
+            document.getElementById('eveningSupplierSelect').value = eSup;
+
             const btn = document.getElementById('eveningBtn');
             const txt = document.getElementById('eveningStatusText');
             if (eStat == 1) {

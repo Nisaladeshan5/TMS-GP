@@ -22,11 +22,13 @@ error_reporting(E_ALL);
 
 function fetch_own_vehicle_employee_ids($conn) {
     $emp_list = [];
-    // Join employee table to get the name
-    $sql = "SELECT DISTINCT ov.emp_id, e.calling_name 
+    
+    // --- CHANGE 1: Added e.department to SELECT ---
+    // ඔබේ employee table එකේ department column එකේ නම වෙනස් නම් 'e.department' වෙනුවට නිවැරදි නම දාන්න.
+    $sql = "SELECT DISTINCT ov.emp_id, e.calling_name, e.department 
             FROM own_vehicle ov 
             LEFT JOIN employee e ON ov.emp_id = e.emp_id 
-            WHERE ov.vehicle_no IS NOT NULL AND ov.vehicle_no != '' 
+            WHERE ov.vehicle_no IS NOT NULL AND ov.vehicle_no != '' AND ov.is_active = 1
             ORDER BY ov.emp_id ASC";
     try {
         $result = $conn->query($sql);
@@ -34,7 +36,9 @@ function fetch_own_vehicle_employee_ids($conn) {
             while ($row = $result->fetch_assoc()) {
                 $emp_list[] = [
                     'emp_id' => $row['emp_id'],
-                    'calling_name' => $row['calling_name'] ?? 'Unknown'
+                    'calling_name' => $row['calling_name'] ?? 'Unknown',
+                    // --- CHANGE 2: Capture Department ---
+                    'department' => $row['department'] ?? '' 
                 ];
             }
         }
@@ -42,23 +46,20 @@ function fetch_own_vehicle_employee_ids($conn) {
     return $emp_list;
 }
 
-function fetch_employee_and_vehicle_by_id($conn, $emp_id) {
-    $details = null;
-    $sql = "SELECT ov.vehicle_no FROM own_vehicle AS ov WHERE ov.emp_id = ? LIMIT 1";
+// Fetch ALL vehicles for a specific employee
+function fetch_vehicles_by_emp_id($conn, $emp_id) {
+    $vehicles = [];
+    $sql = "SELECT ov.vehicle_no FROM own_vehicle AS ov WHERE ov.emp_id = ? AND ov.vehicle_no != '' AND ov.is_active = 1";
     $stmt = $conn->prepare($sql);
-    if (!$stmt) return null;
+    if (!$stmt) return [];
     $stmt->bind_param('s', $emp_id);
     $stmt->execute();
     $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $stmt->close();
-    
-    if ($row) {
-        $details = ['vehicle_no' => $row['vehicle_no'] ?? ''];
-    } else {
-        $details = ['vehicle_no' => ''];
+    while ($row = $result->fetch_assoc()) {
+        $vehicles[] = $row['vehicle_no'];
     }
-    return $details;
+    $stmt->close();
+    return $vehicles;
 }
 
 function check_duplicate_entry($conn, $emp_id, $date) {
@@ -76,13 +77,19 @@ function check_duplicate_entry($conn, $emp_id, $date) {
 // --- AJAX POST HANDLERS ---
 // ---------------------------------------------------------------------
 
-// 1. Fetch Details (Only Vehicle No needed now)
+// 1. Fetch Details
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_details'])) {
     if (ob_get_length()) ob_clean(); 
     header('Content-Type: application/json');
     $emp_id = trim($_POST['emp_id']);
-    $details = fetch_employee_and_vehicle_by_id($conn, $emp_id);
-    echo json_encode($details ? ['status' => 'success', 'details' => $details] : ['status' => 'error', 'message' => 'Not found']);
+    
+    $vehicles = fetch_vehicles_by_emp_id($conn, $emp_id);
+    
+    if (!empty($vehicles)) {
+        echo json_encode(['status' => 'success', 'vehicles' => $vehicles]);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'No vehicles found']);
+    }
     exit(); 
 }
 
@@ -94,6 +101,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     $emp_id = strtoupper(trim($_POST['emp_id'])); 
     $vehicle_no = strtoupper(trim($_POST['vehicle_no'])); 
     $date = trim($_POST['date']);
+    
+    $user_id = $_SESSION['user_id'] ?? 0; 
     
     $in_time = !empty($_POST['time']) ? trim($_POST['time']) : null;
     $out_time = !empty($_POST['out_time']) ? trim($_POST['out_time']) : null;
@@ -115,12 +124,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_record'])) {
     $conn->begin_transaction(); 
 
     try {
-        $sql = "INSERT INTO own_vehicle_attendance (emp_id, date, vehicle_no, time, out_time) VALUES (?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO own_vehicle_attendance (emp_id, date, vehicle_no, time, out_time, user_id) VALUES (?, ?, ?, ?, ?, ?)";
         
         $stmt = $conn->prepare($sql);
         if (!$stmt) throw new Exception("Prepare Failed: " . $conn->error);
 
-        $stmt->bind_param('sssss', $emp_id, $date, $vehicle_no, $in_time, $out_time);
+        $stmt->bind_param('sssssi', $emp_id, $date, $vehicle_no, $in_time, $out_time, $user_id);
 
         if (!$stmt->execute()) {
             throw new Exception("Insert Failed: " . $stmt->error);
@@ -189,7 +198,10 @@ include('../../../includes/navbar.php');
                             <option value="" disabled selected>Select an Employee</option>
                             <?php foreach ($employee_ids_list as $emp): ?>
                                 <option value="<?php echo htmlspecialchars($emp['emp_id']); ?>">
-                                    <?php echo htmlspecialchars($emp['emp_id'] . ' - ' . $emp['calling_name']); ?>
+                                    <?php 
+                                        $deptInfo = !empty($emp['department']) ? ' (' . $emp['department'] . ')' : '';
+                                        echo htmlspecialchars($emp['emp_id'] . ' - ' . $emp['calling_name'] . $deptInfo); 
+                                    ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -197,7 +209,9 @@ include('../../../includes/navbar.php');
                     
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Vehicle No:</label>
-                        <input type="text" id="vehicle_no" name="vehicle_no" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2" placeholder="Auto-filled or Enter">
+                        <select id="vehicle_no" name="vehicle_no" required class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm p-2 bg-gray-50 cursor-not-allowed">
+                            <option value="" disabled selected>Select Employee First</option>
+                        </select>
                     </div>
 
                     <div>
@@ -228,7 +242,7 @@ include('../../../includes/navbar.php');
 
     <script>
         const empIdSelect = document.getElementById('emp_id_select');
-        const vehicleNoInput = document.getElementById('vehicle_no'); 
+        const vehicleNoSelect = document.getElementById('vehicle_no'); 
         const form = document.getElementById('addVehicleForm');
 
         function showToast(message, type) {
@@ -241,14 +255,17 @@ include('../../../includes/navbar.php');
             setTimeout(() => { toast.classList.remove('show'); toast.remove(); }, 4000); 
         }
 
-        function resetAutoFields() {
-            vehicleNoInput.value = ''; 
-            vehicleNoInput.classList.remove('bg-yellow-100');
+        function resetVehicleDropdown(placeholder = 'Select Employee First') {
+            vehicleNoSelect.innerHTML = `<option value="" disabled selected>${placeholder}</option>`;
+            vehicleNoSelect.classList.add('bg-gray-50', 'cursor-not-allowed');
+            vehicleNoSelect.classList.remove('bg-white');
         }
 
         async function fetchDetailsByEmpId(empId) {
-            if (!empId) { resetAutoFields(); return; }
-            vehicleNoInput.value = '...';
+            if (!empId) { resetVehicleDropdown(); return; }
+            
+            // Show loading state
+            vehicleNoSelect.innerHTML = '<option>Loading...</option>';
             
             const formData = new FormData();
             formData.append('fetch_details', '1'); formData.append('emp_id', empId);
@@ -256,12 +273,42 @@ include('../../../includes/navbar.php');
             try {
                 const response = await fetch('add_own_vehicle_attendance.php', { method: 'POST', body: formData });
                 const result = await response.json();
-                if (result.status === 'success') {
-                    vehicleNoInput.value = result.details.vehicle_no;
+                
+                // Clear previous options
+                vehicleNoSelect.innerHTML = '';
+
+                if (result.status === 'success' && result.vehicles.length > 0) {
+                    
+                    // Add default "Select Vehicle" option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.text = "Select Vehicle";
+                    defaultOption.value = "";
+                    defaultOption.disabled = true;
+                    if(result.vehicles.length > 1) defaultOption.selected = true; 
+                    vehicleNoSelect.add(defaultOption);
+
+                    // Add vehicles from database
+                    result.vehicles.forEach((veh, index) => {
+                        const option = document.createElement('option');
+                        option.value = veh;
+                        option.text = veh;
+                        if (result.vehicles.length === 1 && index === 0) {
+                            option.selected = true;
+                        }
+                        vehicleNoSelect.add(option);
+                    });
+
+                    // Enable the dropdown
+                    vehicleNoSelect.classList.remove('bg-gray-50', 'cursor-not-allowed');
+                    vehicleNoSelect.classList.add('bg-white');
+
                 } else {
-                    resetAutoFields(); showToast('Vehicle details not found', 'error');
+                    resetVehicleDropdown('No vehicles found for this ID');
                 }
-            } catch (e) { resetAutoFields(); }
+            } catch (e) { 
+                resetVehicleDropdown('Error loading vehicles'); 
+                console.error(e);
+            }
         }
 
         if (empIdSelect) empIdSelect.addEventListener('change', (e) => fetchDetailsByEmpId(e.target.value));
@@ -270,7 +317,6 @@ include('../../../includes/navbar.php');
             form.addEventListener('submit', async function(event) {
                 event.preventDefault();
                 const formData = new FormData(this);
-                formData.set('vehicle_no', vehicleNoInput.value.toUpperCase().trim());
                 
                 try {
                     const response = await fetch('add_own_vehicle_attendance.php', { method: 'POST', body: formData });

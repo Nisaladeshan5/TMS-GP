@@ -124,9 +124,9 @@ while ($row = $c_result->fetch_assoc()) {
                 $cellClass = $isWeekend ? 'weekend-bg' : '';
 
                 // Check Morning
-                $m_mark = isset($checks[$code][$d]['morning']) ? "<span class='check-ok'>✔</span>" : "";
+                $m_mark = isset($checks[$code][$d]['morning']) ? "<span class='check-ok'>1</span>" : "";
                 // Check Evening
-                $e_mark = isset($checks[$code][$d]['evening']) ? "<span class='check-ok'>✔</span>" : "";
+                $e_mark = isset($checks[$code][$d]['evening']) ? "<span class='check-ok'>1</span>" : "";
             ?>
                 <td class="<?php echo $cellClass; ?>"><?php echo $m_mark; ?></td>
                 <td class="<?php echo $cellClass; ?>"><?php echo $e_mark; ?></td>

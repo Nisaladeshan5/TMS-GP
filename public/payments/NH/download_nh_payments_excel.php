@@ -1,6 +1,6 @@
 <?php
-// download_nh_payments_excel.php - Exports Night Heldup Monthly Summary to CSV
-// Logic: Aggregates daily distance (Shift Based) BEFORE applying slab rates.
+// download_nh_payments_excel.php
+// Exports Night Heldup Monthly Summary to Excel (.xls) with Styling
 
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -14,7 +14,7 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 include('../../../includes/db.php');
 date_default_timezone_set('Asia/Colombo');
 
-// 2. Get Filter Inputs
+// 1. Get Filter Inputs
 $current_year = date('Y');
 $current_month = date('m');
 
@@ -25,20 +25,7 @@ $filterMonthNum = $_GET['month'] ?? $current_month;
 $filterMonthNum = str_pad($filterMonthNum, 2, '0', STR_PAD_LEFT);
 $filterMonthName = date('F', mktime(0, 0, 0, (int)$filterMonthNum, 1));
 
-$filename = "Night_Heldup_Summary_{$filterYear}_{$filterMonthName}.csv";
-
-// 3. Set Headers
-header('Content-Type: text/csv');
-header('Content-Disposition: attachment; filename="' . $filename . '"');
-header('Pragma: no-cache');
-header('Expires: 0');
-
-$output = fopen('php://output', 'w');
-
-// 4. CSV Column Headers
-fputcsv($output, ['Op Code', 'Vehicle No', 'Days Paid', 'Total Actual Distance (km)', 'Total Payment (LKR)']);
-
-// 5. CALCULATION LOGIC (Grouped by Night Shift Date)
+// 2. CALCULATION LOGIC (Grouped by Night Shift Date)
 function get_night_payment_data($conn, $month, $year) {
     
     // SQL Logic:
@@ -121,24 +108,82 @@ function get_night_payment_data($conn, $month, $year) {
     return $summary;
 }
 
-// 6. Get Data & Write Rows
-$records = get_night_payment_data($conn, $filterMonthNum, $filterYear);
-
-if (!empty($records)) {
-    foreach ($records as $row) {
-        fputcsv($output, [
-            $row['op_code'],
-            $row['vehicle_no'],
-            $row['days_paid'],
-            number_format($row['tot_distance'], 2),
-            number_format($row['tot_payment'], 2)
-        ]);
-    }
-} else {
-    fputcsv($output, ['No records found for this month']);
-}
-
-fclose($output);
+// 3. Get Data
+$payment_data = get_night_payment_data($conn, $filterMonthNum, $filterYear);
 $conn->close();
-exit();
+
+// 4. EXCEL GENERATION START
+$filename = "Night_Heldup_Summary_{$filterYear}_{$filterMonthName}.xls";
+
+header("Content-Type: application/vnd.ms-excel");
+header("Content-Disposition: attachment; filename=\"$filename\"");
+header("Pragma: no-cache");
+header("Expires: 0");
+
 ?>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <style>
+        /* Force text format for codes to keep leading zeros */
+        .text-format { mso-number-format:"\@"; } 
+        /* Currency format */
+        .currency-format { mso-number-format:"\#\,\#\#0\.00"; }
+    </style>
+</head>
+<body>
+    <table border="1">
+        <thead>
+            <tr>
+                <th colspan="5" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">
+                    Night Heldup Payment Summary - <?php echo "$filterMonthName $filterYear"; ?>
+                </th>
+            </tr>
+            <tr>
+                <th style="background-color: #ADD8E6; font-weight: bold;">OP Code</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Vehicle No</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Days Paid</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Total Actual Distance (km)</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Total Payment (LKR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php 
+            $grand_total_payment = 0;
+            $grand_total_distance = 0;
+
+            if (!empty($payment_data)): 
+                foreach ($payment_data as $row): 
+                    $grand_total_payment += $row['tot_payment'];
+                    $grand_total_distance += $row['tot_distance'];
+            ?>
+                    <tr>
+                        <td class="text-format"><?php echo htmlspecialchars($row['op_code']); ?></td>
+                        <td><?php echo htmlspecialchars($row['vehicle_no']); ?></td>
+                        <td style="text-align:center;"><?php echo $row['days_paid']; ?></td>
+                        <td style="text-align:center;"><?php echo number_format($row['tot_distance'], 2); ?></td>
+                        <td class="currency-format" style="font-weight:bold;">
+                            <?php echo $row['tot_payment']; ?>
+                        </td>
+                    </tr>
+            <?php 
+                endforeach; 
+                // Grand Total Row
+            ?>
+                <tr>
+                    <td colspan="3" style="text-align: right; font-weight: bold;">GRAND TOTALS</td>
+                    <td style="text-align: center; font-weight: bold;"><?php echo number_format($grand_total_distance, 2); ?></td>
+                    <td class="currency-format" style="font-weight: bold; border-top: 2px solid black;">
+                        <?php echo $grand_total_payment; ?>
+                    </td>
+                </tr>
+
+            <?php else: ?>
+                <tr>
+                    <td colspan="5" style="text-align:center;">No records found for this period.</td>
+                </tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
+</body>
+</html>

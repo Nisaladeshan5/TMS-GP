@@ -1,28 +1,25 @@
 <?php
 require_once '../../includes/session_check.php';
-// Start the session (ensure it's started before accessing session variables)
+// Start the session
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in
+// Check login
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php"); 
     exit();
 }
 
-include('../../includes/db.php'); // Include database connection
+include('../../includes/db.php');
 
-
-// Get the logged-in user's ID and Role
 $logged_in_user_id = $_SESSION['user_id'] ?? 0;
-$user_role = $_SESSION['user_role'] ?? 'guest'; // Assuming 'user_role' is set in the session
+$user_role = $_SESSION['user_role'] ?? 'guest';
 
-$allowed_roles = ['super admin', 'manager', 'developer'];
+$allowed_roles = ['admin', 'super admin', 'manager', 'developer'];
 $is_authorized = in_array($user_role, $allowed_roles);
 
 if (!$is_authorized) {
-    // Redirect or display an error if the user is not authorized
     header("Location: fuel.php"); 
     exit();
 }
@@ -30,31 +27,26 @@ if (!$is_authorized) {
 $toast_message = null;
 $toast_type = null;
 
-// --- Determine available years (Current and Previous Year only) ---
+// Available years
 $current_year = (int)date('Y');
 $previous_year = $current_year - 1;
-
-// Generate the array in descending order
 $available_years = [$current_year, $previous_year];
 
-// SET SELECTED YEAR: Prioritize GET parameter, otherwise default to current year
 $selected_year = $current_year;
 if (isset($_GET['year'])) {
     $requested_year = (int)$_GET['year'];
-    // Only use the requested year if it is in our available list.
     if (in_array($requested_year, $available_years)) {
         $selected_year = $requested_year;
     }
 }
 
-// --- POST Request Handling for LOCK Action ---
+// Lock Action
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'lock_month') {
     $lock_year = (int)$_POST['lock_year'];
     $lock_month = (int)$_POST['lock_month'];
 
     if ($lock_year > 0 && $lock_month >= 1 && $lock_month <= 12) {
         try {
-            // 1. Check if it's already locked (optional, but good practice)
             $check_stmt = $conn->prepare("SELECT id, is_locked FROM month_locks WHERE year = ? AND month = ?");
             $check_stmt->bind_param("ii", $lock_year, $lock_month);
             $check_stmt->execute();
@@ -66,7 +58,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
                 $toast_message = "Month " . $lock_month . "/" . $lock_year . " is already locked.";
                 $toast_type = "error";
             } else {
-                // 2. Lock the month (INSERT OR UPDATE/UPSERT)
                 $lock_sql = "INSERT INTO month_locks (year, month, is_locked, locked_by_user_id, locked_at) 
                              VALUES (?, ?, 1, ?, NOW())
                              ON DUPLICATE KEY UPDATE 
@@ -78,10 +69,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
                 $lock_stmt->bind_param("iii", $lock_year, $lock_month, $logged_in_user_id);
                 
                 if ($lock_stmt->execute()) {
-                    
-                    // 3. --- AUDIT LOG ---
-                    $month_name = date("F", mktime(0, 0, 0, $lock_month, 10)); // Get month name
-
+                    $month_name = date("F", mktime(0, 0, 0, $lock_month, 10)); 
                     $toast_message = $month_name . " " . $lock_year . " has been successfully locked.";
                     $toast_type = "success";
                 } else {
@@ -99,12 +87,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['a
     }
 }
 
-// --- Fetch Lock Data for the Selected Year (UPDATED QUERY) ---
+// Fetch Data
 $months = [];
-
-// Prepare the list of months for the current selected year
 for ($m = 1; $m <= 12; $m++) {
-    $month_name = date("F", mktime(0, 0, 0, $m, 10)); // Get month name
+    $month_name = date("F", mktime(0, 0, 0, $m, 10));
     $months[$m] = [
         'name' => $month_name, 
         'is_locked' => false, 
@@ -115,9 +101,7 @@ for ($m = 1; $m <= 12; $m++) {
     ];
 }
 
-// Fetch lock statuses from the DB for the selected year, joining tables to get employee info
 try {
-    // Corrected the JOIN to 'admin' and 'employee' tables
     $sql_locks = "
         SELECT 
             ml.month, 
@@ -129,7 +113,7 @@ try {
         FROM month_locks ml
         LEFT JOIN admin u ON ml.locked_by_user_id = u.user_id 
         LEFT JOIN employee e ON u.emp_id = e.emp_id
-        WHERE ml.year = ? AND ml.is_locked = 1"; // Only fetch locked months
+        WHERE ml.year = ? AND ml.is_locked = 1"; 
 
     $stmt_locks = $conn->prepare($sql_locks);
     $stmt_locks->bind_param("i", $selected_year);
@@ -162,245 +146,261 @@ include('../../includes/navbar.php');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Month Lock Management</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Month Locks</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        /* Toast CSS */
-        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
-        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; }
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; color: white; min-width: 300px; }
         .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
         .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
-        /* Custom styles for the month boxes */
-        .month-box {
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1.5rem;
-            border-radius: 0.75rem;
-            transition: all 0.2s ease-in-out;
-            cursor: pointer;
-            min-height: 120px; 
-        }
-        .month-box:hover:not(.locked) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.1), 0 4px 6px -2px rgba(239, 68, 68, 0.05);
-        }
-        .locked {
-            cursor: default;
-        }
-        /* Custom Modal Styles */
-        .modal-backdrop {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            z-index: 9999;
-            display: none;
-            justify-content: center;
-            align-items: center;
-        }
-        .modal-content {
-            background-color: white;
-            padding: 1.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-            width: 90%;
-            max-width: 400px;
-            animation: slide-down 0.3s ease-out;
-        }
-        @keyframes slide-down {
-            from {
-                transform: translateY(-50px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
+
+        /* Modal Backdrop */
+        .modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 9999; display: none; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
+        .modal-content { background-color: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); width: 90%; max-width: 450px; transform: scale(0.95); transition: transform 0.2s ease-out; }
+        .modal-show .modal-content { transform: scale(1); }
     </style>
+    
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
 </head>
-<body class="bg-gray-100 text-gray-800">
-    <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-[5%]">
-    <div class="text-lg font-semibold ml-3">Fuel</div>
-    <div class="flex gap-4">
-        <a href="fuel.php" class="hover:text-yellow-600">Back</a>
+
+<body class="bg-gray-100">
+
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <!-- <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Month Lock Management
+        </div> -->
+        <div class="flex items-center space-x-2 w-fit">
+                <a href="" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                    Fuel
+                </a>
+
+                <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+                <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                    Month Lock Management
+                </span>
+            </div>
+    </div>
+    
+    <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="fuel.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+            <i class="fas fa-gas-pump text-lg"></i> Fuel Rates
+        </a>
     </div>
 </div>
-    <div class="flex justify-center w-[85%] ml-[15%] pt-6 pb-12">
-        
-        <div class="w-full max-w-4xl mx-auto p-4 bg-white rounded-lg shadow-md">
-            
-            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-3 px-0">
-                <h2 class="text-xl sm:text-2xl font-bold text-red-600 mb-2 sm:mb-0">🔐 Month Lock Management</h2>
 
-                <div class="flex items-center space-x-2 p-1 rounded-lg">
-                    <label for="year_select" class="font-semibold text-sm text-gray-700">Select Year:</label>
+<div class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex flex-col items-center">
+    
+    <div class="w-full max-w-6xl">
+        
+        <div class="bg-white rounded-xl shadow-md border border-gray-200 p-4 mb-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-red-100 text-red-600 p-2 rounded-full">
+                    <i class="fas fa-lock"></i>
+                </div>
+                <div>
+                    <h2 class="text-lg font-bold text-gray-800">Lock Periods</h2>
+                    <p class="text-xs text-gray-500">Prevent changes to historical data.</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <label for="year_select" class="text-sm font-semibold text-gray-600">Year:</label>
+                <div class="relative">
                     <select id="year_select" onchange="window.location.href='month_locks.php?year=' + this.value"
-                        class="p-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
+                            class="appearance-none bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-32 p-2.5 pr-8">
                         <?php foreach ($available_years as $year): ?>
                             <option value="<?php echo $year; ?>" <?php echo $year == $selected_year ? 'selected' : ''; ?>>
                                 <?php echo $year; ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                        <i class="fas fa-chevron-down text-xs"></i>
+                    </div>
                 </div>
             </div>
+        </div>
 
-            <hr class="my-3">
-            
-            <div class="p-3 bg-yellow-100 border border-yellow-400 rounded-lg text-sm mb-4">
-                <p class="text-yellow-800 font-semibold">
-                    ❗ Important: Locking a month is a one-way operation on this screen. To unlock, a database administrator must manually update the `month_locks` table.
+        <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-8 rounded-r-lg shadow-sm flex items-start gap-3">
+            <i class="fas fa-info-circle text-yellow-500 text-xl mt-0.5"></i>
+            <div>
+                <p class="text-sm text-yellow-800 font-semibold">Important Note:</p>
+                <p class="text-xs text-yellow-700 mt-1">
+                    Locking a month is a <strong>permanent action</strong> on this screen. Once locked, users cannot edit fuel rates or data for that month. To unlock, please contact a Database Administrator.
                 </p>
             </div>
-            
-            <div class="grid grid-cols-3 gap-5 p-4 bg-red-50 rounded-lg border border-red-200">
-                <?php foreach ($months as $month_num => $month_data): 
-                    $is_locked = $month_data['is_locked'];
-                    $box_class = $is_locked ? 'bg-red-200 locked' : 'bg-white shadow-lg hover:bg-red-100';
-                    $status_text = $is_locked ? 'LOCKED 🔒' : 'UNLOCKED';
-                    $status_color = $is_locked ? 'text-red-700' : 'text-green-600';
-                    $button_text = $is_locked ? 'Locked' : 'Click to Lock';
-                ?>
-                    <div class="month-box <?php echo $box_class; ?>" 
-                        <?php if (!$is_locked): ?>
-                            onclick="openLockModal(<?php echo $selected_year; ?>, <?php echo $month_num; ?>, '<?php echo htmlspecialchars($month_data['name']); ?>')"
-                        <?php endif; ?>>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <?php foreach ($months as $month_num => $month_data): 
+                $is_locked = $month_data['is_locked'];
+                // Styles based on status
+                $card_bg = $is_locked ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-lg cursor-pointer';
+                $icon_bg = $is_locked ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-500';
+                $icon_class = $is_locked ? 'fa-lock' : 'fa-lock-open';
+                $status_text = $is_locked ? 'LOCKED' : 'OPEN';
+                $status_color = $is_locked ? 'text-red-600' : 'text-green-600';
+                $btn_class = $is_locked ? 'bg-gray-300 text-gray-500 cursor-not-allowed hidden' : 'bg-red-500 hover:bg-red-600 text-white shadow-md transform hover:scale-105';
+            ?>
+                <div class="relative rounded-xl border <?php echo $card_bg; ?> p-5 transition-all duration-300 flex flex-col justify-between h-full group"
+                     <?php if (!$is_locked): ?> onclick="openLockModal(<?php echo $selected_year; ?>, <?php echo $month_num; ?>, '<?php echo htmlspecialchars($month_data['name']); ?>')" <?php endif; ?>>
+                    
+                    <div>
+                        <div class="flex justify-between items-start mb-4">
+                            <h4 class="text-lg font-bold text-gray-800"><?php echo htmlspecialchars($month_data['name']); ?></h4>
+                            <div class="<?php echo $icon_bg; ?> p-2 rounded-full shadow-sm">
+                                <i class="fas <?php echo $icon_class; ?>"></i>
+                            </div>
+                        </div>
                         
-                        <h4 class="text-base font-bold text-gray-800 mb-2"><?php echo htmlspecialchars($month_data['name']); ?></h4>
-                        
-                        <span class="text-xs font-semibold <?php echo $status_color; ?>"><?php echo $status_text; ?></span>
-                        
-                        <button class="mt-3 w-full py-1 text-xs rounded-md 
-                            <?php echo $is_locked ? 'bg-gray-400 cursor-default text-gray-600' : 'bg-red-500 text-white hover:bg-red-600'; ?>"
-                            <?php echo $is_locked ? 'disabled' : "onclick=\"event.stopPropagation(); openLockModal($selected_year, $month_num, '" . htmlspecialchars($month_data['name']) . "')\""; ?>>
-                            <?php echo $button_text; ?>
-                        </button>
-                        
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="w-2 h-2 rounded-full <?php echo $is_locked ? 'bg-red-500' : 'bg-green-500'; ?>"></span>
+                            <span class="text-xs font-bold tracking-wider <?php echo $status_color; ?>"><?php echo $status_text; ?></span>
+                        </div>
+
                         <?php if ($is_locked && $month_data['locked_at']): 
-                            // Display the requested information
-                            $emp_info = '';
-                            if (!empty($month_data['calling_name'])) {
-                                $emp_info .= htmlspecialchars($month_data['calling_name']);
-                            }
-                            if (!empty($month_data['emp_id'])) {
-                                $emp_info .= " (" . htmlspecialchars($month_data['emp_id']) . ")";
-                            }
-                            if (empty($emp_info)) {
-                                $emp_info = "User ID: " . htmlspecialchars($month_data['locked_by_user_id']);
-                            }
+                            $emp_info = !empty($month_data['calling_name']) ? htmlspecialchars($month_data['calling_name']) : "User ID: " . htmlspecialchars($month_data['locked_by_user_id']);
                         ?>
-                            <p class="text-xs text-gray-500 mt-2 text-center leading-tight">
-                                Locked By: <?php echo $emp_info; ?><br>
-                                On: <?php echo date('Y-m-d H:i', strtotime($month_data['locked_at'])); ?>
-                            </p>
+                            <div class="bg-white/50 rounded-lg p-2 text-xs text-gray-500 border border-gray-100 mt-2">
+                                <p class="flex items-center gap-1 mb-1"><i class="fas fa-user-circle text-gray-400"></i> <span class="font-medium text-gray-700"><?php echo $emp_info; ?></span></p>
+                                <p class="flex items-center gap-1"><i class="fas fa-clock text-gray-400"></i> <?php echo date('M d, Y h:i A', strtotime($month_data['locked_at'])); ?></p>
+                            </div>
                         <?php endif; ?>
                     </div>
-                <?php endforeach; ?>
-            </div>
 
-            <form id="lockForm" action="month_locks.php?year=<?php echo $selected_year; ?>" method="POST" style="display:none;">
-                <input type="hidden" name="action" value="lock_month">
-                <input type="hidden" name="lock_year" id="lock_year">
-                <input type="hidden" name="lock_month" id="lock_month">
-            </form>
-            
+                    <?php if (!$is_locked): ?>
+                        <div class="mt-4 pt-4 border-t border-dashed border-gray-200">
+                            <button class="w-full py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition <?php echo $btn_class; ?>">
+                                Lock Month
+                            </button>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+        </div>
+
+        <form id="lockForm" action="month_locks.php?year=<?php echo $selected_year; ?>" method="POST" style="display:none;">
+            <input type="hidden" name="action" value="lock_month">
+            <input type="hidden" name="lock_year" id="lock_year">
+            <input type="hidden" name="lock_month" id="lock_month">
+        </form>
+
+    </div>
+</div>
+
+<div id="customLockModal" class="modal-backdrop">
+    <div class="modal-content">
+        <div class="text-center mb-6">
+            <div class="bg-red-100 text-red-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-lock text-3xl"></i>
+            </div>
+            <h4 class="text-xl font-bold text-gray-800">Confirm Month Lock</h4>
+            <p class="text-gray-500 mt-2 text-sm">Are you sure you want to lock <strong id="modalMonthName" class="text-gray-800"></strong>?</p>
+        </div>
+        
+        <div class="bg-red-50 p-3 rounded-lg mb-6 border border-red-100">
+            <p class="text-xs text-red-600 flex items-start gap-2 text-left">
+                <i class="fas fa-exclamation-circle mt-0.5"></i>
+                This action cannot be undone from the dashboard. Only admins with database access can unlock it.
+            </p>
+        </div>
+        
+        <div class="flex justify-center gap-3">
+            <button onclick="closeLockModal()" 
+                    class="px-5 py-2.5 bg-gray-100 text-gray-600 font-semibold rounded-lg hover:bg-gray-200 transition focus:outline-none focus:ring-2 focus:ring-gray-300">
+                Cancel
+            </button>
+            <button onclick="confirmLockAction()" 
+                    class="px-5 py-2.5 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition shadow-lg shadow-red-200 focus:outline-none focus:ring-2 focus:ring-red-500">
+                Yes, Lock Month
+            </button>
         </div>
     </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+    // --- Logic Variables ---
+    let currentLockYear = 0;
+    let currentLockMonth = 0;
+
+    // --- Modal Functions ---
+    function openLockModal(year, month, monthName) {
+        currentLockYear = year;
+        currentLockMonth = month;
+        document.getElementById('modalMonthName').textContent = `${monthName} ${year}`;
+        const modal = document.getElementById('customLockModal');
+        modal.style.display = 'flex';
+        // Small delay for animation
+        setTimeout(() => modal.classList.add('modal-show'), 10);
+    }
+
+    function closeLockModal() {
+        const modal = document.getElementById('customLockModal');
+        modal.classList.remove('modal-show');
+        setTimeout(() => modal.style.display = 'none', 200);
+    }
     
-    <div id="customLockModal" class="modal-backdrop">
-        <div class="modal-content">
-            <h4 class="text-xl font-bold text-red-600 mb-4">Confirm Month Lock</h4>
-            <p class="text-gray-700 mb-6">Are you absolutely sure you want to lock <strong id="modalMonthName" class="text-red-700"></strong>?</p>
-            <p class="text-sm text-yellow-700 mb-6">❗ This action is permanent on this screen and cannot be reversed by users.</p>
-            
-            <div class="flex justify-end space-x-3">
-                <button onclick="closeLockModal()" 
-                        class="px-4 py-2 bg-gray-300 text-gray-800 font-semibold rounded-lg hover:bg-gray-400 transition">
-                    Cancel
-                </button>
-                <button onclick="confirmLockAction()" 
-                        class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition">
-                    Yes, Lock Month
-                </button>
-            </div>
-        </div>
-    </div>
-    
-    <div id="toast-container"></div>
-    <script>
-        // Store current lock data temporarily
-        let currentLockYear = 0;
-        let currentLockMonth = 0;
+    function confirmLockAction() {
+        closeLockModal();
+        document.getElementById('lock_year').value = currentLockYear;
+        document.getElementById('lock_month').value = currentLockMonth;
+        document.getElementById('lockForm').submit();
+    }
 
-        // Session Timeout Script 
-        const SESSION_TIMEOUT_MS = 32400000; 
-        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
-
-        setTimeout(function() {
-            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-            window.location.href = LOGIN_PAGE_URL; 
-        }, SESSION_TIMEOUT_MS);
+    // --- Toast Function ---
+    function showToast(message, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
         
-        // --- Modal Functions ---
-        function openLockModal(year, month, monthName) {
-            currentLockYear = year;
-            currentLockMonth = month;
-            document.getElementById('modalMonthName').textContent = `${monthName} ${year}`;
-            document.getElementById('customLockModal').style.display = 'flex';
-        }
-
-        function closeLockModal() {
-            document.getElementById('customLockModal').style.display = 'none';
-        }
-        
-        function confirmLockAction() {
-            // 1. Close the modal
-            closeLockModal();
+        const icon = type === 'success' 
+            ? '<i class="fas fa-check-circle toast-icon"></i>' 
+            : '<i class="fas fa-exclamation-circle toast-icon"></i>';
             
-            // 2. Set the hidden form values
-            document.getElementById('lock_year').value = currentLockYear;
-            document.getElementById('lock_month').value = currentLockMonth;
-            
-            // 3. Submit the form
-            document.getElementById('lockForm').submit();
-        }
-        // --- END Modal Functions ---
+        toast.innerHTML = `${icon} <span class="font-medium">${message}</span>`;
         
-        // Toast Display Script
-        function showToast(message, type = 'success') {
-            const toastContainer = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.innerHTML = `<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
-                                ${type === 'success' ? 
-                                    '<path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.293 12.5a1.003 1.003 0 0 1-1.417 0L2.354 8.7a.733.733 0 0 1 1.047-1.05l3.245 3.246 6.095-6.094z"/>' :
-                                    '<path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/> <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>'
-                                }
-                            </svg>
-                            <p class="font-semibold">${message}</p>`;
-            toastContainer.appendChild(toast);
-            setTimeout(() => toast.classList.add('show'), 10);
-            setTimeout(() => toast.classList.remove('show'), 3000);
-            setTimeout(() => toast.remove(), 3500);
-        }
+        container.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
 
-        <?php if (isset($toast_message) && isset($toast_type)): ?>
-            document.addEventListener('DOMContentLoaded', function() {
-                showToast("<?php echo htmlspecialchars($toast_message, ENT_QUOTES, 'UTF-8'); ?>", "<?php echo htmlspecialchars($toast_type, ENT_QUOTES, 'UTF-8'); ?>");
-                
-                if ("<?php echo $toast_type; ?>" === 'success') {
-                    // Refresh the current page with the current year parameter
-                    setTimeout(() => window.location.href = 'month_locks.php?year=<?php echo $selected_year; ?>', 3000); 
-                }
-            });
-        <?php endif; ?>
-    </script>
+    <?php if (isset($toast_message) && isset($toast_type)): ?>
+        document.addEventListener('DOMContentLoaded', function() {
+            showToast("<?php echo htmlspecialchars($toast_message); ?>", "<?php echo htmlspecialchars($toast_type); ?>");
+            <?php if ($toast_type === 'success'): ?>
+                setTimeout(() => window.location.href = 'month_locks.php?year=<?php echo $selected_year; ?>', 2000);
+            <?php endif; ?>
+        });
+    <?php endif; ?>
+</script>
+
 </body>
 </html>
+
+<?php $conn->close(); ?>

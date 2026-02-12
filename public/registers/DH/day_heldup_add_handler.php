@@ -36,7 +36,10 @@ try {
     // Cast user_id to int
     $user_id = (int)$user_id_raw;
 
+    // Handle Distance
     $distance_float = !empty($distance) && is_numeric($distance) ? (float)$distance : 0.00;
+    
+    // Parse Reason Data
     $reason_data = json_decode($reason_data_json, true);
     
     // Basic essential validation
@@ -44,13 +47,17 @@ try {
         throw new Exception("Missing essential trip data, user ID, or invalid reason format. (Check all required fields: Vehicle, Op Code, Times, User, and at least one Employee/Reason.)");
     }
     
-    // *** MODIFICATION HERE ***
-    // Always set status to PENDING (0) upon manual add, regardless of distance field value.
-    $done_status = 0; 
-    $done_user_id_bind = $user_id; // Always NULL until the trip is officially completed via register view.
-    // ************************
+    // *** MODIFIED LOGIC HERE ***
+    // If distance is entered (>0), mark as DONE (1). Otherwise, mark as PENDING (0).
+    if ($distance_float > 0) {
+        $done_status = 1; 
+    } else {
+        $done_status = 0;
+    }
+    // ***************************
 
     // 2. Insert Main Trip Record
+    // Note: 'user_id' acts as the creator. 'done' determines status.
     $main_sql = "INSERT INTO day_heldup_register 
                  (op_code, vehicle_no, date, out_time, in_time, distance, done, user_id) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
@@ -60,7 +67,7 @@ try {
         throw new Exception("Trip Insert Prepare Failed: " . $conn->error);
     }
     
-    // Parameters array: values are passed by reference
+    // Parameters array for binding
     $params = [
         'sssssdii', 
         &$op_code, 
@@ -70,10 +77,10 @@ try {
         &$in_time, 
         &$distance_float, 
         &$done_status, 
-        &$done_user_id_bind 
+        &$user_id 
     ];
     
-    // Function to get references for call_user_func_array (standard approach for dynamic binding/nulls)
+    // Helper function for dynamic binding
     function bindParamsRef($stmt, $params) {
         $refs = [];
         foreach ($params as $key => $value) {
@@ -129,8 +136,11 @@ try {
     // 4. Commit Transaction
     $conn->commit();
     
+    // Custom success message based on status
+    $status_msg = ($done_status == 1) ? "COMPLETED" : "PENDING";
+    
     $response['success'] = true;
-    $response['message'] = "New Heldup Trip (ID: {$trip_id}) recorded successfully. Status: PENDING";
+    $response['message'] = "New Heldup Trip (ID: {$trip_id}) recorded successfully. Status: {$status_msg}";
 
 } catch (Exception $e) {
     $conn->rollback();
@@ -141,3 +151,4 @@ try {
 if (isset($conn)) $conn->close();
 echo json_encode($response);
 exit();
+?>

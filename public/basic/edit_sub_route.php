@@ -11,8 +11,6 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 }
 
 include('../../includes/db.php');
-
-// --- Navbar සහ Header මෙතැනින් load වෙයි ---
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
@@ -41,17 +39,14 @@ if ($result->num_rows > 0) {
 $stmt->close();
 
 // 3. Fetch Dropdown Data
-// Routes
 $routes = [];
 $routes_result = $conn->query("SELECT route_code, route FROM route WHERE is_active = 1 ORDER BY route");
 if ($routes_result) while ($row = $routes_result->fetch_assoc()) $routes[] = $row;
 
-// Suppliers
 $suppliers = [];
 $supplier_result = $conn->query("SELECT supplier_code, supplier FROM supplier ORDER BY supplier");
 if ($supplier_result) while ($row = $supplier_result->fetch_assoc()) $suppliers[] = $row;
 
-// Vehicles
 $vehicles = [];
 $vehicle_result = $conn->query("SELECT vehicle_no FROM vehicle WHERE purpose='sub_route' ORDER BY vehicle_no");
 if ($vehicle_result) while ($row = $vehicle_result->fetch_assoc()) $vehicles[] = $row;
@@ -64,72 +59,69 @@ if ($vehicle_result) while ($row = $vehicle_result->fetch_assoc()) $vehicles[] =
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Sub-Route</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
+        /* Screen එකට හරියන පරිදි උස සකස් කිරීම */
+        html, body { height: 100vh; overflow: hidden; }
         #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
-        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; max-width: 350px; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; min-width: 250px; }
         .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
-        .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; flex-shrink: 0; }
+        .readonly-field { background-color: #f3f4f6; cursor: not-allowed; }
+        
+        /* Form container එක scroll නොවී මැදට ගැනීමට */
+        .main-wrapper { 
+            height: calc(100vh - 20px); /* Navbar එකක් තිබේ නම් ඒ සඳහා ඉඩ තබන්න */
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+        }
     </style>
 </head>
-<script>
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
-    setTimeout(function() {
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
-    }, SESSION_TIMEOUT_MS);
-</script>
 <body class="bg-gray-100 font-sans">
 
 <div id="toast-container"></div>
 
-<div class="w-[85%] ml-[15%]">
-    <div class="w-full max-w-3xl p-4 bg-white shadow-lg rounded-lg mt-6 mx-auto">
+<div class="w-[85%] ml-[15%] main-wrapper">
+    <div class="w-full max-w-3xl p-4 bg-white shadow-xl rounded-lg">
+        <h1 class="text-2xl font-extrabold text-gray-900 mb-2 border-b pb-1">Edit Sub-Route</h1>
         
-        <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-2 border-b pb-2">Edit Sub-Route</h1>
-        
-        <div class="mb-3 pb-2 border-b border-gray-200">
-            <h3 class="text-2xl font-semibold text-gray-700"><?php echo htmlspecialchars($current_data['sub_route']); ?></h3>
-            <p class="text-sm text-gray-500 mt-1">Sub-Route Code: <span class="font-medium"><?php echo htmlspecialchars($current_data['sub_route_code']); ?></span></p>
+        <div class="mb-3 pb-2 border-b border-gray-100">
+            <h3 class="text-xl font-semibold text-gray-700"><?php echo htmlspecialchars($current_data['sub_route']); ?></h3>
+            <p class="text-xs text-gray-500">Code: <span class="font-mono font-bold"><?= htmlspecialchars($current_data['sub_route_code']) ?></span></p>
         </div>
         
         <form id="editSubRouteForm" onsubmit="handleFormSubmit(event)" class="space-y-3">
-            <input type="hidden" name="action" id="action" value="edit">
+            <input type="hidden" name="action" value="edit">
             <input type="hidden" name="sub_route_code" value="<?= htmlspecialchars($current_data['sub_route_code']) ?>">
             
-            <div class="grid md:grid-cols-2 gap-4 bg-gray-100 p-3 border border-gray-100 rounded-lg shadow-sm">
-                <div class="md:col-span-2">
-                    <h4 class="text-xl font-bold text-blue-600 border-b pb-1">Route Information</h4>
-                </div>
+            <div class="grid md:grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg border">
+                <div class="md:col-span-2"><h4 class="font-bold text-sm text-blue-600 border-b">Route Details</h4></div>
                 
-                <div class="col-span-1"> 
-                    <label for="route_code" class="block text-sm font-semibold text-gray-700">Parent Route:</label>
-                    <select id="route_code" name="route_code" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                        <option value="">-- Select Route --</option>
+                <div>
+                    <label class="block text-xs font-semibold">Parent Route:</label>
+                    <select name="route_code" required class="mt-1 p-1.5 w-full rounded border shadow-sm text-sm">
                         <?php foreach ($routes as $route): ?>
-                            <option value="<?= htmlspecialchars($route['route_code']) ?>" 
-                                <?= ($route['route_code'] == $current_data['route_code']) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($route['route']) ?> (<?= htmlspecialchars($route['route_code']) ?>)
+                            <option value="<?= htmlspecialchars($route['route_code']) ?>" <?= ($route['route_code'] == $current_data['route_code']) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($route['route']) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
 
-                <div class="col-span-1">
-                    <label for="sub_route" class="block text-sm font-semibold text-gray-700">Sub-Route Name:</label>
-                    <input type="text" id="sub_route" name="sub_route" value="<?= htmlspecialchars($current_data['sub_route']) ?>" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                <div>
+                    <label class="block text-xs font-semibold">Sub-Route Name:</label>
+                    <input type="text" name="sub_route" value="<?= htmlspecialchars($current_data['sub_route']) ?>" required class="mt-1 p-1.5 w-full rounded border shadow-sm text-sm">
                 </div>
 
-                <div class="col-span-1 md:col-span-2">
-                    <label for="supplier" class="block text-sm font-semibold text-gray-700">Supplier:</label>
-                    <select id="supplier" name="supplier" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                        <option value="">-- Select Supplier --</option>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold">Supplier:</label>
+                    <select id="supplier" name="supplier" required class="mt-1 p-1.5 w-full rounded border shadow-sm text-sm">
                         <?php foreach ($suppliers as $supplier_row): ?>
                             <option value="<?= htmlspecialchars($supplier_row["supplier"]) ?>" 
-                                data-code="<?= htmlspecialchars($supplier_row["supplier_code"]) ?>"
-                                <?= ($supplier_row['supplier_code'] == $current_data['supplier_code']) ? 'selected' : '' ?>>
+                                    data-code="<?= htmlspecialchars($supplier_row["supplier_code"]) ?>"
+                                    <?= ($supplier_row['supplier_code'] == $current_data['supplier_code']) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($supplier_row["supplier"]) ?>
                             </option>
                         <?php endforeach; ?>
@@ -137,15 +129,12 @@ if ($vehicle_result) while ($row = $vehicle_result->fetch_assoc()) $vehicles[] =
                 </div>
             </div>
             
-            <div class="grid md:grid-cols-2 gap-4 bg-gray-100 p-3 border border-gray-100 rounded-lg shadow-sm">
-                <div class="md:col-span-2">
-                    <h4 class="text-xl font-bold text-blue-600 border-b pb-1">Logistics & Costs</h4>
-                </div>
+            <div class="grid md:grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg border">
+                <div class="md:col-span-2"><h4 class="font-bold text-sm text-blue-600 border-b">Costs & Vehicle</h4></div>
 
-                <div class="col-span-1">
-                    <label for="vehicle_no" class="block text-sm font-semibold text-gray-700">Vehicle No:</label>
-                    <select id="vehicle_no" name="vehicle_no" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                        <option value="">-- Select Vehicle No --</option>
+                <div>
+                    <label class="block text-xs font-semibold">Vehicle No:</label>
+                    <select id="vehicle_no" name="vehicle_no" required class="mt-1 p-1.5 w-full rounded border shadow-sm text-sm">
                         <?php foreach ($vehicles as $vehicle_row): ?>
                             <option value="<?= htmlspecialchars($vehicle_row["vehicle_no"]) ?>"
                                 <?= ($vehicle_row['vehicle_no'] == $current_data['vehicle_no']) ? 'selected' : '' ?>>
@@ -155,94 +144,113 @@ if ($vehicle_result) while ($row = $vehicle_result->fetch_assoc()) $vehicles[] =
                     </select>
                 </div>
 
-                <div class="col-span-1">
-                    <label for="distance" class="block text-sm font-semibold text-gray-700">Distance (km):</label>
-                    <input type="number" id="distance" name="distance" step="0.01" value="<?= htmlspecialchars($current_data['distance']) ?>" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                <div>
+                    <label class="block text-xs font-semibold">Distance (km):</label>
+                    <input type="number" name="distance" step="0.01" value="<?= htmlspecialchars($current_data['distance']) ?>" required class="mt-1 p-1.5 w-full rounded border shadow-sm text-sm">
                 </div>
 
-                <div class="col-span-1">
-                    <label for="per_day_rate" class="block text-sm font-semibold text-gray-700">Per Day Rate (Rs.):</label>
-                    <input type="number" id="per_day_rate" name="per_day_rate" step="0.01" value="<?= htmlspecialchars($current_data['per_day_rate']) ?>" required class="mt-1 p-2 block w-full rounded-md border border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                <div>
+                    <label class="block text-xs font-semibold">Fixed Rate (Rs/km):</label>
+                    <input type="number" name="fixed_rate" step="0.01" value="<?= htmlspecialchars($current_data['fixed_rate']) ?>" required class="mt-1 p-1.5 w-full rounded border shadow-sm text-sm">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700">Fuel Option:</label>
+                    <div class="flex items-center space-x-4 mt-1">
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="with_fuel" value="1" <?= ($current_data['with_fuel'] == 1) ? 'checked' : '' ?> class="h-3 w-3 text-blue-600">
+                            <span class="ml-2 text-xs">With Fuel</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="with_fuel" value="0" <?= ($current_data['with_fuel'] == 0) ? 'checked' : '' ?> class="h-3 w-3 text-blue-600">
+                            <span class="ml-2 text-xs">No Fuel</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-blue-600">Calculated Fuel Rate (Auto):</label>
+                    <input type="text" id="fuel_display" readonly class="mt-1 p-1.5 w-full rounded border shadow-sm text-sm readonly-field">
                 </div>
             </div>
             
-            <div class="flex justify-between mt-6 pt-2">
-                <a href="sub_routes.php" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
-                    Cancel
-                </a>
-                <button type="submit" id="submitBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
-                    Update Sub-Route
-                </button>
+            <div class="flex justify-between mt-4">
+                <a href="sub_routes.php" class="bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded shadow text-sm transition transform hover:scale-105">Cancel</a>
+                <button type="submit" id="submitBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded shadow text-sm transition transform hover:scale-105">Update Sub-Route</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
-    const form = document.getElementById("editSubRouteForm");
-    const toastContainer = document.getElementById("toast-container");
+    const vehicleSelect = document.getElementById('vehicle_no');
+    const fuelDisplay = document.getElementById('fuel_display');
+    const fuelRadios = document.querySelectorAll('input[name="with_fuel"]');
 
     function showToast(message, type) {
-        const toast = document.createElement('div'); 
-        toast.className = `toast ${type}`; 
-        
-        let iconPath = type === 'success' 
-            ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />'
-            : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />';
+        const container = document.getElementById("toast-container");
+        const toast = document.createElement('div');
+        toast.className = `toast ${type} show`;
+        const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle';
+        toast.innerHTML = `<i class="fas ${icon} mr-2"></i><span>${message}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
 
-        toast.innerHTML = `<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">${iconPath}</svg><span>${message}</span>`; 
-        
-        toastContainer.appendChild(toast); 
-        setTimeout(() => toast.classList.add('show'), 10); 
-        setTimeout(() => { 
-            toast.classList.remove('show'); 
-            toast.addEventListener('transitionend', () => toast.remove(), { once: true }); 
-        }, 1300); 
-    } 
+    async function updateFuelRate() {
+        const vNo = vehicleSelect.value;
+        const withFuel = document.querySelector('input[name="with_fuel"]:checked').value;
+
+        if (withFuel == "0" || !vNo) {
+            fuelDisplay.value = "0.00";
+            return;
+        }
+
+        try {
+            const response = await fetch(`sub_routes_backend.php?action=get_fuel_rates&vehicle_no=${encodeURIComponent(vNo)}`);
+            const data = await response.json();
+            if (data.success) {
+                const rate = (parseFloat(data.fuel_cost_per_liter) / parseFloat(data.km_per_liter));
+                fuelDisplay.value = rate.toFixed(2);
+            } else {
+                fuelDisplay.value = "0.00";
+            }
+        } catch (e) {
+            fuelDisplay.value = "0.00";
+        }
+    }
+
+    vehicleSelect.addEventListener('change', updateFuelRate);
+    fuelRadios.forEach(r => r.addEventListener('change', updateFuelRate));
+    document.addEventListener('DOMContentLoaded', updateFuelRate);
 
     function handleFormSubmit(event) {
         event.preventDefault();
-        const formData = new FormData(form);
-        
-        // Extract Supplier Code using data-code attribute
-        const selectedSupplierName = formData.get('supplier');
+        const formData = new FormData(event.target);
         const supplierSelect = document.getElementById('supplier');
-        const selectedOption = supplierSelect.querySelector(`option[value="${selectedSupplierName}"]`);
-        
+        const selectedOption = supplierSelect.options[supplierSelect.selectedIndex];
         if (selectedOption) {
             formData.set('supplier_code', selectedOption.getAttribute('data-code'));
-        } else {
-             showToast("Please select a valid supplier.", 'error');
-             return;
         }
 
         document.getElementById('submitBtn').disabled = true;
 
-        fetch('sub_routes_backend.php', { 
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.text())
+        fetch('sub_routes_backend.php', { method: 'POST', body: formData })
+        .then(res => res.text())
         .then(data => {
-            document.getElementById('submitBtn').disabled = false;
-            
             if (data.trim() === "Success") {
                 showToast("Sub-Route updated successfully!", 'success');
-                setTimeout(() => {
-                    window.location.href = 'sub_routes.php'; 
-                }, 1300); 
+                setTimeout(() => window.location.href = 'sub_routes.php', 1300);
             } else {
-                showToast("Error: " + data, 'error');
+                showToast(data, 'error');
+                document.getElementById('submitBtn').disabled = false;
             }
-        })
-        .catch(error => {
-            document.getElementById('submitBtn').disabled = false;
-            console.error('Error:', error);
-            showToast("An error occurred. Please try again.", 'error');
         });
     }
 </script>
 
 </body>
 </html>
-<?php $conn->close(); ?>

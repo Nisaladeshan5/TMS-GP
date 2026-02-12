@@ -5,7 +5,7 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
@@ -60,19 +60,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggl
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
-// ✅ FIXED LOGIC START: Get selected filter status
+// Get selected filter status
 $incoming_status = $_GET['status'] ?? '';
 $filter_status = 1; // Default to Active (1)
 
+// Note: If status is 'success' or 'error' (from redirect), it falls to default (1) which is fine.
 if ($incoming_status === '0') {
-    $filter_status = 0; // Explicitly set to Inactive if '0' is passed
+    $filter_status = 0; 
 } elseif ($incoming_status === '1') {
-    $filter_status = 1; // Explicitly set to Active if '1' is passed
+    $filter_status = 1; 
 }
-// Any other value (like 'success', 'error', or non-set) defaults to 1 (Active)
-// ✅ FIXED LOGIC END
 
-// Base SQL Query (UPDATED to include extra_rate_ac)
+// SQL Query
 $sql = "SELECT
             os.op_code,
             os.vehicle_no,
@@ -85,9 +84,7 @@ $sql = "SELECT
         FROM
             op_services AS os
         LEFT JOIN
-            vehicle AS v ON os.vehicle_no = v.vehicle_no
-        LEFT JOIN
-            supplier AS s ON v.supplier_code = s.supplier_code";
+            supplier AS s ON os.supplier_code = s.supplier_code"; 
 
 // Add Filtering condition 
 if ($filter_status === 1) {
@@ -107,179 +104,167 @@ $op_services_result = $conn->query($sql);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Operational Service Rates</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        /* CSS styles (same as before) */
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Modal & Toast CSS */
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0, 0, 0, 0.4); justify-content: center; align-items: center; }
         .modal-content { background-color: #ffffff; padding: 24px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); position: relative; }
+        
         #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; }
-        .toast { display: none; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; color: white; }
-        .toast.show { display: flex; align-items: center; transform: translateY(0); opacity: 1; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; color: white; }
+        .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
+        .toast.info { background-color: #2196F3; }
         .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
     </style>
+    
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
 </head>
-<script>
-    // 9 hours in milliseconds (32,400,000 ms)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
 
-    setTimeout(function() {
-        // Alert and redirect
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
-        
-    }, SESSION_TIMEOUT_MS);
-</script>
 <body class="bg-gray-100">
 
-<div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg w-[85%] ml-[15%] h-[5%]">
-    <div class="text-lg font-semibold ml-3">Operational Service</div>
-    <a href="reason.php" class="hover:text-yellow-600">Reasons</a>
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    
+    <div class="flex items-center gap-3">
+        <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
+            Operational Service Rates
+        </div>
+    </div>
+    
+    <div class="flex items-center gap-4 text-sm font-medium">
+        
+        <div class="relative">
+            <select id="status_filter" onchange="applyFilter()" class="bg-gray-700 text-white text-xs border border-gray-600 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-500 cursor-pointer shadow-sm hover:bg-gray-600 transition">
+                <option value="1" <?php echo ($filter_status == 1) ? 'selected' : ''; ?>>Active Only</option>
+                <option value="0" <?php echo ($filter_status == 0) ? 'selected' : ''; ?>>Inactive Only</option>
+            </select>
+        </div>
+
+        <span class="text-gray-600 text-lg font-thin">|</span>
+
+        <button onclick="generateServiceQrPdf()" class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide border border-green-500">
+            <i class="fas fa-qrcode"></i> Generate QR
+        </button>
+
+        <a href="reason.php" class="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide border border-rose-500">
+            Reasons
+        </a>
+
+        <a href="add_op_service.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide border border-blue-500">
+            Add Service
+        </a>
+    </div>
 </div>
 
-<div class="container ">
-    <div class="w-[85%] ml-[15%] flex flex-col items-center">
-        <p class="text-4xl font-bold text-gray-800 mt-6 mb-4 flex items-start">Service Details</p>
-        
-        <div class="w-full flex justify-between items-center mb-6">
-            <?php
-            // Assuming $user_role is defined elsewhere.
-            // Set the flag for easier use in the HTML
-            $is_manager = ($user_role === 'manager'); 
+<div class="w-[85%] ml-[15%] p-2 mt-16 pt-2">
+    
+    <div class="overflow-auto bg-white shadow-lg rounded-lg border border-gray-200 w-full max-h-[88vh]">
+        <table class="w-full table-auto border-collapse">
+            <thead class="text-white text-sm">
+                <tr>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-2 py-3 text-center w-10 shadow-sm">
+                        <input type="checkbox" id="select-all-rates" onclick="toggleAllCheckboxes()" class="cursor-pointer">
+                    </th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Code</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Vehicle No.</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Supplier</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-center shadow-sm">Slab Limit</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-right shadow-sm">Day Rate (Rs.)</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-right shadow-sm">Extra Rate (Non-AC)</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-right shadow-sm">Extra Rate (AC)</th> 
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-center shadow-sm">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="text-gray-700 divide-y divide-gray-200 text-sm">
+                <?php if ($op_services_result && $op_services_result->num_rows > 0): ?>
+                    <?php while ($rate = $op_services_result->fetch_assoc()): 
+                        $op_code = htmlspecialchars($rate['op_code']);
+                        $raw_vehicle_no = $rate['vehicle_no'];
+                        $vehicle_no = htmlspecialchars($raw_vehicle_no);
+                        $supplier = htmlspecialchars($rate['supplier'] ?? 'N/A');
+                        $day_rate = number_format((float)$rate['day_rate'], 2);
+                        $extra_rate_non_ac = number_format((float)$rate['extra_rate'], 2);
+                        $extra_rate_ac = number_format((float)($rate['extra_rate_ac'] ?? 0), 2); 
+                        $is_active = (int)$rate['is_active'];
+                        
+                        $limit_distance = ($rate['slab_limit_distance'] > 0) 
+                            ? htmlspecialchars($rate['slab_limit_distance']) . ' km' 
+                            : '-';
 
-            // --- Reusable Classes and Attributes ---
-            $disabled_state_classes = 'opacity-50 cursor-not-allowed pointer-events-none'; // CSS to make it look and act disabled
-            $disabled_href = 'javascript:void(0)'; // Prevent navigation for disabled links
-            $add_service_title = $is_manager ? 'Access denied for Manager role' : 'Add New Service';
-            $generate_pdf_title = $is_manager ? 'Access denied for Manager role' : 'Generate Service QR PDF';
-            $hover_anchor_classes = $is_manager ? '' : 'hover:bg-blue-600'; // Only apply hover if not manager
-            $hover_button_classes = $is_manager ? '' : 'hover:bg-green-800'; // Only apply hover if not manager
-            ?>
+                        $day_rate_display = $day_rate;
+                        $extra_rate_non_ac_display = ($extra_rate_non_ac !== '0.00' && (float)$rate['extra_rate'] > 0) ? $extra_rate_non_ac : 'N/A';
+                        $extra_rate_ac_display = ($extra_rate_ac !== '0.00' && (float)($rate['extra_rate_ac'] ?? 0) > 0) ? $extra_rate_ac : 'N/A';
 
-            <div class="flex space-x-4">
-                <a 
-                    href="add_op_service.php" 
-                    class="bg-blue-500 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
-                    title="Add New Service"
-                >
-                    Add New Service
-                </a>
-                
-                <button 
-                    onclick="generateServiceQrPdf()" 
-                    class="bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 "
-                    title="Generate Service QR PDF"
-                >
-                    Generate Service QR PDF
-                </button>
-            </div>
+                        $op_code_prefix = substr($op_code, 0, 2);
+                        if ($op_code_prefix === 'EV') {
+                            $day_rate_display = 'N/A';
+                            $limit_distance = 'N/A';
+                        } 
+                    ?>
+                        <tr class="hover:bg-indigo-50 border-b border-gray-100 transition duration-150 group">
+                            <td class='px-2 py-3 text-center'>
+                                <input type='checkbox' name='selected_rates[]' value='<?php echo $op_code . "|" . $raw_vehicle_no; ?>' class='rate-checkbox cursor-pointer'>
+                            </td>
+                            <td class="px-4 py-3 font-mono text-blue-600 font-bold text-xs"><?php echo $op_code; ?></td>
+                            <td class="px-4 py-3 font-medium text-gray-800"><?php echo $vehicle_no; ?></td>
+                            <td class="px-4 py-3 text-gray-600"><?php echo $supplier; ?></td>
+                            <td class="px-4 py-3 text-center"><?php echo $limit_distance; ?></td>
+                            <td class="px-4 py-3 text-right font-mono text-green-600 font-bold"><?php echo $day_rate_display; ?></td>
+                            <td class="px-4 py-3 text-right font-mono text-orange-600"><?php echo $extra_rate_non_ac_display; ?></td>
+                            <td class="px-4 py-3 text-right font-mono text-orange-600"><?php echo $extra_rate_ac_display; ?></td>
+                            
+                            <td class="px-4 py-3 text-center">
+                                <div class="flex justify-center gap-2">
+                                    <button 
+                                        onclick='openEditModal(<?php echo json_encode($op_code); ?>, <?php echo json_encode($raw_vehicle_no); ?>)' 
+                                        class='bg-yellow-500 hover:bg-yellow-600 text-white p-1.5 rounded shadow-sm transition duration-300' title="Edit">
+                                        <i class="fas fa-edit text-xs"></i>
+                                    </button>
 
-            <form method="GET" class="flex items-center space-x-2">
-                <label for="status_filter" class="font-medium text-gray-700">Filter Status:</label>
-                <select id="status_filter" name="status" onchange="this.form.submit()" class="border border-gray-300 p-2 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                    <option value="1" <?php echo ($filter_status == 1) ? 'selected' : ''; ?>>Active</option>
-                    <option value="0" <?php echo ($filter_status == 0) ? 'selected' : ''; ?>>Inactive</option>
-                </select>
-            </form>
-        </div>
-        
-        <div class="overflow-x-auto bg-white shadow-md rounded-md w-full">
-            <table class="min-w-full table-auto">
-                <thead class="bg-blue-600 text-white">
+                                    <?php if ($is_active == 1): ?>
+                                        <button 
+                                            onclick='confirmToggleStatus(<?php echo json_encode($op_code); ?>, <?php echo json_encode($raw_vehicle_no); ?>, 0, <?php echo $filter_status; ?>)' 
+                                            class='bg-red-500 hover:bg-red-600 text-white p-1.5 rounded shadow-sm transition duration-300' title="Disable">
+                                            <i class="fas fa-ban text-xs"></i>
+                                        </button>
+                                    <?php else: ?>
+                                        <button 
+                                            onclick='confirmToggleStatus(<?php echo json_encode($op_code); ?>, <?php echo json_encode($raw_vehicle_no); ?>, 1, <?php echo $filter_status; ?>)' 
+                                            class='bg-green-500 hover:bg-green-600 text-white p-1.5 rounded shadow-sm transition duration-300' title="Enable">
+                                            <i class="fas fa-check text-xs"></i>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endwhile; ?>
+                <?php else: ?>
                     <tr>
-                        <th class="px-2 py-2 text-center w-10">
-                            <input type="checkbox" id="select-all-rates" onclick="toggleAllCheckboxes()">
-                        </th>
-                        <th class="px-4 py-2 text-left">Code</th>
-                        <th class="px-4 py-2 text-left">Vehicle No.</th>
-                        <th class="px-4 py-2 text-left">Supplier</th>
-                        <th class="px-4 py-2 text-center">Slab Limit</th>
-                        <th class="px-4 py-2 text-right">Day Rate (Rs.)</th>
-                        <th class="px-4 py-2 text-right">Extra Rate (Non-AC)</th>
-                        <th class="px-4 py-2 text-right">Extra Rate (AC)</th> 
-                        <th class="px-4 py-2 text-center">Actions</th>
+                        <td colspan="9" class="px-6 py-4 text-center text-gray-500 italic">
+                            No Operational Service Rates found for the selected status.
+                        </td>
                     </tr>
-                </thead>
-                <tbody>
-    <?php if ($op_services_result && $op_services_result->num_rows > 0): ?>
-        <?php while ($rate = $op_services_result->fetch_assoc()): 
-            $op_code = htmlspecialchars($rate['op_code']);
-            $raw_vehicle_no = $rate['vehicle_no'];
-            $vehicle_no = htmlspecialchars($raw_vehicle_no);
-            $supplier = htmlspecialchars($rate['supplier'] ?? 'N/A');
-            $day_rate = number_format((float)$rate['day_rate'], 2);
-            $extra_rate_non_ac = number_format((float)$rate['extra_rate'], 2);
-            // NEW: Fetch and format the new AC rate
-            $extra_rate_ac = number_format((float)($rate['extra_rate_ac'] ?? 0), 2); 
-            $is_active = (int)$rate['is_active'];
-            
-            // Slab Limit Display Logic
-            $limit_distance = ($rate['slab_limit_distance'] > 0) 
-                ? htmlspecialchars($rate['slab_limit_distance']) . ' km' 
-                : '-';
-
-            // Default display values
-            $day_rate_display = $day_rate;
-            $extra_rate_non_ac_display = ($extra_rate_non_ac !== '0.00' && (float)$rate['extra_rate'] > 0) ? $extra_rate_non_ac : 'N/A';
-            $extra_rate_ac_display = ($extra_rate_ac !== '0.00' && (float)($rate['extra_rate_ac'] ?? 0) > 0) ? $extra_rate_ac : 'N/A';
-
-            // EV, NE specific handling
-            $op_code_prefix = substr($op_code, 0, 2);
-            if ($op_code_prefix === 'EV') {
-                $day_rate_display = 'N/A';
-                $limit_distance = 'N/A';
-                // For EV, the default extra_rate (index 5) is often used for the single rate, 
-                // so we show both non-AC and AC if they exist.
-                // If you want EV to show only one rate, you'd adjust this logic.
-            } elseif ($op_code_prefix === 'NE') {
-                // NE might also have specific logic, often similar to standard rates
-            }
-        ?>
-            <tr class="hover:bg-gray-100">
-                <td class='border px-2 py-2 text-center'>
-                    <input type='checkbox' name='selected_rates[]' value='<?php echo $op_code . "|" . $raw_vehicle_no; ?>' class='rate-checkbox'>
-                </td>
-                <td class="border px-4 py-2 font-bold"><?php echo $op_code; ?></td>
-                <td class="border px-4 py-2"><?php echo $vehicle_no; ?></td>
-                <td class="border px-4 py-2"><?php echo $supplier; ?></td>
-                <td class="border px-4 py-2 text-center"><?php echo $limit_distance; ?></td>
-                <td class="border px-4 py-2 text-right text-green-700"><?php echo $day_rate_display; ?></td>
-                <td class="border px-4 py-2 text-right text-red-700"><?php echo $extra_rate_non_ac_display; ?></td>
-                <td class="border px-4 py-2 text-right text-red-700"><?php echo $extra_rate_ac_display; ?></td>
-                <td class="border px-4 py-2 text-center">
-                    <button 
-                        onclick='openEditModal(<?php echo json_encode($op_code); ?>, <?php echo json_encode($raw_vehicle_no); ?>)' 
-                        class='bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300'>
-                        Edit
-                    </button>
-
-                    <?php if ($is_active == 1): ?>
-                        <button 
-                            onclick='confirmToggleStatus(<?php echo json_encode($op_code); ?>, <?php echo json_encode($raw_vehicle_no); ?>, 0, <?php echo $filter_status; ?>)' 
-                            class='bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 ml-2'>
-                            Disable
-                        </button>
-                    <?php else: ?>
-                        <button 
-                            onclick='confirmToggleStatus(<?php echo json_encode($op_code); ?>, <?php echo json_encode($raw_vehicle_no); ?>, 1, <?php echo $filter_status; ?>)' 
-                            class='bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-2 rounded text-sm transition duration-300 ml-2'>
-                            Enable
-                        </button>
-                    <?php endif; ?>
-                </td>
-            </tr>
-        <?php endwhile; ?>
-    <?php else: ?>
-        <tr>
-            <td colspan="10" class="border px-4 py-2 text-center">No Operational Service Rates found for the selected status.</td>
-        </tr>
-    <?php endif; ?>
-</tbody>
-
-            </table>
-        </div>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -295,11 +280,11 @@ $op_services_result = $conn->query($sql);
         </div>
     </div>
 </div>
+
 <div id="toast-container"></div>
 
-
 <script>
-    // --- JavaScript Functions (Unchanged) ---
+    // --- JavaScript Functions ---
     function showModal(id) {
         document.getElementById(id).style.display = 'flex';
     }
@@ -324,7 +309,6 @@ $op_services_result = $conn->query($sql);
             setTimeout(() => toast.remove(), 300);
         }, 3000);
     }
-
 
     function openEditModal(opCode, vehicleNo) {
         const editUrl = `add_op_service.php?op_code=${encodeURIComponent(opCode)}&vehicle_no=${encodeURIComponent(vehicleNo)}`;
@@ -363,8 +347,7 @@ $op_services_result = $conn->query($sql);
         .then(data => {
             if (data.status === 'success') {
                 showToast(data.message, 'success');
-                
-                // Redirect back, preserving the current filter status (0 or 1)
+                // Reload with current filter to refresh list
                 let reloadUrl = window.location.pathname + '?status=' + currentFilterStatus;
                 setTimeout(() => window.location.href = reloadUrl, 500);
             } else {
@@ -376,8 +359,6 @@ $op_services_result = $conn->query($sql);
             showToast('An unexpected error occurred. Check PHP error logs.', 'error');
         });
     }
-
-    // --- QR PDF GENERATION LOGIC (Unchanged) ---
 
     function toggleAllCheckboxes() {
         const selectAll = document.getElementById('select-all-rates');
@@ -413,6 +394,30 @@ $op_services_result = $conn->query($sql);
         form.submit();
         document.body.removeChild(form);
     }
+
+    function applyFilter() {
+        const status = document.getElementById('status_filter').value;
+        window.location.href = window.location.pathname + '?status=' + status;
+    }
+
+    // --- NEW: TRIGGER TOAST FROM URL PARAMETERS ---
+    // This code checks if 'message' and 'status' are in the URL and shows the toast
+    document.addEventListener('DOMContentLoaded', function() {
+        <?php if (isset($_GET['status']) && isset($_GET['message']) && ($_GET['status'] == 'success' || $_GET['status'] == 'error')): ?>
+            // Decode the message (just in case)
+            var message = "<?php echo addslashes(htmlspecialchars($_GET['message'])); ?>";
+            var status = "<?php echo htmlspecialchars($_GET['status']); ?>";
+            
+            showToast(message, status);
+            
+            // Clean the URL (remove status/message parameters) without reloading
+            // We want to keep the filter status if possible, but 'success' overwrites it in logic above.
+            // Let's reset the URL to clean state (default active or whatever logical default)
+            
+            const newUrl = window.location.pathname + '?status=1'; // Defaulting to Active view after clean
+            window.history.replaceState({}, document.title, newUrl);
+        <?php endif; ?>
+    });
 </script>
 
 </body>

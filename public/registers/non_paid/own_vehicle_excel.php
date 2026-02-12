@@ -1,8 +1,8 @@
 <?php
 // own_vehicle_excel.php
 
-require_once '../../includes/session_check.php';
-include('../../includes/db.php');
+require_once '../../../includes/session_check.php';
+include('../../../includes/db.php');
 
 // 1. Filter Parameters (Month/Year)
 $filterDate = $_GET['month_year'] ?? date('Y-m');
@@ -12,7 +12,7 @@ $daysInMonth = cal_days_in_month(CAL_GREGORIAN, (int)$filterMonth, (int)$filterY
 $monthName = date('F Y', strtotime($filterDate));
 
 // 2. Set Excel Headers
-$filename = "Own_Vehicle_Attendance_" . $monthName . ".xls";
+$filename = "Own_Vehicle_Detailed_" . $monthName . ".xls";
 header("Content-Type: application/vnd.ms-excel");
 header("Content-Disposition: attachment; filename=\"$filename\"");
 header("Pragma: no-cache");
@@ -21,47 +21,70 @@ header("Expires: 0");
 // 3. Fetch Data from Database
 $attendance = [];
 
-// SQL එක එලෙසම තබමු, නමුත් ORDER එකේ vehicle_no එකත් දාමු, එතකොට පිළිවෙලට එයි
+// --- SQL MODIFICATION ---
+// We added a subquery to fetch the SUM of distance from own_vehicle_extra
+// matching EmpID, VehicleNo, Month, and Year.
+
 $sql = "SELECT 
-            ova.emp_id, 
+            ov.emp_id, 
             e.calling_name, 
-            ova.vehicle_no, 
-            DATE(ova.date) as attendance_date 
+            ov.vehicle_no, 
+            DATE(ova.date) as attendance_date,
+            (
+                SELECT SUM(distance) 
+                FROM own_vehicle_extra ove 
+                WHERE ove.emp_id = ov.emp_id 
+                  AND ove.vehicle_no = ov.vehicle_no 
+                  AND YEAR(ove.date) = ? 
+                  AND MONTH(ove.date) = ?
+            ) as total_distance
         FROM 
-            own_vehicle_attendance ova
-        JOIN 
-            employee e ON ova.emp_id = e.emp_id
+            own_vehicle ov
+        LEFT JOIN 
+            employee e ON ov.emp_id = e.emp_id
+        LEFT JOIN 
+            own_vehicle_attendance ova ON ov.emp_id = ova.emp_id 
+            AND ov.vehicle_no = ova.vehicle_no 
+            AND YEAR(ova.date) = ? 
+            AND MONTH(ova.date) = ?
         WHERE 
-            YEAR(ova.date) = ? AND MONTH(ova.date) = ?
+            ov.vehicle_no IS NOT NULL AND ov.vehicle_no != ''
         ORDER BY 
-            ova.emp_id ASC, ova.vehicle_no ASC"; // Vehicle No එකෙනුත් sort කරමු
+            ov.emp_id ASC, ov.vehicle_no ASC";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param('ii', $filterYear, $filterMonth);
+
+// We need 4 integer parameters now:
+// 1 & 2 for the Subquery (Year, Month)
+// 3 & 4 for the Main Join (Year, Month)
+$stmt->bind_param('iiii', $filterYear, $filterMonth, $filterYear, $filterMonth);
+
 $stmt->execute();
 $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
     $empId = $row['emp_id'];
-    $vehicleNo = trim($row['vehicle_no']); // Vehicle No එක ගන්න
-    $day = (int)date('j', strtotime($row['attendance_date']));
+    $vehicleNo = trim($row['vehicle_no']);
     
-    // මෙන්න වෙනස: Key එක හදන්නේ EmpID සහ Vehicle No එකතු කරලා (Unique Key)
-    // උදාහරණ: "1001_WP-CAB-1234" සහ "1001_WP-KD-5678"
+    // Unique Key: EmpID + Vehicle No
     $uniqueKey = $empId . '_' . $vehicleNo;
     
     if (!isset($attendance[$uniqueKey])) {
         $attendance[$uniqueKey] = [
-            'emp_id' => $empId, // Emp ID එක ඇතුලෙම save කරගන්නවා display කරන්න
-            'calling_name' => $row['calling_name'],
+            'emp_id' => $empId,
+            'calling_name' => $row['calling_name'] ?? 'Unknown',
             'vehicle_no' => $vehicleNo,
+            'total_distance' => $row['total_distance'] ?? 0, // Capture the distance sum
             'days' => []
         ];
     }
     
-    $attendance[$uniqueKey]['days'][$day] = true;
+    // Mark Attendance Days
+    if (!empty($row['attendance_date'])) {
+        $day = (int)date('j', strtotime($row['attendance_date']));
+        $attendance[$uniqueKey]['days'][$day] = true;
+    }
 }
-
 ?>
 
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
@@ -79,14 +102,15 @@ while ($row = $result->fetch_assoc()) {
         .vehicle-col { background-color: #f2f2f2; }
         .name-col { text-align: left; padding-left: 5px; }
         .total-col { background-color: #FFEB9C; font-weight: bold; color: #9C6500; }
+        .distance-col { background-color: #EBF1DE; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <table>
         <tr>
-            <td colspan="<?php echo ($daysInMonth + 4); ?>" class="header-info">
-                Own Vehicle Attendance Report - <?php echo $monthName; ?>
+            <td colspan="<?php echo ($daysInMonth + 5); ?>" class="header-info">
+                Own Vehicle Attendance & Distance Report - <?php echo $monthName; ?>
             </td>
         </tr>
         <tr></tr>
@@ -106,16 +130,16 @@ while ($row = $result->fetch_assoc()) {
                 echo "<th style='width: 30px; $headerColor'>$d</th>";
             }
             ?>
-            <th style="width: 60px; background-color: #F79646;">Total</th>
+            <th style="width: 60px; background-color: #F79646;">Total Days</th>
+            <th style="width: 80px; background-color: #92D050;">Total Distance</th>
         </tr>
 
         <?php
         if (empty($attendance)) {
-            echo "<tr><td colspan='" . ($daysInMonth + 4) . "'>No records found for this month.</td></tr>";
+            echo "<tr><td colspan='" . ($daysInMonth + 5) . "'>No vehicles registered in the system.</td></tr>";
         } else {
-            // Loop එක වෙනස් කරන්න ඕන නෑ, නමුත් $empId කියන variable එක array key එකෙන් ගන්නේ නෑ
             foreach ($attendance as $uniqueKey => $data) {
-                // Calculate Total Days
+                // Total Days count for this specific vehicle
                 $totalDays = count($data['days']);
                 ?>
                 <tr>
@@ -146,6 +170,7 @@ while ($row = $result->fetch_assoc()) {
                     ?>
                     
                     <td class="total-col"><?php echo $totalDays; ?></td>
+                    <td class="distance-col"><?php echo number_format($data['total_distance'], 2); ?></td>
                 </tr>
                 <?php
             }

@@ -5,7 +5,7 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
@@ -23,19 +23,16 @@ $processed_report_data = [];
 $report_generated = false;
 $error_message = '';
 
-// ... (Your existing SQL Query and Data Processing Logic - NO CHANGE NEEDED HERE) ...
-// (ඉහත කේතයේ තිබූ SQL query එක සහ while loop එක එලෙසම තිබිය යුතුය.)
-
-// --- Data Processing Logic (Re-pasting for completeness, but assuming it works) ---
+// --- Data Processing Logic ---
 if (isset($conn)) {
     $report_generated = true;
     
-    // Define the full SQL query (using s.supplier as supplier_name)
     $sql = "
         SELECT t1.*, v.type AS vehicle_type, s.supplier AS supplier_name, 
+        CASE WHEN t1.date < DATE_SUB(NOW(), INTERVAL 6 MONTH) THEN 'OLDER' ELSE 'VALID' END AS fitness_status_code,
         CASE WHEN t1.date < DATE_SUB(NOW(), INTERVAL 6 MONTH) THEN '🔴 OLDER THAN 6 MONTHS' ELSE '🟢 WITHIN 6 MONTHS' END AS fitness_flag
-        FROM checkup t1
-        INNER JOIN (SELECT vehicle_no, MAX(date) AS max_date FROM checkup GROUP BY vehicle_no) t2 
+        FROM checkUp t1
+        INNER JOIN (SELECT vehicle_no, MAX(date) AS max_date FROM checkUp GROUP BY vehicle_no) t2 
             ON t1.vehicle_no = t2.vehicle_no AND t1.date = t2.max_date
         LEFT JOIN vehicle v ON t1.vehicle_no = v.vehicle_no 
         LEFT JOIN supplier s ON t1.supplier_code = s.supplier_code             
@@ -50,11 +47,20 @@ if (isset($conn)) {
             $fitness_status_key = 'vehicle_fitness_certificate_status';
             $fitness_remark_key = 'vehicle_fitness_certificate_remark';
 
-            // Core Logic for filtering defects (Bus vs Non-Bus)
+            // Core Logic for filtering defects
             if ($is_bus) {
                 if (isset($row[$fitness_status_key]) && $row[$fitness_status_key] == 0) {
-                    $defective_items[] = ['item' => 'Vehcile Fitness Certificate', 'remark' => $row[$fitness_remark_key]];
-                } else { continue; }
+                    $defective_items[] = ['item' => 'Vehicle Fitness Certificate', 'remark' => $row[$fitness_remark_key]];
+                } 
+                // Note: If bus has fitness cert issue, we capture it. 
+                // Original logic seemed to 'continue' if bus fitness was OK, skipping other checks?
+                // Assuming original logic meant: If Bus, ONLY check fitness cert? 
+                // Or Check everything? Keeping your original flow:
+                else { 
+                    // If Bus and fitness OK, do we check other things? 
+                    // Your original code had `else { continue; }` which implies Buses are ONLY checked for fitness cert here.
+                    continue; 
+                }
             } else {
                 foreach ($row as $key => $value) {
                     if (str_ends_with($key, '_status') && $key !== $fitness_status_key) {
@@ -70,12 +76,12 @@ if (isset($conn)) {
                 }
             }
 
-            // Common vehicle/inspection data
             $common_data = [
-                'supplier_display' => $row['supplier_code'] . ' (' . htmlspecialchars($row['supplier_name'] ?? 'N/A') . ')',
+                'supplier_display' => $row['supplier_code'] . ' <br><span class="text-xs text-gray-500 font-normal">' . htmlspecialchars($row['supplier_name'] ?? 'N/A') . '</span>',
                 'vehicle_no' => $row['vehicle_no'],
                 'date' => $row['date'],
                 'fitness_flag' => $row['fitness_flag'],
+                'is_old' => ($row['fitness_status_code'] === 'OLDER'),
                 'vehicle_type' => $current_vehicle_type 
             ];
             
@@ -93,8 +99,6 @@ if (isset($conn)) {
 } else {
     $error_message = "Database connection (\$conn) not established.";
 }
-// --- End Data Processing Logic ---
-
 ?>
 
 <!DOCTYPE html>
@@ -103,117 +107,181 @@ if (isset($conn)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Defective Vehicle Report</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        .old-flag-row { background-color: #fce7e7; font-weight: bold; }
-        .report-table th, .report-table td { padding: 8px 16px; }
-        /* PDF printing සඳහා table එකට පමණක් වෙනම ID එකක් දෙමු */
-        #report-content-to-print { border-collapse: collapse; width: 100%; }
-    </style>
-</head>
-<script>
-    // 9 hours in milliseconds (32,400,000 ms)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
-
-    setTimeout(function() {
-        // Alert and redirect
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
-    }, SESSION_TIMEOUT_MS);
-</script>
-<body class="bg-gray-100 font-sans">
-    <div class="w-[85%] ml-[15%] mb-6">
-        <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg ">
-            <div class="text-lg font-semibold ml-3">Defective Vehicle Report</div>
-            <div class="flex gap-4">
-                <?php
-                if ($user_role === 'admin' || $user_role === 'superadmin' || $user_role === 'viewer') {
-                ?>
-                <a href="checkUp_category.php" class="hover:text-yellow-600">Add Inspection</a>
-                <a href="edit_inspection.php" class="hover:text-yellow-600">Edit Inspection</a>
-                <a href="view_supplier.php" class="hover:text-yellow-600">View Supplier</a>
-                 <?php
-                }
-                ?>
-                <a href="generate_report_checkup.php" class="text-yellow-600">Report</a>
-            </div>
+        .old-flag-row { background-color: #fee2e2; } /* Red-100 */
+    </style>
+    
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
+</head>
+
+<body class="bg-gray-100">
+
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="checkUp_category.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                Vehicle Inspection
+            </a>
+
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                Report
+            </span>
         </div>
+    </div>
+    
+    <div class="flex items-center gap-6 text-sm font-medium">
+        <?php 
+        $allowed_roles = ['admin', 'super admin', 'developer'];
+        // Note: Check roles carefully. 'superadmin' vs 'super admin'
+        if (in_array($user_role, $allowed_roles) || $user_role === 'viewer') {
+        ?>
+            <a href="checkUp_category.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+                <i class="fas fa-plus-circle"></i> Add
+            </a>
+            <a href="edit_inspection.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+                <i class="fas fa-edit"></i> Edit
+            </a>
+            <a href="view_supplier.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+                <i class="fas fa-users"></i> Suppliers
+            </a>
+        <?php } ?>
+        
+        <span class="text-gray-600 text-lg font-thin">|</span>
 
-        <div class="container mx-auto p-6 bg-white shadow-lg rounded-lg mt-6 max-w-7xl">
-            <h2 class="text-3xl font-bold text-center mb-6 text-gray-800">Defective Vehicle Report (Latest Inspections)</h2>
+        <span class="flex items-center gap-2 text-yellow-400 font-bold px-3 py-1.5 border border-yellow-500 rounded-md bg-yellow-500 bg-opacity-10">
+            <i class="fas fa-chart-bar"></i> Report
+        </span>
+    </div>
+</div>
 
-            <?php if (!empty($error_message)): ?>
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-                    <strong class="font-bold">Error!</strong>
-                    <span class="block sm:inline"><?php echo htmlspecialchars($error_message); ?></span>
+<div class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex flex-col items-center">
+    
+    <div class="w-full max-w-7xl">
+        
+        <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+            
+            <div class="px-8 py-6 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-exclamation-triangle text-red-500"></i> Current Defects
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-1">Based on the latest inspection record for each vehicle.</p>
                 </div>
-            <?php endif; ?>
-
-            <?php if ($report_generated && empty($error_message)): ?>
                 
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-bold text-gray-700">
-                        Currently Defective Items (Based on Latest Inspection for Each Vehicle)
-                    </h3>
-                    <div class="flex gap-2">
-                        <a href="export_report.php" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow-md">
-                            📥 Excel
-                        </a>
-                        <a href="export_pdf_report.php" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow-md">
-                            🖨️ PDF
-                        </a>
-                    </div>
+                <?php if ($report_generated && empty($error_message) && !empty($processed_report_data)): ?>
+                <div class="flex gap-3">
+                    <a href="export_report.php" class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg shadow transition transform hover:scale-105">
+                        <i class="fas fa-file-excel mr-2"></i> Excel
+                    </a>
+                    <a href="export_pdf_report.php" class="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg shadow transition transform hover:scale-105">
+                        <i class="fas fa-file-pdf mr-2"></i> PDF
+                    </a>
                 </div>
+                <?php endif; ?>
+            </div>
 
-                <?php if (empty($processed_report_data)): ?>
-                    <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4" role="alert">
-                        <p class="font-bold">All OK! 🎉</p>
-                        <p>The latest inspection for every vehicle meets the required fitness standard.</p>
+            <div class="p-0">
+                <?php if (!empty($error_message)): ?>
+                    <div class="m-8 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded shadow-sm">
+                        <div class="flex items-center">
+                            <i class="fas fa-bug text-xl mr-3"></i>
+                            <div>
+                                <p class="font-bold">System Error</p>
+                                <p class="text-sm"><?php echo htmlspecialchars($error_message); ?></p>
+                            </div>
+                        </div>
+                    </div>
+                <?php elseif (empty($processed_report_data)): ?>
+                    <div class="flex flex-col items-center justify-center py-20 text-center">
+                        <div class="bg-green-100 text-green-600 w-20 h-20 rounded-full flex items-center justify-center mb-4 text-4xl shadow-sm">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold text-gray-800">Excellent!</h3>
+                        <p class="text-gray-500 mt-2 max-w-md">No defective vehicles found based on the latest inspection records.</p>
                     </div>
                 <?php else: ?>
-                    <div class="overflow-x-auto rounded-lg border border-gray-200 shadow-md">
-                        <table id="report-content-to-print" class="min-w-full divide-y divide-gray-200 report-table">
-                            <thead class="bg-red-100">
+                    
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm text-left">
+                            <thead class="bg-blue-600 text-white uppercase text-xs tracking-wider sticky top-0 z-10 shadow-sm">
                                 <tr>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Vehicle #</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Type</th> 
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Supplier</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Inspection Date</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Defective Item</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Remark/Reason</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">6-Month Flag</th>
+                                    <th class="px-6 py-4 font-semibold border-b border-blue-500 w-1/12">Vehicle #</th>
+                                    <th class="px-6 py-4 font-semibold border-b border-blue-500 w-1/12">Type</th> 
+                                    <th class="px-6 py-4 font-semibold border-b border-blue-500 w-2/12">Supplier</th>
+                                    <th class="px-6 py-4 font-semibold border-b border-blue-500 w-1/12">Insp. Date</th>
+                                    <th class="px-6 py-4 font-semibold border-b border-blue-500 w-2/12">Defect</th>
+                                    <th class="px-6 py-4 font-semibold border-b border-blue-500 w-3/12">Remark</th>
+                                    <th class="px-6 py-4 font-semibold border-b border-blue-500 w-2/12 text-center">Status</th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
+                            <tbody class="divide-y divide-gray-200 bg-white">
                                 <?php 
                                 foreach ($processed_report_data as $record): 
                                     $common = $record['common'];
                                     $defects = $record['defects'];
                                     $rowspan = count($defects);
                                     
-                                    $row_class = ($common['fitness_flag'] == '🔴 OLDER THAN 6 MONTHS') ? 'old-flag-row' : 'hover:bg-gray-50';
+                                    // Highlight if old flag is present
+                                    $bg_class = $common['is_old'] ? 'bg-red-50' : 'hover:bg-gray-50';
+                                    $border_class = $common['is_old'] ? 'border-red-200' : 'border-gray-200';
                                 ?>
                                     
                                     <?php for ($i = 0; $i < $rowspan; $i++): ?>
-                                        <tr class="<?php echo $row_class; ?>">
+                                        <tr class="<?php echo $bg_class; ?> transition duration-150">
                                             <?php if ($i === 0): ?>
-                                                <td rowspan="<?php echo $rowspan; ?>" class="px-4 py-2 whitespace-nowrap text-sm font-bold text-gray-900 border-r border-gray-200"><?php echo htmlspecialchars($common['vehicle_no']); ?></td>
-                                                <td rowspan="<?php echo $rowspan; ?>" class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200"><?php echo htmlspecialchars(ucwords($common['vehicle_type'])); ?></td> 
-                                                
-                                                <td rowspan="<?php echo $rowspan; ?>" class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200 font-medium">
+                                                <td rowspan="<?php echo $rowspan; ?>" class="px-6 py-4 font-bold text-gray-900 border-r <?php echo $border_class; ?> align-top">
+                                                    <?php echo htmlspecialchars($common['vehicle_no']); ?>
+                                                </td>
+                                                <td rowspan="<?php echo $rowspan; ?>" class="px-6 py-4 text-gray-600 border-r <?php echo $border_class; ?> align-top">
+                                                    <?php echo htmlspecialchars(ucwords($common['vehicle_type'])); ?>
+                                                </td> 
+                                                <td rowspan="<?php echo $rowspan; ?>" class="px-6 py-4 text-gray-800 font-medium border-r <?php echo $border_class; ?> align-top leading-tight">
                                                     <?php echo $common['supplier_display']; ?> 
                                                 </td>
-                                                
-                                                <td rowspan="<?php echo $rowspan; ?>" class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200"><?php echo htmlspecialchars($common['date']); ?></td>
+                                                <td rowspan="<?php echo $rowspan; ?>" class="px-6 py-4 text-gray-600 border-r <?php echo $border_class; ?> align-top font-mono text-xs">
+                                                    <?php echo htmlspecialchars($common['date']); ?>
+                                                </td>
                                             <?php endif; ?>
                                             
-                                            <td class="px-4 py-2 whitespace-nowrap text-sm text-red-700 font-semibold"><?php echo htmlspecialchars($defects[$i]['item']); ?></td>
-                                            <td class="px-4 py-2 text-sm text-gray-900"><?php echo htmlspecialchars($defects[$i]['remark']); ?></td>
+                                            <td class="px-6 py-3 font-semibold text-red-600 align-top">
+                                                <i class="fas fa-times-circle mr-1 text-xs"></i> <?php echo htmlspecialchars($defects[$i]['item']); ?>
+                                            </td>
+                                            <td class="px-6 py-3 text-gray-700 italic align-top">
+                                                <?php echo htmlspecialchars($defects[$i]['remark']); ?>
+                                            </td>
                                             
                                             <?php if ($i === 0): ?>
-                                                <td rowspan="<?php echo $rowspan; ?>" class="px-4 py-2 whitespace-nowrap text-sm font-bold text-gray-900 border-l border-gray-200"><?php echo htmlspecialchars($common['fitness_flag']); ?></td>
+                                                <td rowspan="<?php echo $rowspan; ?>" class="px-6 py-4 text-center align-top border-l <?php echo $border_class; ?>">
+                                                    <?php if ($common['is_old']): ?>
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                                                            Older > 6 Mo
+                                                        </span>
+                                                    <?php else: ?>
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                                                            Valid
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </td>
                                             <?php endif; ?>
                                         </tr>
                                     <?php endfor; ?>
@@ -222,11 +290,17 @@ if (isset($conn)) {
                             </tbody>
                         </table>
                     </div>
+                    
+                    <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 text-right text-xs text-gray-500">
+                        Total Vehicles with Issues: <strong><?php echo count($processed_report_data); ?></strong>
+                    </div>
+
                 <?php endif; ?>
-
-            <?php endif; ?>
-
+            </div>
         </div>
+
     </div>
+</div>
+
 </body>
 </html>

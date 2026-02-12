@@ -21,6 +21,10 @@ include('../../includes/db.php');
 $filterDate = isset($_GET['filter_date']) ? $_GET['filter_date'] : date('Y-m-d'); 
 $filterShift = isset($_GET['shift']) ? $_GET['shift'] : 'morning';
 
+// Calculate Previous and Next Dates for navigation buttons
+$prevDate = date('Y-m-d', strtotime($filterDate . ' -1 day'));
+$nextDate = date('Y-m-d', strtotime($filterDate . ' +1 day'));
+
 $displayDate = date('F j, Y', strtotime($filterDate));
 
 // --- 2. Fetch All Eligible Routes (Factory Specific Logic Kept) ---
@@ -140,14 +144,25 @@ include('../../includes/navbar.php');
 
             <form method="GET" class="flex flex-wrap items-center gap-4">
                 
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                        <i class="far fa-calendar-alt"></i>
+                <div class="flex items-center bg-gray-50 rounded-lg border border-gray-300 p-1 shadow-sm">
+                    <a href="?filter_date=<?php echo $prevDate; ?>&shift=<?php echo $filterShift; ?>" 
+                       class="p-2 rounded-md text-gray-500 hover:text-blue-600 hover:bg-gray-200 transition" 
+                       title="Previous Day">
+                        <i class="fas fa-chevron-left"></i>
+                    </a>
+
+                    <div class="relative px-2">
+                        <input type="date" id="filter_date" name="filter_date" 
+                            onchange="this.form.submit()"
+                            class="bg-transparent border-none focus:ring-0 text-sm font-semibold text-gray-700 cursor-pointer outline-none"
+                            value="<?php echo htmlspecialchars($filterDate); ?>" required>
                     </div>
-                    <input type="date" id="filter_date" name="filter_date" 
-                        onchange="this.form.submit()"
-                        class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-gray-50 text-gray-900 cursor-pointer hover:bg-white transition"
-                        value="<?php echo htmlspecialchars($filterDate); ?>" required>
+
+                    <a href="?filter_date=<?php echo $nextDate; ?>&shift=<?php echo $filterShift; ?>" 
+                       class="p-2 rounded-md text-gray-500 hover:text-blue-600 hover:bg-gray-200 transition" 
+                       title="Next Day">
+                        <i class="fas fa-chevron-right"></i>
+                    </a>
                 </div>
 
                 <div class="relative">

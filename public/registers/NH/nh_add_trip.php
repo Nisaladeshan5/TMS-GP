@@ -32,11 +32,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_trip'])) {
     $done = 0; 
 
     // Insert Query
-    $sql = "INSERT INTO nh_register (vehicle_no, quantity, date, time, op_code, distance, direct_count, indirect_count, done) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    $sql = "INSERT INTO nh_register (vehicle_no, quantity, date, time, op_code, distance, done) VALUES (?, ?, ?, ?, ?, ?, ?)";
     $stmt = $conn->prepare($sql);
     
     if ($stmt) {
-        $stmt->bind_param('sisssddii', $vehicle_no, $quantity, $date, $time, $op_code, $distance, $direct_count, $indirect_count, $done);
+        $stmt->bind_param('sisssdd', $vehicle_no, $quantity, $date, $time, $op_code, $distance, $done);
         
         if ($stmt->execute()) {
             // Redirect with Success

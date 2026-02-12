@@ -6,17 +6,28 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in
+// Check if the user is currently logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
 }
 
+// --- PERMISSION LOGIC (Based on Navbar) ---
+// Define the user role
+$user_role = isset($_SESSION['user_role']) ? $_SESSION['user_role'] : '';
+
+// 1. Define who can manage Basic Data (Routes, Vehicles, Suppliers, etc.)
+//    Matches the 'Management' section of your navbar
+$access_management = ['manager', 'super admin', 'admin', 'developer'];
+
+// 2. Define who can view Employees (Includes Viewer)
+//    This allows Viewers to see the Employee card, plus the management team
+$access_employees = ['viewer', 'manager', 'super admin', 'admin', 'developer'];
+
 include('../../includes/db.php');
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
-// Close the database connection immediately as it's not needed for the menu itself
 if (isset($conn)) {
     mysqli_close($conn);
 }
@@ -33,7 +44,6 @@ if (isset($conn)) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
 
     <script>
-        // 9 hours in milliseconds (32,400,000 ms)
         const SESSION_TIMEOUT_MS = 32400000; 
         const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
 
@@ -47,7 +57,6 @@ if (isset($conn)) {
         .fade-in { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* Gradient Classes (Fallback or Specific Customization) */
         .card-blue { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); }
         .card-teal { background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%); }
         .card-purple { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); }
@@ -74,77 +83,98 @@ if (isset($conn)) {
         
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl fade-in">
             
-            <a href="routes_staff2.php" 
-               class="card-blue relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-route text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Routes</span>
-            </a>
+            <?php 
+            /* SECTION 1: Management Only Cards
+               Visible to: Manager, Super Admin, Admin, Developer 
+            */
+            if (in_array($user_role, $access_management)): 
+            ?>
+                <a href="routes_staff2.php" 
+                   class="card-blue relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-route text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Routes</span>
+                </a>
 
-            <a href="sub_routes.php" 
-               class="card-teal relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-map-signs text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Sub Routes</span>
-            </a>
+                <a href="sub_routes.php" 
+                   class="card-teal relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-map-signs text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Sub Routes</span>
+                </a>
 
-            <a href="suppliers.php" 
-               class="card-purple relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-handshake text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Suppliers</span>
-            </a>
+                <a href="suppliers.php" 
+                   class="card-purple relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-handshake text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Suppliers</span>
+                </a>
 
-            <a href="vehicle.php" 
-               class="card-green relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-bus text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Vehicles</span>
-            </a>
+                <a href="vehicle.php" 
+                   class="card-green relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-bus text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Vehicles</span>
+                </a>
 
-            <a href="driver.php" 
-               class="card-red relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-id-card text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Drivers</span>
-            </a>
+                <a href="driver.php" 
+                   class="card-red relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-id-card text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Drivers</span>
+                </a>
+            <?php endif; ?>
 
-            <a href="employee.php" 
-               class="card-yellow relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-users text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Employees</span>
-            </a>
+            <?php 
+            /* SECTION 2: Employee Card
+               Visible to: Viewers + Management Team
+            */
+            if (in_array($user_role, $access_employees)): 
+            ?>
+                <a href="employee.php" 
+                   class="card-yellow relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-users text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Employees</span>
+                </a>
+            <?php endif; ?>
 
-            <a href="own_vehicle.php" 
-               class="card-cyan relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-gas-pump text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Fuel Allowance</span>
-            </a>
+            <?php 
+            /* SECTION 3: More Management Cards
+               Visible to: Manager, Super Admin, Admin, Developer 
+            */
+            if (in_array($user_role, $access_management)): 
+            ?>
+                <a href="own_vehicle.php" 
+                   class="card-cyan relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-gas-pump text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Fuel Allowance</span>
+                </a>
 
-            <a href="op_services.php" 
-               class="card-indigo relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-cogs text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Operational Services</span>
-            </a>
+                <a href="op_services.php" 
+                   class="card-indigo relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-cogs text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Operational Services</span>
+                </a>
 
-            <a href="fuel.php" 
-               class="card-gray relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
-                <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
-                    <i class="fas fa-oil-can text-3xl"></i>
-                </div>
-                <span class="text-xl font-bold text-white tracking-wide">Fuel</span>
-            </a>
+                <a href="fuel.php" 
+                   class="card-gray relative overflow-hidden rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 flex flex-col items-center justify-center text-center gap-3 border border-white/10 group">
+                    <div class="p-4 bg-white/20 rounded-full text-white backdrop-blur-sm group-hover:scale-110 transition duration-300">
+                        <i class="fas fa-oil-can text-3xl"></i>
+                    </div>
+                    <span class="text-xl font-bold text-white tracking-wide">Fuel</span>
+                </a>
+            <?php endif; ?>
 
         </div>
     </div>

@@ -19,7 +19,7 @@ $factory_transport_supplier_code = '';
 // Fetch routes
 $sqlRoutes = "SELECT route_code, route 
                 FROM route 
-                WHERE purpose='factory'
+                WHERE purpose='factory' AND is_active=1
                 ORDER BY CAST(REPLACE(SUBSTRING_INDEX(route_code, '-', -1), 'V', '') AS UNSIGNED) ASC;";
 $resultRoutes = $conn->query($sqlRoutes);
 $routes = [];

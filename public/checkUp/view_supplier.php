@@ -4,7 +4,7 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in (adjust 'loggedin' to your actual session variable)
+// Check login
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
@@ -13,63 +13,41 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 $is_logged_in = isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
 $user_role = $is_logged_in && isset($_SESSION['user_role']) ? $_SESSION['user_role'] : '';
 
-include('../../includes/db.php'); // Your database connection file
+include('../../includes/db.php'); // DB connection
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 
-$vehicles_inspections_summary = []; // Will store latest inspection data for all vehicles of a supplier
+$vehicles_inspections_summary = []; 
 $search_supplier_name = '';
-$inspection_data = null; // To hold detailed inspection data if a vehicle card is clicked
+$inspection_data = null; 
 $message = '';
 
-// Define the mapping from display text to database column prefix
+// Criteria Mapping
 $criteria_mapping = [
-    'Revenue License' => 'revenue_license',
-    'Driver License' => 'driver_license',
-    'Insurance' => 'insurance',
-    'Driver Data sheet' => 'driver_data_sheet',
-    'Driver NIC' => 'driver_nic',
-    'Break' => 'break',
-    'Tires' => 'tires',
-    'Spare Wheel' => 'spare_wheel',
-    'Lights (Head Lights/Signal Lights, Break Lights)' => 'lights',
-    'Revers lights/ tones' => 'revers_lights',
-    'Horns' => 'horns',
-    'Windows and shutters' => 'windows',
-    'Door locks' => 'door_locks',
-    'No oil leaks' => 'no_oil_leaks',
-    'No high smoke (Black smoke)' => 'no_high_smoke',
-    'Seat condition' => 'seat_condition',
-    'Seat Gap' => 'seat_gap',
-    'Body condition' => 'body_condition',
-    'Roof leek' => 'roof_leek',
-    'Air Conditions' => 'air_conditions',
-    'Noise' => 'noise'
+    'Revenue License' => 'revenue_license', 'Driver License' => 'driver_license', 'Insurance' => 'insurance',
+    'Driver Data sheet' => 'driver_data_sheet', 'Driver NIC' => 'driver_nic', 'Break' => 'break',
+    'Tires' => 'tires', 'Spare Wheel' => 'spare_wheel', 'Lights (Head/Signal/Break)' => 'lights',
+    'Revers lights/ tones' => 'revers_lights', 'Horns' => 'horns', 'Windows and shutters' => 'windows',
+    'Door locks' => 'door_locks', 'No oil leaks' => 'no_oil_leaks', 'No high smoke' => 'no_high_smoke',
+    'Seat condition' => 'seat_condition', 'Seat Gap' => 'seat_gap', 'Body condition' => 'body_condition',
+    'Roof leek' => 'roof_leek', 'Air Conditions' => 'air_conditions', 'Noise' => 'noise'
 ];
 
-// Fetch distinct supplier names for the dropdown
+// Fetch Suppliers
 $suppliers = [];
 if (isset($conn)) {
-    // Assuming 'vehicle_inspections' is the table where supplier data is stored
     $sql_suppliers = "SELECT DISTINCT supplier_code FROM checkUp ORDER BY supplier_code ASC";
     $result_suppliers = $conn->query($sql_suppliers);
     if ($result_suppliers && $result_suppliers->num_rows > 0) {
-        while ($row = $result_suppliers->fetch_assoc()) {
-            $suppliers[] = $row['supplier_code'];
-        }
-    } else {
-        error_log("No suppliers found or query failed: " . $conn->error);
+        while ($row = $result_suppliers->fetch_assoc()) { $suppliers[] = $row['supplier_code']; }
     }
-} else {
-    error_log("Database connection (\$conn) not established in db.php.");
 }
 
-// Handle search by supplier
+// Handle Search
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['search_supplier'])) {
     if (isset($_POST['search_supplier_name']) && !empty($_POST['search_supplier_name'])) {
         $search_supplier_name = $conn->real_escape_string($_POST['search_supplier_name']);
-
-        // Get all unique vehicles associated with this supplier from vehicle_inspections
+        
         $sql_vehicle_nos = "SELECT DISTINCT vehicle_no FROM checkUp WHERE supplier_code = ?";
         $stmt_vehicles = $conn->prepare($sql_vehicle_nos);
         
@@ -83,12 +61,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['search_supplier'])) {
                 while ($row_vehicle = $result_vehicle_nos->fetch_assoc()) {
                     $vehicle_no = $row_vehicle['vehicle_no'];
                     
-                    // For each vehicle, fetch its latest inspection details, including the type from the vehicle table
-                    $sql_latest_inspection = "SELECT c.*, v.type FROM checkUp c 
-                                             INNER JOIN vehicle v ON c.vehicle_no = v.vehicle_no
-                                             WHERE c.vehicle_no = ? AND c.supplier_code = ? 
-                                             ORDER BY c.date DESC, c.id DESC LIMIT 1";
-                    $stmt_inspection = $conn->prepare($sql_latest_inspection);
+                    $sql_latest = "SELECT c.*, v.type FROM checkUp c INNER JOIN vehicle v ON c.vehicle_no = v.vehicle_no WHERE c.vehicle_no = ? AND c.supplier_code = ? ORDER BY c.date DESC, c.id DESC LIMIT 1";
+                    $stmt_inspection = $conn->prepare($sql_latest);
                     
                     if ($stmt_inspection) {
                         $stmt_inspection->bind_param("ss", $vehicle_no, $search_supplier_name);
@@ -98,51 +72,35 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['search_supplier'])) {
                         if ($result_inspection->num_rows > 0) {
                             $latest_inspection = $result_inspection->fetch_assoc();
                             
-                            // Determine if there are any "failed" items for card display
                             $has_problems = false;
-                            foreach ($criteria_mapping as $item_display_name => $db_column_prefix) {
-                                $status_column = $db_column_prefix . '_status';
-                                if (isset($latest_inspection[$status_column]) && $latest_inspection[$status_column] == 0) {
-                                    $has_problems = true;
-                                    break;
+                            foreach ($criteria_mapping as $item => $col) {
+                                if (isset($latest_inspection[$col . '_status']) && $latest_inspection[$col . '_status'] == 0) {
+                                    $has_problems = true; break;
                                 }
                             }
-                            // Only count failed vehicle fitness as a problem if the vehicle type is 'Bus'
-                            $vehicle_type = $latest_inspection['type'] ?? '';
-                            if (strcasecmp($vehicle_type, 'bus') == 0 && isset($latest_inspection['vehicle_fitness_certificate_status']) && $latest_inspection['vehicle_fitness_certificate_status'] == 0) {
+                            $v_type = $latest_inspection['type'] ?? '';
+                            if (strcasecmp($v_type, 'bus') == 0 && isset($latest_inspection['vehicle_fitness_certificate_status']) && $latest_inspection['vehicle_fitness_certificate_status'] == 0) {
                                 $has_problems = true;
                             }
                             $latest_inspection['has_problems'] = $has_problems;
                             $vehicles_inspections_summary[] = $latest_inspection;
-
                         }
                         $stmt_inspection->close();
-                    } else {
-                        $message = "Database query error for inspection details: " . $conn->error;
-                        error_log($message);
-                        break; // Stop processing if there's an error
                     }
                 }
             } else {
                 $message = "No vehicles found for Supplier: " . htmlspecialchars($search_supplier_name);
             }
-        } else {
-            $message = "Database query error for vehicle numbers: " . $conn->error;
-            error_log($message);
         }
     } else {
         $message = "Please enter a Supplier Name to search.";
     }
 }
-// Handle direct vehicle search if specific vehicle details are requested (e.g., from a card click)
 elseif (isset($_GET['view_vehicle_no']) && !empty($_GET['view_vehicle_no'])) {
     $search_vehicle_no_direct = $conn->real_escape_string($_GET['view_vehicle_no']);
-    
-    // Join with vehicle and supplier tables to get all necessary details
-    $sql = "SELECT c.*, s.supplier, v.type FROM checkUp AS c 
-            INNER JOIN supplier AS s ON c.supplier_code = s.supplier_code 
-            INNER JOIN vehicle AS v ON c.vehicle_no = v.vehicle_no
-            WHERE c.vehicle_no = ? ORDER BY c.date DESC, c.id DESC LIMIT 1";
+    $search_supplier_name = isset($_GET['search_supplier_name']) ? htmlspecialchars($_GET['search_supplier_name']) : '';
+
+    $sql = "SELECT c.*, s.supplier, v.type FROM checkUp AS c INNER JOIN supplier AS s ON c.supplier_code = s.supplier_code INNER JOIN vehicle AS v ON c.vehicle_no = v.vehicle_no WHERE c.vehicle_no = ? ORDER BY c.date DESC, c.id DESC LIMIT 1";
     $stmt = $conn->prepare($sql);
     if ($stmt) {
         $stmt->bind_param("s", $search_vehicle_no_direct);
@@ -150,37 +108,25 @@ elseif (isset($_GET['view_vehicle_no']) && !empty($_GET['view_vehicle_no'])) {
         $result = $stmt->get_result();
 
         if ($result->num_rows > 0) {
-            $inspection_data = $result->fetch_assoc(); // This will be used for the detailed view
-            // Set the supplier name from the fetched data to pre-fill the search box if desired
-            $search_supplier_name = $inspection_data['supplier_code']; 
-
-            // Determine if there are any "failed" items for detailed view
+            $inspection_data = $result->fetch_assoc();
+            
             $has_problems_for_detail = false;
-            foreach ($criteria_mapping as $item_display_name => $db_column_prefix) {
-                $status_column = $db_column_prefix . '_status';
-                if (isset($inspection_data[$status_column]) && $inspection_data[$status_column] == 0) {
-                    $has_problems_for_detail = true;
-                    break;
+            foreach ($criteria_mapping as $item => $col) {
+                if (isset($inspection_data[$col . '_status']) && $inspection_data[$col . '_status'] == 0) {
+                    $has_problems_for_detail = true; break;
                 }
             }
-            // Only count failed vehicle fitness as a problem if the vehicle type is 'Bus'
-            $vehicle_type = $inspection_data['type'] ?? '';
-            if (strcasecmp($vehicle_type, 'bus') == 0 && isset($inspection_data['vehicle_fitness_certificate_status']) && $inspection_data['vehicle_fitness_certificate_status'] == 0) {
+            $v_type = $inspection_data['type'] ?? '';
+            if (strcasecmp($v_type, 'bus') == 0 && isset($inspection_data['vehicle_fitness_certificate_status']) && $inspection_data['vehicle_fitness_certificate_status'] == 0) {
                 $has_problems_for_detail = true;
             }
-            $inspection_data['has_problems'] = $has_problems_for_detail; // Add this flag to inspection_data
-
+            $inspection_data['has_problems'] = $has_problems_for_detail; 
         } else {
             $message = "No detailed inspection found for Vehicle No.: " . htmlspecialchars($search_vehicle_no_direct);
         }
         $stmt->close();
-    } else {
-        $message = "Database query error for detailed view: " . $conn->error;
-        error_log($message);
     }
 }
-
-
 ?>
 
 <!DOCTYPE html>
@@ -188,213 +134,279 @@ elseif (isset($_GET['view_vehicle_no']) && !empty($_GET['view_vehicle_no'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vehicle Inspection Checklist</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>View Inspections</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+    
+    <script>
+        const SESSION_TIMEOUT_MS = 32400000; 
+        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
+        setTimeout(function() {
+            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
+            window.location.href = LOGIN_PAGE_URL; 
+        }, SESSION_TIMEOUT_MS);
+    </script>
 </head>
-<script>
-    // 9 hours in milliseconds (32,400,000 ms)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
 
-    setTimeout(function() {
-        // Alert and redirect
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
-        
-    }, SESSION_TIMEOUT_MS);
-</script>
-<body class="bg-gray-100 font-sans">
-    <div class="w-[85%] ml-[15%] mb-6">
-        <div class="bg-gray-800 text-white p-2 flex justify-between items-center shadow-lg ">
-            <div class="text-lg font-semibold ml-3">Inspection</div>
-            <div class="flex gap-4">
-                <?php
-                if ($user_role === 'admin' || $user_role === 'super admin' || $user_role === 'developer') {
-                ?>
-                <a href="checkUp_category.php" class="hover:text-yellow-600">Add Inspection</a>
-                <a href="edit_inspection.php" class="hover:text-yellow-600">Edit Inspection</a>
-                <a href="" class="text-yellow-600">View Supplier</a>
-                 <?php
-                }
-                ?>
-                <a href="generate_report_checkup.php" class="hover:text-yellow-600">Report</a>
-            </div>
+<body class="bg-gray-100">
+
+<div class="fixed top-0 left-[15%] w-[85%] bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center px-6 shadow-lg z-50 border-b border-gray-700">
+    <div class="flex items-center gap-3">
+        <div class="flex items-center space-x-2 w-fit">
+            <a href="checkUp_category.php" class="text-md font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent hover:opacity-80 transition">
+                Vehicle Inspection
+            </a>
+
+            <i class="fa-solid fa-angle-right text-gray-300 text-sm mt-0.5"></i>
+
+            <span class="text-sm font-bold text-white uppercase tracking-wider px-1 py-1 rounded-full">
+                View
+            </span>
         </div>
+    </div>
+    
+    <div class="flex items-center gap-6 text-sm font-medium">
+        <?php if ($user_role === 'admin' || $user_role === 'super admin' || $user_role === 'developer'): ?>
+            <a href="checkUp_category.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+                <i class="fas fa-plus-circle"></i> Add New
+            </a>
+            <a href="edit_inspection.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">
+                <i class="fas fa-edit"></i> Edit
+            </a>
+        <?php endif; ?>
+        
+        <span class="text-gray-600 text-lg font-thin">|</span>
 
-        <div class="container mx-auto p-6 bg-white shadow-lg rounded-lg mt-10 max-w-4xl">
-            <h2 class="text-3xl font-bold text-center mb-4 text-gray-800">View Supplier Vehicles and Inspections</h2>
+        <a href="generate_report_checkup.php" class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            <i class="fas fa-file-alt"></i> Report
+        </a>
+    </div>
+</div>
 
-            <!-- Search by Supplier Form -->
-            <form action="" method="post" class="mb-8 p-4 border border-gray-200 rounded-md bg-gray-50">
-                <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
-                    <label for="search_supplier_name" class="block text-gray-700 font-semibold flex-shrink-0">Select Supplier:</label>
-                    <select id="search_supplier_name" name="search_supplier_name" 
-                            class="flex-grow p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                        <option value="">-- Select Supplier --</option>
+<div class="w-[85%] ml-[15%] pt-20 p-6 min-h-screen flex flex-col items-center">
+    
+    <div class="w-full max-w-6xl">
+        
+        <div class="bg-white rounded-xl shadow-md border border-gray-200 p-6 mb-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <i class="fas fa-search text-blue-600"></i> Search by Supplier
+            </h2>
+            
+            <form action="" method="post" class="flex flex-col md:flex-row items-center gap-4">
+                <div class="relative flex-grow w-full">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-building text-gray-400"></i>
+                    </div>
+                    <select id="search_supplier_name" name="search_supplier_name" class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition appearance-none bg-white cursor-pointer" required>
+                        <option value="">Select Supplier</option>
                         <?php foreach ($suppliers as $supplier): ?>
-                            <option value="<?php echo htmlspecialchars($supplier); ?>" 
-                                    <?php echo ($supplier == $search_supplier_name) ? 'selected' : ''; ?>>
+                            <option value="<?php echo htmlspecialchars($supplier); ?>" <?php echo ($supplier == $search_supplier_name) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($supplier); ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <button type="submit" name="search_supplier" 
-                            class="px-5 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        Search Supplier
-                    </button>
+                    <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        <i class="fas fa-chevron-down text-gray-400 text-xs"></i>
+                    </div>
                 </div>
-                <?php if (!empty($message)): ?>
-                    <p class="mt-4 text-center text-red-600"><?php echo htmlspecialchars($message); ?></p>
-                <?php endif; ?>
+                <button type="submit" name="search_supplier" class="w-full md:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                    Search
+                </button>
             </form>
 
-            <?php if (!empty($vehicles_inspections_summary)): ?>
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-2xl font-bold text-gray-800">Vehicles for <?php echo htmlspecialchars($search_supplier_name); ?></h3>
-                    <a href="export_inspections.php?supplier_name=<?php echo urlencode($search_supplier_name); ?>" 
-                       class="inline-flex items-center px-4 py-2 bg-green-600 text-white font-semibold rounded-md shadow-md hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50 transition ease-in-out duration-150">
-                        Download as Excel
-                    </a>
-                </div>
-                <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">Vehicles for <?php echo htmlspecialchars($search_supplier_name); ?></h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <?php foreach ($vehicles_inspections_summary as $vehicle_summary): ?>
-                        <div class="bg-white rounded-lg shadow-md p-6 flex flex-col justify-between 
-                                    <?php echo $vehicle_summary['has_problems'] ? 'border-l-4 border-red-500' : 'border-l-4 border-green-500'; ?>">
-                            <div>
-                                <h4 class="text-xl font-bold mb-2 text-gray-800"><?php echo htmlspecialchars($vehicle_summary['vehicle_no']); ?></h4>
-                                <p class="text-gray-700 mb-1"><strong>Route:</strong> <?php echo htmlspecialchars($vehicle_summary['route']); ?></p>
-                                <p class="text-gray-700 mb-4"><strong>Last Inspected:</strong> <?php echo htmlspecialchars($vehicle_summary['date']); ?></p>
-                                
-                                <p class="text-lg font-bold 
-                                        <?php echo $vehicle_summary['has_problems'] ? 'text-red-600' : 'text-green-600'; ?>">
-                                    <?php echo $vehicle_summary['has_problems'] ? 'Problems Detected ⚠️' : 'Vehicle is Fine ✅'; ?>
-                                </p>
-                            </div>
-                            <div class="mt-6">
-                                <a href="?view_vehicle_no=<?php echo htmlspecialchars($vehicle_summary['vehicle_no']); ?>&search_supplier_name=<?php echo htmlspecialchars($search_supplier_name); ?>" 
-                                   class="inline-flex items-center px-4 py-2 bg-blue-500 text-white font-semibold rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400">
-                                    View Full Details
-                                </a>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
+            <?php if (!empty($message)): ?>
+                <div class="mt-4 p-3 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm text-center font-medium">
+                    <i class="fas fa-exclamation-circle mr-1"></i> <?php echo htmlspecialchars($message); ?>
                 </div>
             <?php endif; ?>
+        </div>
 
-            <?php if (isset($inspection_data) && $inspection_data): // Display detailed inspection if a specific vehicle was clicked/searched ?>
-                <hr class="my-4 border-gray-300">
-                <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">Detailed Inspection for <?php echo htmlspecialchars($inspection_data['vehicle_no']); ?></h3>
+        <?php if (!empty($vehicles_inspections_summary)): ?>
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-bold text-gray-800">Results for <span class="text-blue-600"><?php echo htmlspecialchars($search_supplier_name); ?></span></h3>
+                <a href="export_inspections.php?supplier_name=<?php echo urlencode($search_supplier_name); ?>" 
+                   class="inline-flex items-center px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition transform hover:scale-[1.02]">
+                    <i class="fas fa-file-excel mr-2"></i> Excel
+                </a>
+            </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                    <div class="form-group">
-                        <label class="block text-gray-700 font-semibold mb-2">Supplier</label>
-                        <input type="text" value="<?php echo htmlspecialchars($inspection_data['supplier'] ?? ''); ?>" class="w-full p-3 border border-gray-300 rounded-md bg-gray-100" readonly>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+                <?php foreach ($vehicles_inspections_summary as $vehicle_summary): 
+                    $has_issues = $vehicle_summary['has_problems'];
+                    $border_color = $has_issues ? 'border-red-500' : 'border-green-500';
+                    $status_color = $has_issues ? 'text-red-600' : 'text-green-600';
+                    $status_icon = $has_issues ? '<i class="fas fa-exclamation-triangle mr-1"></i> Issues Found' : '<i class="fas fa-check-circle mr-1"></i> All Good';
+                ?>
+                    <div class="bg-white rounded-xl shadow-md p-6 flex flex-col justify-between border-l-4 <?php echo $border_color; ?> hover:shadow-lg transition">
+                        <div>
+                            <div class="flex justify-between items-start mb-3">
+                                <h4 class="text-xl font-bold text-gray-800"><?php echo htmlspecialchars($vehicle_summary['vehicle_no']); ?></h4>
+                                <span class="text-xs font-bold px-2 py-1 rounded bg-gray-100 text-gray-600"><?php echo htmlspecialchars($vehicle_summary['type']); ?></span>
+                            </div>
+                            <div class="text-sm text-gray-600 space-y-1 mb-4">
+                                <p><i class="fas fa-route mr-2 text-gray-400"></i> <?php echo htmlspecialchars($vehicle_summary['route']); ?></p>
+                                <p><i class="far fa-calendar-alt mr-2 text-gray-400"></i> <?php echo htmlspecialchars($vehicle_summary['date']); ?></p>
+                            </div>
+                            <div class="font-bold text-sm <?php echo $status_color; ?> bg-opacity-10 p-2 rounded <?php echo $has_issues ? 'bg-red-50' : 'bg-green-50'; ?>">
+                                <?php echo $status_icon; ?>
+                            </div>
+                        </div>
+                        <div class="mt-5 pt-4 border-t border-gray-100">
+                            <a href="?view_vehicle_no=<?php echo htmlspecialchars($vehicle_summary['vehicle_no']); ?>&search_supplier_name=<?php echo htmlspecialchars($search_supplier_name); ?>" 
+                               class="block w-full text-center py-2 bg-blue-50 text-blue-600 font-semibold rounded-lg hover:bg-blue-100 transition">
+                                View Details
+                            </a>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="block text-gray-700 font-semibold mb-2">Vehicle No.</label>
-                        <input type="text" value="<?php echo htmlspecialchars($inspection_data['vehicle_no']); ?>" class="w-full p-3 border border-gray-300 rounded-md bg-gray-100" readonly>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($inspection_data) && $inspection_data): ?>
+            
+            <div id="detailView" class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-10">
+                <div class="px-8 py-6 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-indigo-100 text-indigo-600 p-2 rounded-full shadow-sm">
+                            <i class="fas fa-clipboard-list text-xl"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-800">Detailed Inspection</h2>
+                            <p class="text-xs text-gray-500 font-mono">Vehicle: <?php echo htmlspecialchars($inspection_data['vehicle_no']); ?></p>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="block text-gray-700 font-semibold mb-2">Route Name</label>
-                        <input type="text" value="<?php echo htmlspecialchars($inspection_data['route']); ?>" class="w-full p-3 border border-gray-300 rounded-md bg-gray-100" readonly>
-                    </div>
-                    <div class="form-group">
-                        <label class="block text-gray-700 font-semibold mb-2">Transport services type</label>
-                        <input type="text" value="<?php echo htmlspecialchars($inspection_data['transport_type']); ?>" class="w-full p-3 border border-gray-300 rounded-md bg-gray-100" readonly>
-                    </div>
-                    <div class="form-group">
-                        <label class="block text-gray-700 font-semibold mb-2">Name & Signature of Inspector</label>
-                        <input type="text" value="<?php echo htmlspecialchars($inspection_data['inspector']); ?>" class="w-full p-3 border border-gray-300 rounded-md bg-gray-100" readonly>
-                    </div>
-                    <div class="form-group">
-                        <label class="block text-gray-700 font-semibold mb-2">Inspection Date</label>
-                        <input type="date" value="<?php echo htmlspecialchars($inspection_data['date']); ?>" class="w-full p-3 border border-gray-300 rounded-md bg-gray-100" readonly>
-                    </div>
+                    <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded border border-blue-200">ID: <?php echo htmlspecialchars($inspection_data['id']); ?></span>
                 </div>
 
-                <h3 class="text-xl font-bold mb-4 text-gray-700">Inspection Criteria</h3>
-                <div class="overflow-x-auto rounded-lg border border-gray-200">
-                    <?php if ($inspection_data['has_problems']): ?>
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-100">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inspection Criteria</th>
-                                    <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status (✓)</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remark</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <?php
-                                foreach ($criteria_mapping as $item_display_name => $db_column_prefix) {
-                                    $status_column = $db_column_prefix . '_status';
-                                    $remark_column = $db_column_prefix . '_remark';
-                                    
-                                    $status_text = isset($inspection_data[$status_column]) && $inspection_data[$status_column] == 1 ? 'Passed ✅' : 'Failed ❌';
-                                    $remark = isset($inspection_data[$remark_column]) ? htmlspecialchars($inspection_data[$remark_column]) : '';
+                <div class="p-8">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Supplier</label>
+                            <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-800 font-medium">
+                                <?php echo htmlspecialchars($inspection_data['supplier'] ?? ''); ?>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Route Name</label>
+                            <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-800 font-medium">
+                                <?php echo htmlspecialchars($inspection_data['route']); ?>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Transport Type</label>
+                            <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-800 font-medium">
+                                <?php echo htmlspecialchars($inspection_data['transport_type']); ?>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Inspector</label>
+                            <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-800 font-medium">
+                                <?php echo htmlspecialchars($inspection_data['inspector']); ?>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Inspection Date</label>
+                            <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-800 font-medium">
+                                <?php echo htmlspecialchars($inspection_data['date']); ?>
+                            </div>
+                        </div>
+                    </div>
 
-                                    // Only show if status is 'Failed/N/A' or if there's a remark (even if passed)
-                                    if ($inspection_data[$status_column] == 0 || !empty($remark)) {
-                                        echo "<tr>";
-                                        echo "<td class='px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900'>{$item_display_name}</td>";
-                                        echo "<td class='px-6 py-4 whitespace-nowrap text-center text-sm'>";
-                                        echo $status_text;
-                                        echo "</td>";
-                                        echo "<td class='px-6 py-4 whitespace-nowrap text-sm'>";
-                                        echo (!empty($remark) ? $remark : '-');
-                                        echo "</td>";
+                    <h3 class="text-lg font-bold text-gray-800 mb-4 border-b border-gray-200 pb-2">Inspection Results</h3>
+                    
+                    <?php if ($inspection_data['has_problems']): ?>
+                        <div class="overflow-hidden border border-gray-200 rounded-lg mb-6">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Criteria</th>
+                                        <th class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-24">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Remark</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-100 text-sm">
+                                    <?php
+                                    foreach ($criteria_mapping as $item => $col) {
+                                        $status = $inspection_data[$col . '_status'];
+                                        $remark = $inspection_data[$col . '_remark'];
+                                        
+                                        if ($status == 0 || !empty($remark)) {
+                                            $status_badge = $status == 1 
+                                                ? '<span class="px-2 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Pass</span>'
+                                                : '<span class="px-2 py-1 rounded-full bg-red-100 text-red-800 text-xs font-bold">Fail</span>';
+                                            
+                                            echo "<tr class='hover:bg-gray-50'>";
+                                            echo "<td class='px-6 py-3 font-medium text-gray-700'>{$item}</td>";
+                                            echo "<td class='px-6 py-3 text-center'>{$status_badge}</td>";
+                                            echo "<td class='px-6 py-3 text-gray-600'>" . (!empty($remark) ? htmlspecialchars($remark) : '-') . "</td>";
+                                            echo "</tr>";
+                                        }
+                                    }
+                                    
+                                    // Fitness Cert
+                                    $v_type = $inspection_data['type'] ?? '';
+                                    if (strcasecmp($v_type, 'bus') == 0) {
+                                        $fit_status = $inspection_data['vehicle_fitness_certificate_status'];
+                                        $fit_remark = $inspection_data['vehicle_fitness_certificate_remark'];
+                                        $fit_badge = $fit_status == 1 
+                                            ? '<span class="px-2 py-1 rounded-full bg-green-100 text-green-800 text-xs font-bold">Pass</span>'
+                                            : '<span class="px-2 py-1 rounded-full bg-red-100 text-red-800 text-xs font-bold">Fail</span>';
+                                        
+                                        echo "<tr class='bg-indigo-50/30 border-l-4 border-indigo-500'>";
+                                        echo "<td class='px-6 py-3 font-bold text-indigo-800'>Vehicle Fitness Certificate</td>";
+                                        echo "<td class='px-6 py-3 text-center'>{$fit_badge}</td>";
+                                        echo "<td class='px-6 py-3 text-gray-600'>" . (!empty($fit_remark) ? htmlspecialchars($fit_remark) : '-') . "</td>";
                                         echo "</tr>";
                                     }
-                                }
-                                ?>
-                                <!-- Add a new row for the Vehicle Fitness Certificate -->
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Vehicle Fitness Certificate</td>
-                                    <?php
-                                        $fitness_status = isset($inspection_data['vehicle_fitness_certificate_status']) ? $inspection_data['vehicle_fitness_certificate_status'] : null;
-                                        $fitness_remark = isset($inspection_data['vehicle_fitness_certificate_remark']) ? htmlspecialchars($inspection_data['vehicle_fitness_certificate_remark']) : '';
-
-                                        $status_text = ($fitness_status === 1) ? 'Passed ✅' : 'Failed ❌';
-                                        
-                                        $status_class = '';
-                                        // Per user request, highlight vehicle fitness failure only if the vehicle type is 'Bus'.
-                                        $vehicle_type = $inspection_data['type'] ?? '';
-                                        if (strcasecmp($vehicle_type, 'bus') == 0 && $fitness_status == 0) {
-                                            $status_class = 'text-red-600';
-                                        }
                                     ?>
-                                    <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-bold <?php echo $status_class; ?>">
-                                        <?php echo $status_text; ?>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                        <?php echo (!empty($fitness_remark) ? $fitness_remark : '-'); ?>
-                                    </td>
-                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <h4 class="text-sm font-bold text-gray-700 mb-2">Other Observations</h4>
+                            <p class="text-sm text-gray-600 italic">
+                                <?php echo !empty($inspection_data['other_observations']) ? htmlspecialchars($inspection_data['other_observations']) : 'None recorded.'; ?>
+                            </p>
+                        </div>
 
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Any other observations</td>
-                                    <td colspan="2" class="px-6 py-4 whitespace-nowrap text-sm">
-                                        <?php echo (!empty($inspection_data['other_observations']) ? htmlspecialchars($inspection_data['other_observations']) : '-'); ?>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
                     <?php else: ?>
-                        <div class="p-6 text-center text-lg text-green-600 bg-green-50 rounded-lg">
-                            ✅ This vehicle is fine, no problems detected in this inspection.
+                        <div class="p-8 text-center bg-green-50 border border-green-200 rounded-xl">
+                            <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                                <i class="fas fa-check"></i>
+                            </div>
+                            <h3 class="text-lg font-bold text-green-800">Excellent Condition</h3>
+                            <p class="text-green-700 mt-1">This vehicle passed all inspection criteria with no issues.</p>
+                            <?php if (!empty($inspection_data['other_observations'])): ?>
+                                <div class="mt-4 pt-4 border-t border-green-200">
+                                    <p class="text-sm font-bold text-green-800">Note:</p>
+                                    <p class="text-sm text-green-700 italic"><?php echo htmlspecialchars($inspection_data['other_observations']); ?></p>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     <?php endif; ?>
-                </div>
 
-                <div class="text-center mt-8">
-                    <a href="#top" class="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-bold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 transition ease-in-out duration-150">
-                        Go to Top
-                    </a>
+                    <div class="text-center mt-8 pt-6 border-t border-gray-100">
+                        <a href="#top" class="text-indigo-600 hover:text-indigo-800 font-medium text-sm transition">
+                            <i class="fas fa-arrow-up mr-1"></i> Back to Top
+                        </a>
+                    </div>
                 </div>
+            </div>
 
-            <?php endif; // End if ($inspection_data) ?>
-        </div>
+        <?php endif; ?>
     </div>
+</div>
+
 </body>
 </html>

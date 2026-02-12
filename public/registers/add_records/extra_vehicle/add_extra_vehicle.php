@@ -1,5 +1,5 @@
 <?php
-// add_extra_vehicle.php (Updated with Validation)
+// add_extra_vehicle.php (Updated with Auto-ID Formatting and Name Display)
 
 require_once '../../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -32,7 +32,7 @@ if ($result_suppliers) {
 }
 
 // 2. Fetch Route Codes
-$result_routes = $conn->query("SELECT route, route_code FROM route ORDER BY route_code ASC");
+$result_routes = $conn->query("SELECT route, route_code FROM route WHERE is_active = 1 ORDER BY route_code ASC");
 if ($result_routes) {
     while ($row = $result_routes->fetch_assoc()) {
         $route_codes_data[] = ['code' => $row['route_code'], 'name' => $row['route']];
@@ -40,7 +40,7 @@ if ($result_routes) {
 }
 
 // 3. Fetch Op Codes
-$result_ops = $conn->query("SELECT op_code FROM op_services GROUP BY op_code ORDER BY op_code ASC");
+$result_ops = $conn->query("SELECT op_code FROM op_services WHERE is_active = 1 GROUP BY op_code ORDER BY op_code ASC");
 if ($result_ops) {
     while ($row = $result_ops->fetch_assoc()) {
         $op_codes[] = $row['op_code'];
@@ -95,6 +95,8 @@ if ($result_reasons) {
         .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
         
         .readonly-field { background-color: #f3f4f6; cursor: not-allowed; }
+        /* Style for employee name display */
+        .emp-name-badge { font-size: 0.65rem; font-weight: 700; color: #4f46e5; font-style: italic; margin-left: 0.25rem; display: block; line-height: 1; margin-top: 2px; }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
@@ -197,9 +199,14 @@ if ($result_reasons) {
             <div class="bg-gray-50 p-6 rounded-lg border border-gray-200 mt-6">
                 <h3 class="text-lg font-bold text-gray-800 mb-4 border-b border-gray-200 pb-2 flex justify-between items-center">
                     <span>Employee Details</span>
-                    <button type="button" id="add-reason-group-btn" class="bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 text-xs font-medium shadow-sm transition">
-                        + Add Group
-                    </button>
+                    <div class="flex space-x-2">
+                        <button type="button" id="fetch-route-emps-btn" class="bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 text-xs font-medium shadow-sm transition">
+                            Get Route Employees
+                        </button>
+                        <button type="button" id="add-reason-group-btn" class="bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 text-xs font-medium shadow-sm transition">
+                            + Add Group
+                        </button>
+                    </div>
                 </h3>
 
                 <div id="reason-group-container" class="space-y-4">
@@ -224,9 +231,11 @@ if ($result_reasons) {
                             <div class="md:col-span-2">
                                 <label class="block text-xs font-medium text-gray-500 mb-1">Employee IDs</label>
                                 <div class="employee-list-container space-y-2">
-                                    <div class="employee-input flex items-center space-x-2">
-                                        <input type="text" name="emp_id_group[0][]" placeholder="Emp ID" required class="emp-id-input flex-grow rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-xs p-2 border">
-                                        <button type="button" class="remove-employee-btn text-gray-400 hover:text-red-500 disabled:opacity-30" disabled>&times;</button>
+                                    <div class="employee-input flex flex-col space-y-1">
+                                        <div class="flex items-center space-x-2">
+                                            <input type="text" name="emp_id_group[0][]" placeholder="Emp ID" required class="emp-id-input flex-grow rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-xs p-2 border uppercase">
+                                            <button type="button" class="remove-employee-btn text-gray-400 hover:text-red-500 disabled:opacity-30" disabled>&times;</button>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="mt-2 text-right">
@@ -257,23 +266,35 @@ if ($result_reasons) {
 <script src="add_extra_vehicle.js"></script> 
 
 <script>
+    // --- ID FORMATTING LOGIC ---
+    function formatEmpID(val) {
+        val = val.trim().toUpperCase();
+        if (!val) return "";
+        let letters = val.match(/[A-Z]+/g) ? val.match(/[A-Z]+/g).join('') : "";
+        let numbers = val.match(/\d+/g) ? val.match(/\d+/g).join('') : "";
+        
+        // Logical formatting: D -> GPD, empty -> GP
+        if (letters === "D") { letters = "GPD"; } 
+        else if (letters === "") { letters = "GP"; }
+        
+        let currentLen = letters.length + numbers.length;
+        let zeros = "";
+        if (currentLen < 8) {
+            zeros = "0".repeat(8 - currentLen);
+        }
+        return letters + zeros + numbers;
+    }
+
     // --- Toast Notification Logic ---
     function showToast(message, type) {
         const toastContainer = document.getElementById('toast-container');
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        
         let iconPath = type === 'success' 
             ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />'
             : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />';
 
-        toast.innerHTML = `
-            <svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                ${iconPath}
-            </svg>
-            <span>${message}</span>
-        `;
-        
+        toast.innerHTML = `<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">${iconPath}</svg><span>${message}</span>`;
         toastContainer.appendChild(toast);
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => {
@@ -284,66 +305,104 @@ if ($result_reasons) {
 
     // --- Toggle Route/Op Code ---
     function toggleCodeSelection(type) {
-        if (type === 'route') {
-            $('#op_code').val("");
-        } else {
-            $('#route_code').val("");
-        }
+        if (type === 'route') { $('#op_code').val(""); } 
+        else { $('#route_code').val(""); }
     }
 
-    // ==========================================
-    // VALIDATION LOGIC START (Updated)
-    // ==========================================
-    
-    // Check ID when user leaves the input field
+    // --- Employee ID Validation & Name Display (On Blur) ---
     $(document).on('blur', '.emp-id-input', function() {
         var inputField = $(this);
-        var empId = inputField.val().trim();
+        var rawId = inputField.val().trim();
+        if (rawId === "") return;
 
-        // Reset styles first
+        // Auto format the ID
+        var formattedId = formatEmpID(rawId);
+        inputField.val(formattedId);
+
         inputField.removeClass('border-red-500 border-green-500 bg-red-50 bg-green-50');
         
-        if (empId === "") {
-            return;
+        // Find or create name display span
+        var nameSpan = inputField.closest('.employee-input').find('.emp-name-badge');
+        if (nameSpan.length === 0) {
+            inputField.after('<span class="emp-name-badge"></span>');
+            nameSpan = inputField.closest('.employee-input').find('.emp-name-badge');
         }
 
         $.ajax({
-            url: 'check_employee.php', // Ensure file exists
+            url: 'check_employee.php',
             type: 'POST',
-            data: { emp_id: empId },
+            data: { emp_id: formattedId },
             dataType: 'json',
             success: function(response) {
-                if (response.status === 'success') {
-                    // Valid ID
+                if (response.status === 'success') { 
                     inputField.addClass('border-green-500 bg-green-50');
-                } else {
-                    // Invalid ID
+                    nameSpan.text(response.name).css('color', '#4f46e5');
+                } 
+                else {
                     inputField.addClass('border-red-500 bg-red-50');
-                    inputField.val(''); // Clear invalid input
-                    showToast('Invalid Employee ID: ' + empId, 'error');
+                    nameSpan.text("Invalid ID!").css('color', '#ef4444');
+                    showToast('Invalid Employee ID: ' + formattedId, 'error');
                 }
             },
             error: function() {
-                showToast('Error checking Employee ID', 'error');
+                nameSpan.text("Error checking ID");
             }
         });
     });
 
-    // --- Form Submission Handler (AJAX) ---
+    // --- Fetch Route Employees Logic ---
+    $('#fetch-route-emps-btn').on('click', function() {
+        const routeCode = $('#route_code').val();
+        const reasonCode = $('.reason-select').first().val();
+
+        if (!routeCode) { showToast("Please select a Route first.", 'error'); return; }
+        if (!reasonCode) { showToast("Please select a Reason first.", 'error'); return; }
+
+        const btn = $(this);
+        btn.prop('disabled', true).text('Fetching...');
+
+        $.ajax({
+            url: 'process_fetch_route_employees.php',
+            type: 'POST',
+            data: { route_code: routeCode },
+            dataType: 'json',
+            success: function(employees) {
+                btn.prop('disabled', false).text('Get Route Employees');
+                if (employees.length === 0) {
+                    showToast("No active employees found for this route pattern.", 'error');
+                    return;
+                }
+                const container = $('.reason-group').first().find('.employee-list-container');
+                container.empty();
+                employees.forEach((empId) => {
+                    const html = `
+                        <div class="employee-input flex flex-col space-y-1">
+                            <div class="flex items-center space-x-2">
+                                <input type="text" name="emp_id_group[0][]" value="${empId}" placeholder="Emp ID" required 
+                                       class="emp-id-input flex-grow rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-xs p-2 border uppercase">
+                                <button type="button" class="remove-employee-btn text-gray-400 hover:text-red-500">&times;</button>
+                            </div>
+                        </div>`;
+                    container.append(html);
+                    // Manually trigger blur to load names
+                    container.find('.emp-id-input').last().trigger('blur');
+                });
+                showToast(employees.length + " employees added.", 'success');
+            },
+            error: function() {
+                btn.prop('disabled', false).text('Get Route Employees');
+                showToast("Error fetching employees.", 'error');
+            }
+        });
+    });
+
+    // --- Form Submission Logic ---
     $('#tripForm').on('submit', function(e) {
         e.preventDefault();
-        
-        // 1. Basic Validation
         if (!$('#route_code').val() && !$('#op_code').val()) {
             showToast("Please select either a Route Name or an Operation Code.", 'error');
             return;
         }
-
-        // 2. Check if any employee field is invalid (Red border)
-        // Note: Since we clear the input on invalid, we mainly check if any field is currently being processed or is empty but required.
-        // But if user quickly hits submit before ajax finishes, we need to be careful.
-        // For now, HTML5 'required' handles empty fields. 
-        // We can check if any field has the red class just in case.
         if ($('.emp-id-input.border-red-500').length > 0) {
             showToast("Please correct invalid Employee IDs before saving.", 'error');
             return;
@@ -351,7 +410,6 @@ if ($result_reasons) {
 
         const formData = new FormData(this);
         const submitBtn = $('#submitBtn');
-        
         submitBtn.prop('disabled', true).text('Saving...');
 
         $.ajax({
@@ -365,19 +423,19 @@ if ($result_reasons) {
                 submitBtn.prop('disabled', false).text('Save Record');
                 if (response.success) {
                     showToast(response.message, 'success');
-                    setTimeout(() => {
-                        window.location.href = '../../extra_vehicle.php'; // Redirect on success
-                    }, 1500);
-                } else {
-                    showToast(response.message, 'error');
-                }
+                    setTimeout(() => { window.location.href = '../../extra_vehicle.php'; }, 1500);
+                } else { showToast(response.message, 'error'); }
             },
-            error: function(xhr, status, error) {
+            error: function() {
                 submitBtn.prop('disabled', false).text('Save Record');
-                console.error("AJAX Error:", error);
-                showToast("An unexpected error occurred. Please try again.", 'error');
+                showToast("An unexpected error occurred.", 'error');
             }
         });
+    });
+
+    // --- Dynamic Remove Row Logic ---
+    $(document).on('click', '.remove-employee-btn', function() {
+        $(this).closest('.employee-input').remove();
     });
 </script>
 

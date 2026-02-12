@@ -1,6 +1,5 @@
 <?php
-// download_dh_payments_excel.php - Generates a monthly summary report using the new distance logic
-
+// download_dh_payments_excel.php
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -26,7 +25,7 @@ $filterMonthNum = str_pad($filterMonthNum, 2, '0', STR_PAD_LEFT);
 $filterYearMonth = "{$filterYear}-{$filterMonthNum}";
 $monthName = date('F', mktime(0, 0, 0, (int)$filterMonthNum, 1));
 
-// --- 2. CORE CALCULATION FUNCTION (Same logic as day_heldup_payments.php) ---
+// --- 2. CORE CALCULATION FUNCTION ---
 function calculate_day_heldup_payments_for_report($conn, $month, $year) {
     
     $attendance_sql = "
@@ -65,14 +64,7 @@ function calculate_day_heldup_payments_for_report($conn, $month, $year) {
         $vehicle_no = $record['vehicle_no'];
 
         // Sum Distance from day_heldup_register
-        $distance_sum_sql = "
-            SELECT 
-                SUM(distance) AS total_distance 
-            FROM 
-                day_heldup_register 
-            WHERE 
-                op_code = ? AND date = ? AND done = 1
-        ";
+        $distance_sum_sql = "SELECT SUM(distance) AS total_distance FROM day_heldup_register WHERE op_code = ? AND date = ? AND done = 1";
         $dist_stmt = $conn->prepare($distance_sum_sql);
         if (!$dist_stmt) continue;
         
@@ -127,57 +119,78 @@ if (isset($report_data['error'])) {
     die("Error generating report: " . htmlspecialchars($report_data['error']));
 }
 
-// --- 4. Prepare CSV Output ---
+// --- 4. EXCEL GENERATION START (Styled) ---
+$filename = "Day_Heldup_Summary_{$monthName}_{$filterYear}.xls";
 
-// Set headers for download
-$filename = "Day_Heldup_Summary_{$monthName}_{$filterYear}.csv";
-header('Content-Type: text/csv; charset=utf-8');
-header('Content-Disposition: attachment; filename="' . $filename . '"');
+header("Content-Type: application/vnd.ms-excel");
+header("Content-Disposition: attachment; filename=\"$filename\"");
+header("Pragma: no-cache");
+header("Expires: 0");
 
-$output = fopen('php://output', 'w');
-
-// Title Row
-fputcsv($output, ["Day Heldup Payments Summary - {$monthName} {$filterYear}"]);
-fputcsv($output, [""]); // Blank row
-
-// Header Row
-$header = [
-    'OP CODE', 
-    'VEHICLE NO', 
-    'DAYS PAID', 
-    'TOTAL DISTANCE (KM)', 
-    'TOTAL PAYMENT (LKR)'
-];
-fputcsv($output, $header);
-
-// Data Rows
-$grand_total_payment = 0;
-$grand_total_distance = 0;
-
-foreach ($report_data as $data) {
-    $row = [
-        $data['op_code'],
-        $data['vehicle_no'],
-        number_format($data['total_days']),
-        number_format($data['total_actual_distance'], 2),
-        number_format($data['total_payment'], 2)
-    ];
-    fputcsv($output, $row);
-
-    $grand_total_payment += $data['total_payment'];
-    $grand_total_distance += $data['total_actual_distance'];
-}
-
-// Grand Total Row
-fputcsv($output, [""]); // Blank row
-fputcsv($output, [
-    'GRAND TOTALS', 
-    '', 
-    '', 
-    number_format($grand_total_distance, 2), 
-    number_format($grand_total_payment, 2)
-]);
-
-fclose($output);
-exit;
 ?>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <style>
+        /* Force text format for codes to keep leading zeros */
+        .text-format { mso-number-format:"\@"; } 
+        /* Currency format */
+        .currency-format { mso-number-format:"\#\,\#\#0\.00"; }
+    </style>
+</head>
+<body>
+    <table border="1">
+        <thead>
+            <tr>
+                <th colspan="5" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">
+                    Day Heldup Payments Summary - <?php echo "$monthName $filterYear"; ?>
+                </th>
+            </tr>
+            <tr>
+                <th style="background-color: #ADD8E6; font-weight: bold;">OP Code</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Vehicle No</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Days Paid</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Total Distance (km)</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Total Payment (LKR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php 
+            $grand_total_payment = 0;
+            $grand_total_distance = 0;
+            
+            if (!empty($report_data)): 
+                foreach ($report_data as $row): 
+                    $grand_total_payment += $row['total_payment'];
+                    $grand_total_distance += $row['total_actual_distance'];
+            ?>
+                    <tr>
+                        <td class="text-format"><?php echo htmlspecialchars($row['op_code']); ?></td>
+                        <td><?php echo htmlspecialchars($row['vehicle_no']); ?></td>
+                        <td style="text-align:center;"><?php echo $row['total_days']; ?></td>
+                        <td style="text-align:center;"><?php echo number_format($row['total_actual_distance'], 2); ?></td>
+                        <td class="currency-format" style="font-weight:bold;">
+                            <?php echo $row['total_payment']; ?>
+                        </td>
+                    </tr>
+            <?php 
+                endforeach; 
+                // Grand Total Row
+            ?>
+                <tr>
+                    <td colspan="3" style="text-align: right; font-weight: bold;">GRAND TOTALS</td>
+                    <td style="text-align: center; font-weight: bold;"><?php echo number_format($grand_total_distance, 2); ?></td>
+                    <td class="currency-format" style="font-weight: bold; border-top: 2px solid black;">
+                        <?php echo $grand_total_payment; ?>
+                    </td>
+                </tr>
+
+            <?php else: ?>
+                <tr>
+                    <td colspan="5" style="text-align:center;">No records found for this period.</td>
+                </tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
+</body>
+</html>

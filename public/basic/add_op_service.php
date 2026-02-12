@@ -3,20 +3,7 @@
 require_once '../../includes/session_check.php';
 
 // --- AUDIT LOGGING FUNCTION (START) ---
-/**
- * Inserts a detailed entry into the audit_log table using prepared statements.
- *
- * @param mysqli $conn The database connection object.
- * @param string $tableName The table name affected (e.g., 'op_services').
- * @param string $recordId The composite key of the record (e.g., 'NE-001V/V-1234').
- * @param string $actionType The action (e.g., 'UPDATE', 'INSERT', 'DELETE').
- * @param int $userId The ID of the logged-in user.
- * @param string $fieldName The specific field that was modified.
- * @param string $oldValue The original value.
- * @param string $newValue The new value.
- */
 function log_detailed_audit_entry($conn, $tableName, $recordId, $actionType, $userId, $fieldName, $oldValue, $newValue) {
-    // Only log if the value has actually changed
     if ((string)$oldValue === (string)$newValue && $actionType === 'UPDATE') {
         return; 
     }
@@ -31,12 +18,10 @@ function log_detailed_audit_entry($conn, $tableName, $recordId, $actionType, $us
         return;
     }
     
-    // Convert values to string for logging
     $oldValueStr = (string)$oldValue;
     $newValueStr = (string)$newValue;
     $recordIdKey = $recordId; 
 
-    // Bind parameters: (string, string, string, integer, string, string, string)
     $log_stmt->bind_param(
         "sssisss", 
         $tableName, 
@@ -60,13 +45,11 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Check if the user is NOT logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../../includes/login.php");
     exit();
 }
 
-// Ensure you have a user ID in the session for auditing!
 $logged_in_user_id = $_SESSION['user_id'] ?? 0; 
 if ($logged_in_user_id === 0) {
     error_log("Audit Error: User ID is missing from session for user: " . ($_SESSION['username'] ?? 'Unknown'));
@@ -98,13 +81,11 @@ if ($vehicles_result) {
 
 // --- NEW: Fetch ALL Supplier Codes/Names for Dropdown ---
 $all_suppliers = [];
-// NOTE: Now fetching 'supplier_code' instead of 'id'
 $supplier_sql = "SELECT supplier_code, supplier FROM supplier WHERE is_active = 1 ORDER BY supplier ASC"; 
 $supplier_result = $conn->query($supplier_sql);
 
 if ($supplier_result) {
     while ($row = $supplier_result->fetch_assoc()) {
-        // Store as supplier_code => name for easy lookup
         $all_suppliers[$row['supplier_code']] = $row['supplier']; 
     }
 }
@@ -119,7 +100,7 @@ $is_edit_mode = false;
 
 // Variables to store ORIGINAL values for auditing in POST logic
 $original_rates = [
-    'supplier_code' => '', // CHANGED: supplier_code (string)
+    'supplier_code' => '',
     'slab_limit_distance' => 0,
     'day_rate' => 0,
     'extra_rate' => 0,
@@ -131,10 +112,8 @@ $original_rates = [
 if (isset($_GET['op_code']) && isset($_GET['vehicle_no'])) {
     $is_edit_mode = true;
     $edit_op_code = $_GET['op_code'];
-    $edit_vehicle_no = $_GET['vehicle_no']; // Original vehicle no
+    $edit_vehicle_no = $_GET['vehicle_no']; 
 
-    // Fetch all current data (for form pre-fill AND for audit comparison later)
-    // NOTE: 'supplier_code' is added here. Ensure this column exists in your op_services table.
     $sql = "SELECT op_code, vehicle_no, supplier_code, slab_limit_distance, day_rate, extra_rate, extra_rate_ac
             FROM op_services 
             WHERE op_code = ? AND vehicle_no = ?";
@@ -147,25 +126,24 @@ if (isset($_GET['op_code']) && isset($_GET['vehicle_no'])) {
     if ($result->num_rows === 1) {
         $data = $result->fetch_assoc();
 
-        // Load existing data into form variables for pre-filling
         $selected_op_code = $data['op_code'];
         $selected_vehicle_no = $data['vehicle_no'];
-        $selected_supplier_code = $data['supplier_code'] ?? ''; // CHANGED
+        $selected_supplier_code = $data['supplier_code'] ?? ''; 
         
         $slab_limit = $data['slab_limit_distance'] ?? 0;
         $day_rate = $data['day_rate'] ?? 0;
         $extra_rate = $data['extra_rate'] ?? 0;
         $extra_rate_ac = $data['extra_rate_ac'] ?? 0;
         
-        // Store original rates (crucial for audit logging later)
-        $original_rates['supplier_code'] = (string)($selected_supplier_code ?? ''); // CHANGED
+        $original_rates['supplier_code'] = (string)($selected_supplier_code ?? ''); 
         $original_rates['slab_limit_distance'] = (float)$slab_limit;
         $original_rates['day_rate'] = (float)$day_rate;
         $original_rates['extra_rate'] = (float)$extra_rate;
         $original_rates['extra_rate_ac'] = (float)$extra_rate_ac;
         
-        $message = "Editing existing service rate for " . htmlspecialchars($selected_op_code) . " (Vehicle: " . htmlspecialchars($edit_vehicle_no) . ")";
-        $message_type = 'info';
+        // --- REMOVED THE BLUE NOTIFICATION CODE HERE ---
+        // $message = "Editing existing service rate..."; (Deleted)
+        // $message_type = 'info'; (Deleted)
 
     } else {
         $message = "Error: Service Rate not found for editing.";
@@ -184,44 +162,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $new_vehicle_no = $_POST['vehicle_no'] ?? '';
     $original_vehicle_no = $_POST['original_vehicle_no'] ?? $new_vehicle_no; 
     $original_op_code = $_POST['original_op_code'] ?? $selected_op_code; 
-    $selected_supplier_code = $_POST['supplier_code'] ?? ''; // CHANGED
+    $selected_supplier_code = $_POST['supplier_code'] ?? ''; 
 
-    // Retrieve original rates that were stored in a hidden field during edit mode
     $original_rates_post = [
-        'supplier_code' => (string)($_POST['original_supplier_code'] ?? ''), // CHANGED
+        'supplier_code' => (string)($_POST['original_supplier_code'] ?? ''), 
         'slab_limit_distance' => (float)($_POST['original_slab_limit'] ?? 0),
         'day_rate' => (float)($_POST['original_day_rate'] ?? 0),
         'extra_rate' => (float)($_POST['original_extra_rate'] ?? 0),
         'extra_rate_ac' => (float)($_POST['original_extra_rate_ac'] ?? 0)
     ];
 
-    // Slab/Rate fields are optional (default to 0 if empty)
     $slab_limit = $_POST['slab_limit_distance'] ?? 0;
     $day_rate = $_POST['day_rate'] ?? 0;
     $extra_rate = $_POST['extra_rate'] ?? 0;
     $extra_rate_ac = $_POST['extra_rate_ac'] ?? 0; 
 
+    // Determine if this is an 'EV' (Extra Vehicle) code
+    $is_ev_code = (substr($selected_op_code, 0, 2) === 'EV');
+
     // 4b. Validation
-    if (empty($selected_op_code) || empty($new_vehicle_no) || empty($selected_supplier_code)) { // Supplier Code added to required checks
+    if (empty($selected_op_code) || empty($new_vehicle_no) || empty($selected_supplier_code)) { 
         $message = "Service Type (Full Rate Code), Vehicle Number, and Supplier Code are required.";
         $message_type = 'error';
     } elseif (strlen($selected_op_code) < 4 || substr($selected_op_code, 2, 1) !== '-') {
         $message = "Full Rate Code must include a valid 2-letter prefix followed by a dash (e.g., NE-001V).";
         $message_type = 'error';
-    } elseif (!in_array($new_vehicle_no, $all_vehicle_numbers) && !$is_post_edit) {
-        // Enforce server-side check that the vehicle number exists in the main vehicles table (for new records)
-          $message = "The entered vehicle number does not exist in the master vehicle list. It cannot be added.";
+    } 
+    // --- UPDATED VALIDATION LOGIC ---
+    // Only check if vehicle exists if it is NOT an EV code
+    elseif (!$is_ev_code && !in_array($new_vehicle_no, $all_vehicle_numbers) && !$is_post_edit) {
+          $message = "The entered vehicle number does not exist in the master vehicle list. It cannot be added (Unless using EV rate).";
           $message_type = 'error';
-    } elseif (!array_key_exists($selected_supplier_code, $all_suppliers)) { // CHANGED: Validate Supplier Code exists
+    } 
+    // -------------------------------
+    elseif (!array_key_exists($selected_supplier_code, $all_suppliers)) { 
         $message = "The selected Supplier Code is invalid.";
         $message_type = 'error';
     } else {
-        // --- START CONDITIONAL VALIDATION (Based on user requirement) ---
+        // --- START CONDITIONAL VALIDATION ---
         $op_prefix = substr($selected_op_code, 0, 2);
         
-        // DH, NH need slab_limit_distance
         $required_slab = in_array($op_prefix, ['DH', 'NH']); 
-        // ONLY NE needs day_rate
         $required_day_rate = ($op_prefix === 'NE'); 
         
         if ($required_slab && (empty($slab_limit) || (float)$slab_limit <= 0)) {
@@ -233,8 +214,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
         // --- END CONDITIONAL VALIDATION ---
             try {
-                // Prepare data types
-                $selected_supplier_code = (string)$selected_supplier_code; // CHANGED
+                $selected_supplier_code = (string)$selected_supplier_code; 
                 $slab_limit = (float)$slab_limit;
                 $day_rate = (float)$day_rate;
                 $extra_rate = (float)$extra_rate;
@@ -248,22 +228,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // --- SCENARIO 1: Vehicle Number was changed (Treat as delete old + insert new) ---
                 if ($vehicle_changed) {
-                    // Log the DELETE action for the OLD record
                     $delete_record_id = $original_op_code . '/' . $original_vehicle_no;
-                    // Log the DELETE action with a summary entry
                     log_detailed_audit_entry($conn, 'op_services', $delete_record_id, 'DELETE', $logged_in_user_id, '**RECORD REPLACED**', $original_vehicle_no, $new_vehicle_no);
 
-                    // Delete the old record based on the original key
                     $delete_sql = "DELETE FROM op_services WHERE op_code = ? AND vehicle_no = ?";
                     $delete_stmt = $conn->prepare($delete_sql);
                     $delete_stmt->bind_param("ss", $original_op_code, $original_vehicle_no);
                     $delete_stmt->execute();
-                    
-                    // Then proceed to insert the new one
                 }
                 
-                // --- SCENARIO 2: Standard UPSERT (Insert new record or Update existing record) ---
-                // NOTE: 'supplier_code' is used in the INSERT/UPDATE query.
+                // --- SCENARIO 2: Standard UPSERT ---
                 $sql = "INSERT INTO op_services (op_code, vehicle_no, supplier_code, slab_limit_distance, day_rate, extra_rate, extra_rate_ac, is_active) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE 
@@ -275,9 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             is_active = VALUES(is_active)"; 
 
                 $stmt = $conn->prepare($sql);
-                // The types string is updated to reflect the string supplier_code: "sssddddi"
                 $types = "sssddddi"; 
-                // $params is updated to include $selected_supplier_code
                 $params = [$selected_op_code, $new_vehicle_no, $selected_supplier_code, $slab_limit, $day_rate, $extra_rate, $extra_rate_ac, $is_active];
 
                 if ($stmt->bind_param($types, ...$params) && $stmt->execute()) {
@@ -289,9 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $status_message = "Service Rate for $new_vehicle_no ($selected_op_code) updated successfully!";
                         $action_type = 'UPDATE';
                         
-                        // AUDIT LOGGING FOR SUPPLIER_CODE
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'supplier_code', $original_rates_post['supplier_code'], $selected_supplier_code);
-                        
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'slab_limit_distance', $original_rates_post['slab_limit_distance'], $slab_limit);
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'day_rate', $original_rates_post['day_rate'], $day_rate);
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'extra_rate', $original_rates_post['extra_rate'], $extra_rate);
@@ -301,58 +271,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $status_message = "Service Rate for $new_vehicle_no ($selected_op_code) added successfully!";
                         $action_type = 'INSERT';
                         
-                        // AUDIT LOGGING FOR INSERT: Log only a single summary entry
                         $insert_record_id = $selected_op_code . '/' . $new_vehicle_no;
-                        log_detailed_audit_entry(
-                            $conn, 
-                            'op_services', 
-                            $insert_record_id, 
-                            $action_type, 
-                            $logged_in_user_id, 
-                            '**NEW RECORD**', // New field_name for summary
-                            'N/A', 
-                            $insert_record_id // new_value is the composite key
-                        );
+                        log_detailed_audit_entry($conn, 'op_services', $insert_record_id, $action_type, $logged_in_user_id, '**NEW RECORD**', 'N/A', $insert_record_id);
                     }
 
-                    $conn->commit(); // Commit the transaction
+                    $conn->commit(); 
                     
-                    // Redirect to op_services.php with success message (PRG pattern)
+                    // Redirect to op_services.php with success message (This will show the toast there)
                     header("Location: op_services.php?status=success&message=" . urlencode($status_message)); 
                     exit();
                 } else {
-                    $conn->rollback(); // Rollback on failed statement execution
+                    $conn->rollback(); 
                     throw new Exception('Database error: ' . $stmt->error); 
                 }
             } catch (Exception $e) {
-                // Rollback is implicitly handled if not committed, but better to be explicit
                 if ($conn->in_transaction) $conn->rollback(); 
                 
                 $message = "Error: " . $e->getMessage();
                 $message_type = 'error';
-                // Set the vehicle number and supplier back for form persistence
                 $selected_vehicle_no = $new_vehicle_no; 
-                $selected_supplier_code = $_POST['supplier_code'] ?? ''; // CHANGED
-                // Also set other rates back for form persistence
+                $selected_supplier_code = $_POST['supplier_code'] ?? ''; 
                 $extra_rate = $_POST['extra_rate'] ?? 0;
                 $extra_rate_ac = $_POST['extra_rate_ac'] ?? 0;
             }
         }
     }
 } else {
-    // If not a POST request, ensure $selected_vehicle_no and $selected_supplier_code holds the value loaded in edit mode
     $selected_vehicle_no = $selected_vehicle_no; 
-    $selected_supplier_code = $selected_supplier_code; // CHANGED
+    $selected_supplier_code = $selected_supplier_code; 
 }
 
 
-// Check for incoming status messages from the redirect
 if (isset($_GET['status'])) { 
     $message = $_GET['message'] ?? ''; 
     $message_type = $_GET['status'] ?? ''; 
 } 
 
-// Include header/navbar after handling form submission
 include('../../includes/header.php');
 include('../../includes/navbar.php');
 ?>
@@ -365,7 +319,6 @@ include('../../includes/navbar.php');
     <title><?php echo $is_edit_mode ? 'Edit Service Rate' : 'Add New Service Rate'; ?></title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        /* CSS for the toast notification */
         #toast-container { 
             position: fixed; top: 1rem; right: 1rem; z-index: 2000; 
             display: flex; flex-direction: column; align-items: flex-end; 
@@ -381,20 +334,16 @@ include('../../includes/navbar.php');
         .toast.error { background-color: #F44336; } 
         .toast.info { background-color: #2196F3; } 
         .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; } 
-        /* Added class for required fields */
         .conditionally-required { color: red; } 
     </style>
 </head>
 <script>
-    // 9 hours in milliseconds (32,400,000 ms)
     const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
+    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
 
     setTimeout(function() {
-        // Alert and redirect
         alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
         window.location.href = LOGIN_PAGE_URL; 
-        
     }, SESSION_TIMEOUT_MS);
 </script>
 <body class="bg-gray-100 font-sans">
@@ -425,7 +374,7 @@ include('../../includes/navbar.php');
                 <select id="op_code_base" name="op_code_base" required onchange="filterVehicles(this.value); updateRequiredFields(this.value);" 
                     class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm sm:text-sm p-2 
                     <?php echo $is_edit_mode ? 'bg-gray-200 cursor-not-allowed' : 'focus:border-indigo-500 focus:ring-indigo-500'; ?>"
-                    <?php echo $is_edit_mode ? 'disabled' : ''; // Disable Prefix selection in EDIT mode ?>> 
+                    <?php echo $is_edit_mode ? 'disabled' : ''; ?>> 
                     <option value="">-- Select Code --</option> 
                     <?php foreach ($opcodes as $op_data): ?> 
                         <option value="<?php echo htmlspecialchars($op_data['code']); ?>" <?php echo (substr($selected_op_code, 0, 2) === $op_data['code']) ? 'selected' : ''; ?>>
@@ -441,8 +390,8 @@ include('../../includes/navbar.php');
                     class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm sm:text-sm p-2 focus:border-indigo-500 focus:ring-indigo-500"> 
                     <option value="">-- Select Supplier --</option> 
                     <?php 
-                    foreach ($all_suppliers as $code => $supplier): // CHANGED: $id to $code
-                        $selected = ((string)$selected_supplier_code === (string)$code) ? 'selected' : ''; // CHANGED: $selected_supplier_id to $selected_supplier_code
+                    foreach ($all_suppliers as $code => $supplier): 
+                        $selected = ((string)$selected_supplier_code === (string)$code) ? 'selected' : ''; 
                     ?> 
                         <option value="<?php echo htmlspecialchars($code); ?>" <?php echo $selected; ?>>
                             <?php echo htmlspecialchars($supplier) . ' (' . htmlspecialchars($code) . ')'; ?>
@@ -460,7 +409,7 @@ include('../../includes/navbar.php');
                         value="<?php echo htmlspecialchars($selected_op_code); ?>" 
                         required 
                         maxlength="10" 
-                        <?php echo $is_edit_mode ? 'readonly' : ''; // Rate Code must remain Readonly ?>
+                        <?php echo $is_edit_mode ? 'readonly' : ''; ?>
                         class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm sm:text-sm p-2 
                         <?php echo $is_edit_mode ? 'bg-gray-200 cursor-not-allowed' : 'focus:border-indigo-500 focus:ring-indigo-500'; ?>" 
                         placeholder="Select Service Type to get prefix...">
@@ -486,7 +435,6 @@ include('../../includes/navbar.php');
 
                     <datalist id="vehicle_options">
                         <?php
-                        // Populate Datalist with all valid vehicle numbers
                         foreach ($all_vehicle_numbers as $vehicle_no) {
                             echo '<option value="' . htmlspecialchars($vehicle_no) . '">';
                         }
@@ -541,7 +489,6 @@ include('../../includes/navbar.php');
 </div>
 
 <script>
-    // Toast Function (Unchanged)
     function showToast(message, type) { 
         const toastContainer = document.getElementById('toast-container'); 
         const toast = document.createElement('div'); 
@@ -564,7 +511,6 @@ include('../../includes/navbar.php');
         }, 3000); 
     } 
 
-    // Function to enforce the prefix (Unchanged)
     const opCodeInput = document.getElementById('op_code');
     const opCodeBaseSelect = document.getElementById('op_code_base');
     const isEditMode = opCodeInput.readOnly; 
@@ -592,13 +538,10 @@ include('../../includes/navbar.php');
         inputElement.setSelectionRange(inputElement.value.length, inputElement.value.length);
     }
 
-
-    // Dynamic Vehicle Filtering Function (Unchanged logic)
     function filterVehicles(opCodeBase) {
         const fullOpCodeInput = document.getElementById('op_code');
         const opCodeHelp = document.getElementById('op_code_help');
         
-        // 1. Handle Prefix and listener (Only in ADD mode, or if base code changes)
         if (!isEditMode) {
             const prefix = opCodeBase ? opCodeBase + '-' : '';
             fullOpCodeInput.value = prefix;
@@ -615,41 +558,35 @@ include('../../includes/navbar.php');
         }
     }
 
-    // --- CLIENT-SIDE CONDITIONAL REQUIRED LOGIC (Unchanged, based on final user requirement) ---
     function updateRequiredFields(opCodeBase) {
         const slabInput = document.getElementById('slab_limit_distance');
         const dayRateInput = document.getElementById('day_rate');
         const reqSlab = document.getElementById('req_slab');
         const reqDayRate = document.getElementById('req_day_rate');
 
-        // Reset all
         slabInput.removeAttribute('required');
         dayRateInput.removeAttribute('required');
         reqSlab.classList.add('hidden');
         reqDayRate.classList.add('hidden');
         
-        // Also remove minimum constraint when not required
         slabInput.removeAttribute('min');
         dayRateInput.removeAttribute('min');
 
-        // DH and NH need Slab Limit (min 0.01)
         if (opCodeBase === 'DH' || opCodeBase === 'NH') {
             slabInput.setAttribute('required', 'required');
             reqSlab.classList.remove('hidden');
             slabInput.setAttribute('min', '0.01');
         }
         
-        // ONLY NE needs Day Rate (min 0.01)
         if (opCodeBase === 'NE') {
             dayRateInput.setAttribute('required', 'required');
             reqDayRate.classList.remove('hidden');
             dayRateInput.setAttribute('min', '0.01');
         }
     }
-    // ----------------------------------------------------
 
 
-    // --- CLIENT-SIDE VALIDATION FOR DATALIST INPUT (Unchanged) ---
+    // --- CLIENT-SIDE VALIDATION ---
     const form = document.querySelector('form');
     const vehicleInput = document.getElementById('vehicle_no_input');
     const datalist = document.getElementById('vehicle_options');
@@ -658,52 +595,52 @@ include('../../includes/navbar.php');
 
     form.addEventListener('submit', function(event) {
         const inputValue = vehicleInput.value.trim();
+        const selectedPrefix = document.getElementById('op_code_base').value; // Get current prefix
+        
         let isValid = false;
 
-        // Check if the input value matches any option in the datalist
-        for (const option of datalist.options) {
-            if (option.value === inputValue) {
+        // 1. If Service Type is EV, automatic pass (allow any vehicle)
+        if (selectedPrefix === 'EV') {
+            isValid = true;
+        } 
+        // 2. Otherwise, perform standard datalist check
+        else {
+            for (const option of datalist.options) {
+                if (option.value === inputValue) {
+                    isValid = true;
+                    break;
+                }
+            }
+             // Allow original value in edit mode
+            if (inputValue === '<?php echo $selected_vehicle_no; ?>') {
                 isValid = true;
-                break;
             }
         }
-        
-        // Also allow the currently selected vehicle in edit mode to pass if it was the original value
-        if (inputValue === '<?php echo $selected_vehicle_no; ?>') {
-            isValid = true;
-        }
 
-
-        // If the value is NOT valid (not in the list)
         if (!isValid) {
-            event.preventDefault(); // Stop the form from submitting
-            vehicleErrorMsg.style.display = 'block'; // Show the error message
+            event.preventDefault(); 
+            vehicleErrorMsg.style.display = 'block'; 
             vehicleInput.focus(); 
-            vehicleInput.classList.add('border-red-500', 'ring-red-500'); // Highlight red
+            vehicleInput.classList.add('border-red-500', 'ring-red-500'); 
         } else {
-            // If valid, ensure the error message is hidden and style is reset
             vehicleErrorMsg.style.display = 'none';
             vehicleInput.classList.remove('border-red-500', 'ring-red-500'); 
         }
     });
 
-    // Remove error message when the user starts typing or selecting again
     vehicleInput.addEventListener('input', function() {
         vehicleErrorMsg.style.display = 'none';
         vehicleInput.classList.remove('border-red-500', 'ring-red-500'); 
     });
-    // ----------------------------------------------------
 
 
-    // Call the functions on load to set the initial state
     document.addEventListener('DOMContentLoaded', () => {
-        // Set the correct prefix code on load (needed for AJAX call and conditional fields)
         const initialOpCodeBase = '<?php echo substr($selected_op_code, 0, 2); ?>';
         opCodeBaseSelect.value = initialOpCodeBase;
         
         if (initialOpCodeBase) {
             filterVehicles(initialOpCodeBase);
-            updateRequiredFields(initialOpCodeBase); // <--- Call new function on load
+            updateRequiredFields(initialOpCodeBase); 
         }
     });
 
