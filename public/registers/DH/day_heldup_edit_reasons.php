@@ -149,14 +149,9 @@ include('../../../includes/navbar.php');
                         </div>
                     </div>
 
-                    <div class="flex items-end gap-3">
-                        <div class="flex-grow">
-                            <label class="block text-sm font-medium text-gray-700">Distance (km)</label>
-                            <input type="number" step="0.01" name="distance" value="<?= $trip['distance'] ?>" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
-                        </div>
-                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md shadow transition text-sm">
-                            Update Basic Info
-                        </button>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Distance (km)</label>
+                        <input type="number" step="0.01" name="distance" value="<?= $trip['distance'] ?>" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
                     </div>
                 </form>
 
@@ -166,7 +161,9 @@ include('../../../includes/navbar.php');
                     <form id="addReasonForm" class="grid md:grid-cols-3 gap-3">
                         <input type="hidden" name="action_reason" value="add_reason">
                         <input type="hidden" name="trip_id" value="<?= $target_trip_id; ?>">
-                        <input type="text" name="emp_id" required placeholder="Emp ID" class="w-full border rounded p-2 text-sm uppercase">
+                        <input type="text" name="emp_id" id="emp_id_input" required placeholder="Emp ID" 
+                               onblur="this.value = formatEmployeeID(this.value)"
+                               class="w-full border rounded p-2 text-sm uppercase">
                         <select name="reason_code" required class="w-full border rounded p-2 text-sm">
                             <option value="">Select Reason</option>
                             <?php 
@@ -219,12 +216,38 @@ include('../../../includes/navbar.php');
                 <a href="day_heldup_register.php?date=<?= $trip['date'] ?>" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-md shadow transition text-sm">
                     Back to Register
                 </a>
+                <button type="button" onclick="submitGeneralForm()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow transition text-sm">
+                    Update Basic Info
+                </button>
             </div>
         </div>
     </div>
 
     <script>
-        // JS Logic remain the same for functionality
+        // Auto Formatting Logic
+        function formatEmployeeID(input) {
+            input = input.toUpperCase().trim();
+            if (!input) return "";
+
+            // D187 -> GPD00187
+            if (/^D\d+$/.test(input)) {
+                return "GPD" + input.substring(1).padStart(5, '0');
+            }
+            // ST8 -> ST000008
+            if (/^ST\d+$/.test(input)) {
+                return "ST" + input.substring(2).padStart(6, '0');
+            }
+            // 7135 -> GP007135
+            if (/^\d+$/.test(input)) {
+                return "GP" + input.padStart(6, '0');
+            }
+            return input;
+        }
+
+        function submitGeneralForm() {
+            document.getElementById('generalDetailsForm').requestSubmit();
+        }
+
         document.getElementById('op_code').onchange = async function() {
             const vInput = document.getElementById('vehicle_no');
             vInput.value = '...';
@@ -256,6 +279,11 @@ include('../../../includes/navbar.php');
 
         document.getElementById('addReasonForm').onsubmit = async (e) => {
             e.preventDefault();
+            
+            // Format before sending to server
+            const empInput = document.getElementById('emp_id_input');
+            empInput.value = formatEmployeeID(empInput.value);
+
             const fd = new FormData(e.target);
             const res = await fetch('day_heldup_edit_reasons.php', { method: 'POST', body: new URLSearchParams(fd) });
             const data = await res.json();

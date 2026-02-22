@@ -1,5 +1,5 @@
 <?php
-// sub_payments_done.php (Finalize Sub Route Payments)
+// sub_payments_done.php (Finalize Sub Route Payments - Updated with Slab Calculation)
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
@@ -20,50 +20,37 @@ date_default_timezone_set('Asia/Colombo');
 include('../../../../includes/db.php'); 
 
 // =======================================================================
-// 0. HELPER FUNCTIONS (Sub Route Logic & Fuel Calculation)
+// 0. ADVANCED HELPER FUNCTIONS (Slab-based Logic)
 // =======================================================================
 
-function get_latest_fuel_price_by_rate_id($conn, $rate_id) {
-    $sql = "SELECT rate FROM fuel_rate WHERE rate_id = ? ORDER BY date DESC, id DESC LIMIT 1";
+function get_fuel_price_changes_in_month($conn, $rate_id, $month, $year) {
+    $start_date = "$year-$month-01";
+    $end_date = date('Y-m-t', strtotime($start_date)); 
+
+    $sql = "SELECT date, rate FROM fuel_rate 
+            WHERE rate_id = ? AND date <= ? 
+            ORDER BY date DESC, id DESC";
     $stmt = $conn->prepare($sql);
-    if (!$stmt) return 0; 
-    $stmt->bind_param("i", $rate_id);
+    if (!$stmt) return []; 
+    
+    $stmt->bind_param("is", $rate_id, $end_date);
     $stmt->execute();
     $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $stmt->close();
-    return (float)($row['rate'] ?? 0);
-}
-
-function calculate_fuel_cost_per_km($conn, $vehicle_no) {
-    if (empty($vehicle_no)) return 0;
-
-    // Consumption rates mapping
-    $consumption_rates = [];
-    $res_c = $conn->query("SELECT c_id, distance FROM consumption");
-    if ($res_c) while ($r = $res_c->fetch_assoc()) $consumption_rates[$r['c_id']] = (float)$r['distance'];
-
-    $stmt = $conn->prepare("SELECT fuel_efficiency, rate_id FROM vehicle WHERE vehicle_no = ?");
-    $stmt->bind_param("s", $vehicle_no);
-    $stmt->execute();
-    $v = $stmt->get_result()->fetch_assoc();
+    $changes = $result->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
     
-    if (!$v) return 0;
-    $price = get_latest_fuel_price_by_rate_id($conn, $v['rate_id']);
-    $km_per_l = $consumption_rates[$v['fuel_efficiency']] ?? 1.0;
-    return ($price > 0) ? ($price / $km_per_l) : 0;
-}
-
-function get_parent_route_attendance_count($conn, $parent_route_code, $month, $year) {
-    $sql = "SELECT COUNT(DISTINCT date) as days_run FROM factory_transport_vehicle_register WHERE route = ? AND MONTH(date) = ? AND YEAR(date) = ? AND is_active = 1";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $parent_route_code, $month, $year);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $stmt->close();
-    return (int)($row['days_run'] ?? 0);
+    $slabs = [];
+    foreach ($changes as $change) {
+        $change_date = $change['date'];
+        $rate = (float)$change['rate'];
+        if (strtotime($change_date) < strtotime($start_date)) {
+            $slabs[date('Y-m-d', strtotime($start_date))] = $rate;
+            break; 
+        }
+        $slabs[$change_date] = $rate;
+    }
+    ksort($slabs);
+    return $slabs;
 }
 
 function get_sub_route_adjustments_count($conn, $sub_route_code, $month, $year) {
@@ -99,7 +86,6 @@ if (isset($_POST['pin_submit'])) {
 
 if (isset($_POST['finalize_payments'])) {
     
-    // Header eka yawanna kalin buffering clean karanna
     if (ob_get_length()) ob_end_clean(); 
     header('Content-Type: application/json');
 
@@ -111,50 +97,98 @@ if (isset($_POST['finalize_payments'])) {
         $finalize_year = (int)$target_date->format('Y');
         $target_month_name = $target_date->format('F Y');
 
+        // Consumption rates cache
+        $consumption_rates = [];
+        $res_c = $conn->query("SELECT c_id, distance FROM consumption");
+        if ($res_c) while ($r = $res_c->fetch_assoc()) $consumption_rates[$r['c_id']] = (float)$r['distance'];
+
         $payment_data = []; 
 
-        // 1. Fetch ACTIVE sub routes
-        // per_day_rate kiyana eka fixed_rate widiyata gannawa (DB eke per_day_rate nam thiyenne)
+        // Fetch ACTIVE sub routes
         $sub_route_sql = "SELECT sub_route_code, route_code, supplier_code, fixed_rate, with_fuel, distance, vehicle_no FROM sub_route WHERE is_active = 1";
         $sub_route_result = $conn->query($sub_route_sql);
 
-        if (!$sub_route_result) {
-            throw new Exception("Database query error: " . $conn->error);
-        }
+        if (!$sub_route_result) throw new Exception("DB Error: " . $conn->error);
 
         while ($row = $sub_route_result->fetch_assoc()) {
             $sub_code = $row['sub_route_code'];
             $parent_route = $row['route_code'];
-            $fixed_rate = (float)$row['fixed_rate'];
-            $distance = (float)$row['distance'];
             $v_no = $row['vehicle_no'];
+            $distance = (float)$row['distance'];
+            $fixed_rate = (float)$row['fixed_rate'];
+            $with_fuel = (int)$row['with_fuel'];
 
-            // 2. Calculate Fuel Rate per KM
-            $fuel_rate = 0;
-            if ((int)$row['with_fuel'] === 1) {
-                $fuel_rate = calculate_fuel_cost_per_km($conn, $v_no);
+            // A. Fetch Daily Attendance Dates
+            $sql_days = "SELECT date FROM factory_transport_vehicle_register 
+                         WHERE route = ? AND MONTH(date) = ? AND YEAR(date) = ? AND is_active = 1 
+                         GROUP BY date";
+            $stmt_days = $conn->prepare($sql_days);
+            $stmt_days->bind_param("sii", $parent_route, $finalize_month, $finalize_year);
+            $stmt_days->execute();
+            $active_days_result = $stmt_days->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt_days->close();
+
+            $base_days_count = count($active_days_result);
+
+            // B. Vehicle/Fuel Info
+            $stmt_v = $conn->prepare("SELECT fuel_efficiency, rate_id FROM vehicle WHERE vehicle_no = ?");
+            $stmt_v->bind_param("s", $v_no);
+            $stmt_v->execute();
+            $v_info = $stmt_v->get_result()->fetch_assoc();
+            $stmt_v->close();
+
+            $price_slabs = [];
+            if ($with_fuel == 1 && $v_info) {
+                $price_slabs = get_fuel_price_changes_in_month($conn, $v_info['rate_id'], $finalize_month, $finalize_year);
+            }
+            $km_per_l = ($v_info) ? ($consumption_rates[$v_info['fuel_efficiency']] ?? 1.0) : 1.0;
+
+            // C. Calculate Cumulative Slab-based Payment
+            $total_fuel_based_pay = 0;
+            foreach ($active_days_result as $day) {
+                $current_date = $day['date'];
+                $fuel_price = 0;
+
+                if ($with_fuel == 1 && !empty($price_slabs)) {
+                    foreach ($price_slabs as $change_date => $rate) {
+                        if (strtotime($current_date) >= strtotime($change_date)) {
+                            $fuel_price = $rate;
+                        }
+                    }
+                }
+                $fuel_cost_per_km = ($fuel_price > 0) ? ($fuel_price / $km_per_l) : 0;
+                $total_fuel_based_pay += ($fixed_rate + $fuel_cost_per_km) * $distance;
             }
 
-            // Total Daily = (Fixed + Fuel) * Distance
-            $day_total = ($fixed_rate + $fuel_rate) * $distance;
-
-            // 3. Attendance & Adjustments
-            $base_days = get_parent_route_attendance_count($conn, $parent_route, $finalize_month, $finalize_year);
-            $adj_days = get_sub_route_adjustments_count($conn, $sub_code, $finalize_month, $finalize_year);
+            // D. Adjustments & Average Rate
+            $avg_day_rate = ($base_days_count > 0) ? ($total_fuel_based_pay / $base_days_count) : 0;
             
-            $final_days = max(0, $base_days + $adj_days);
-            $total_payment = $final_days * $day_total;
+            // If no base days, but adjustments exist, we need a fallback day rate
+            if ($avg_day_rate == 0 && $v_info) {
+                $sql_fallback = "SELECT rate FROM fuel_rate WHERE rate_id = ? ORDER BY date DESC LIMIT 1";
+                $st_f = $conn->prepare($sql_fallback);
+                $st_f->bind_param("i", $v_info['rate_id']);
+                $st_f->execute();
+                $last_p = $st_f->get_result()->fetch_assoc();
+                $st_f->close();
+                $fallback_fuel_p = (float)($last_p['rate'] ?? 0);
+                $avg_day_rate = ($fixed_rate + ($fallback_fuel_p / $km_per_l)) * $distance;
+            }
 
-            if ($final_days > 0 || $total_payment > 0) {
+            $adj_days = get_sub_route_adjustments_count($conn, $sub_code, $finalize_month, $finalize_year);
+            $final_days_count = max(0, $base_days_count + $adj_days);
+            $final_total_payment = $total_fuel_based_pay + ($adj_days * $avg_day_rate);
+
+            if ($final_days_count > 0 || $final_total_payment > 0) {
                  $payment_data[] = [
                     'sub_route_code' => $sub_code,
                     'supplier_code' => $row['supplier_code'],
                     'month' => $finalize_month,
                     'year' => $finalize_year,
-                    'monthly_payment' => $total_payment,
-                    'no_of_attendance_days' => $final_days,
+                    'monthly_payment' => $final_total_payment,
+                    'no_of_attendance_days' => $final_days_count,
                     'fixed_rate' => $fixed_rate,
-                    'fuel_rate' => $fuel_rate,
+                    'fuel_rate' => ($avg_day_rate > 0) ? (($avg_day_rate / $distance) - $fixed_rate) : 0,
                     'distance' => $distance
                 ];
             }
@@ -177,7 +211,6 @@ if (isset($_POST['finalize_payments'])) {
             exit;
         }
         
-        // 4. DB Transaction Start
         $conn->begin_transaction();
         
         $insert_sql = "INSERT INTO monthly_payments_sub 
@@ -189,15 +222,9 @@ if (isset($_POST['finalize_payments'])) {
 
         foreach ($payment_data as $data) {
             $insert_stmt->bind_param("ssiididdd", 
-                $data['sub_route_code'], 
-                $data['supplier_code'], 
-                $data['month'], 
-                $data['year'], 
-                $data['monthly_payment'], 
-                $data['no_of_attendance_days'],
-                $data['fixed_rate'],
-                $data['fuel_rate'],
-                $data['distance']
+                $data['sub_route_code'], $data['supplier_code'], $data['month'], $data['year'], 
+                $data['monthly_payment'], $data['no_of_attendance_days'],
+                $data['fixed_rate'], $data['fuel_rate'], $data['distance']
             );
 
             if (!$insert_stmt->execute()) {
@@ -218,7 +245,7 @@ if (isset($_POST['finalize_payments'])) {
 }
 
 // =======================================================================
-// 3. HTML DISPLAY LOGIC
+// 3. HTML DISPLAY LOGIC (Unchanged)
 // =======================================================================
 
 if (!$is_pin_correct) {
@@ -269,7 +296,6 @@ $avail_month = (int)$target_date->format('m');
 $avail_year = (int)$target_date->format('Y');
 $avail_name = $target_date->format('F Y');
 
-// Status Checks
 $is_done = $conn->query("SELECT 1 FROM monthly_payments_sub WHERE month=$avail_month AND year=$avail_year LIMIT 1")->num_rows > 0;
 $has_data = $conn->query("SELECT 1 FROM factory_transport_vehicle_register WHERE MONTH(date)=$avail_month AND YEAR(date)=$avail_year LIMIT 1")->num_rows > 0;
 

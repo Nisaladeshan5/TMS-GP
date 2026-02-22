@@ -240,6 +240,7 @@
         <table class="min-w-full table-auto">
             <thead class="bg-blue-600 text-white">
                 <tr>
+                    <th class="px-2 py-2 text-center w-12">No</th>
                     <th class="px-2 py-2 text-center w-12">St</th>
                     <th class="px-4 py-2 text-left">Date</th>
                     <th class="px-4 py-2 text-left">Route</th>
@@ -258,9 +259,10 @@
             <tbody>
                 <?php
                     if (empty($grouped)) {
-                        $colspan = ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])) ? 11 : 10;
+                        $colspan = ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])) ? 12 : 11;
                         echo "<tr><td colspan='{$colspan}' class='border px-4 py-2 text-center text-gray-500'>No staff transport vehicle record available for today.</td></tr>";
                     } else {
+                        $row_no = 1;
                         foreach ($grouped as $entry) {
                             // ... (Same data prep) ...
                             $m_in  = ($entry['morning_in']) ? date('H:i', strtotime($entry['morning_in'])) : '-';
@@ -329,6 +331,7 @@
                             if ($is_merged) {
                                 $cls = (! $entry['morning_match'] || ! $entry['evening_match']) ? 'mismatch-row' : 'bg-white hover:bg-gray-50';
                                 echo "<tr class='{$cls}'>
+                                <td class='border px-2 py-2 text-center'>{$row_no}</td>
                                 <td class='border px-2 py-2 text-center'>{$status_badge}</td>
                                 <td class='border px-4 py-2'>{$entry['date']}</td>
                                 <td class='border px-4 py-2'>{$entry['route_name']}</td>
@@ -341,6 +344,7 @@
                                 <td class='border px-4 py-2 {$e_text_style}'>{$e_out}</td>
                                 {$action_btn}
                             </tr>";
+                            $row_no++;
                             } else {
                                 // Split Rows (Updated openModal arguments here too)
                                 if ($entry['morning_vehicle']) {
@@ -351,6 +355,7 @@
                                         </td>" : $action_btn;
 
                                     echo "<tr class='{$cls}'>
+                                    <td class='border px-2 py-2 text-center'>{$row_no}</td>
                                         <td class='border px-2 py-2 text-center'>{$status_badge}</td>
                                         <td class='border px-4 py-2'>{$entry['date']}</td>
                                         <td class='border px-4 py-2'>{$entry['route_name']}</td>
@@ -363,6 +368,7 @@
                                         <td class='border px-4 py-2'>-</td>
                                         {$m_btn_only}
                                     </tr>";
+                                    $row_no++;
                                 }
                                 if ($entry['evening_vehicle']) {
                                     $cls = (! $entry['evening_match']) ? 'mismatch-row' : 'bg-white hover:bg-gray-50';
@@ -372,6 +378,7 @@
                                         </td>" : $action_btn;
 
                                     echo "<tr class='{$cls}'>
+                                        <td class='border px-2 py-2 text-center'>{$row_no}</td>
                                         <td class='border px-2 py-2 text-center'>{$status_badge}</td>
                                         <td class='border px-4 py-2'>{$entry['date']}</td>
                                         <td class='border px-4 py-2'>{$entry['route_name']}</td>
@@ -384,6 +391,7 @@
                                         <td class='border px-4 py-2 {$e_text_style}'>{$e_out}</td>
                                         {$e_btn_only}
                                     </tr>";
+                                    $row_no++;
                                 }
                             }
                         }

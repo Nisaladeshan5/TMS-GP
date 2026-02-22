@@ -80,7 +80,7 @@ include('../../includes/navbar.php');
 <body class="bg-gray-100 font-sans">
 
 <div class="w-[85%] ml-[15%]">
-    <div class="w-2xl p-8 bg-white shadow-lg rounded-lg mt-10 mx-auto">
+    <div class="max-w-4xl p-8 bg-white shadow-lg rounded-lg mt-10 mx-auto">
         
         <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 **mb-3** **pb-1** flex justify-between items-center">
             Supplier Details: <?= htmlspecialchars($supplier_data['supplier_code']) ?>

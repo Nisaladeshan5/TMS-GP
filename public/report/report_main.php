@@ -196,6 +196,10 @@ include('../../includes/header.php'); include('../../includes/navbar.php');
                 <a href="download_dh_cost_breakdown.php?month=<?php echo $s_month; ?>&year=<?php echo $s_year; ?>" class="text-xs bg-gray-100 px-3 py-2 text-yellow-600 font-bold rounded border hover:bg-yellow-50 transition" target="_blank"><i class="fas fa-file-excel mr-1"></i> Cost Breakdown</a>
             </div>
             <div class="bg-white p-4 border rounded flex justify-between items-center shadow-sm">
+                <div class="flex items-center gap-3"><i class="fas fa-moon text-purple-600 bg-purple-100 p-2 rounded"></i> <span class="font-bold text-sm">Night Heldup</span></div>
+                <a href="download_nh_cost_breakdown.php?month=<?php echo $s_month; ?>&year=<?php echo $s_year; ?>" class="text-xs bg-gray-100 px-3 py-2 text-purple-600 font-bold rounded border hover:bg-purple-50 transition" target="_blank"><i class="fas fa-file-excel mr-1"></i> Cost Breakdown</a>
+            </div>
+            <div class="bg-white p-4 border rounded flex justify-between items-center shadow-sm">
                 <div class="flex items-center gap-3"><i class="fas fa-plus-circle text-indigo-600 bg-indigo-100 p-2 rounded"></i><span class="font-bold text-sm">Extra Vehicle</span></div>
                 <a href="download_ev_cost_breakdown.php?month=<?php echo $s_month; ?>&year=<?php echo $s_year; ?>" class="text-xs bg-gray-100 px-3 py-2 text-indigo-600 font-bold rounded border hover:bg-indigo-50 transition" target="_blank"><i class="fas fa-file-excel mr-1"></i> Cost Breakdown</a>
             </div>

@@ -134,6 +134,19 @@ include('../../includes/header.php'); include('../../includes/navbar.php');
                 </p>
             </a>
 
+            <a href="night_heldup_report.php" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg transition transform hover:-translate-y-1 block group">
+                <div class="flex justify-between items-start">
+                    <div class="bg-purple-100 text-purple-600 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-purple-600 group-hover:text-white transition">
+                        <i class="fas fa-moon text-xl"></i>
+                    </div>
+                    <i class="fas fa-arrow-right text-gray-300 group-hover:text-purple-500 transition"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800">Night Heldup Analysis</h3>
+                <p class="text-sm text-gray-500 mt-2">
+                    Detailed cost breakdown of nightly delays and operational holds.
+                </p>
+            </a>
+
             <a href="ev_cost_analysis.php" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg transition transform hover:-translate-y-1 block group">
                 <div class="flex justify-between items-start">
                     <div class="bg-indigo-100 text-indigo-600 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white transition">

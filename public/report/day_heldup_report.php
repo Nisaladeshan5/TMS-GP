@@ -192,7 +192,9 @@ include('../../includes/header.php'); include('../../includes/navbar.php');
            class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide border border-green-500">
             <i class="fas fa-file-excel"></i> Export
         </a>
-        <a href="report_operations.php" class="text-gray-300 hover:text-white transition text-sm">Back</a>
+        <span class="text-gray-600 text-lg font-thin">|</span>
+        <a href="report_operations.php" class="text-gray-300 hover:text-white transition flex items-center gap-2">Back</a>
+    </div>
     </div>
 </div>
 

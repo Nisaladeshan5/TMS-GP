@@ -144,6 +144,11 @@ include('../../../../includes/navbar.php');
             </select>
         </form>
         <a href="download_sub_history_excel.php?month=<?= $selected_month ?>&year=<?= $selected_year ?>" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded shadow text-xs transition no-loader"><i class="fas fa-file-excel"></i> Excel</a>
+        <span class="text-gray-600 text-lg font-thin">|</span>
+
+        <a href="sub_route_payments.php" class="text-gray-300 hover:text-white transition flex items-center gap-2 text-xs uppercase tracking-wide font-bold">
+            Current Payments
+        </a>
     </div>
 </div>
 

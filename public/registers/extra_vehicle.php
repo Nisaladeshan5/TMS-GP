@@ -272,6 +272,12 @@ include('../../includes/navbar.php');
                 </svg>
             </a>
         </div>
+        <?php if ($is_logged_in): ?>
+            <a href="ev_export_excel.php?month=<?php echo $filterDate; ?>" 
+            class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+                <i class="fas fa-file-excel"></i> Export Excel
+            </a>
+        <?php endif; ?>
         <span class="text-gray-600">|</span>
 
         <a href="add_records/extra_vehicle/add_extra_vehicle.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">

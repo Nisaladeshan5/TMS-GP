@@ -1,5 +1,5 @@
 <?php
-// view_vehicle.php
+// view_vehicle.php - UPDATED WITH FILTER PERSISTENCE
 require_once '../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -13,9 +13,14 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 include('../../includes/db.php');
 
 $vehicle_no = $_GET['vehicle_no'] ?? null;
+// Kalin page eke thibba filter settings tika gannawa
+$current_purpose = $_GET['purpose'] ?? 'staff';
+$current_status = $_GET['status'] ?? 'active';
+
 $vehicle_data = null;
 $error_message = '';
-$assigned_route_code = 'None'; // 🎯 නව විචල්‍යය
+$assigned_route_code = 'None';
+$assigned_route = '';
 
 if ($vehicle_no) {
     // --- 1. Fetch Vehicle Data ---
@@ -56,7 +61,7 @@ if ($vehicle_no) {
         $status_text = ($vehicle_data['is_active'] == 1) ? 'Active' : 'Inactive';
         $status_color_class = ($vehicle_data['is_active'] == 1) ? 'bg-green-600' : 'bg-red-600';
 
-        // --- 2. 🎯 Check for Assigned Route ---
+        // --- 2. Check for Assigned Route ---
         $route_sql = "SELECT route_code, route FROM route WHERE vehicle_no = ? AND is_active = 1 LIMIT 1";
         $route_stmt = $conn->prepare($route_sql);
         $route_stmt->bind_param('s', $vehicle_no);
@@ -70,7 +75,6 @@ if ($vehicle_no) {
         }
         $route_stmt->close();
     }
-
 } else {
     $error_message = "No vehicle number provided.";
 }
@@ -80,13 +84,12 @@ include('../../includes/navbar.php');
 ?>
 
 <style>
-    /* Compact View Styles from your previous request */
     .display-field-view {
-        background-color: #e5e7eb; /* Tailwind gray-200 */
-        border: 1px solid #d1d5db; /* Tailwind gray-300 */
+        background-color: #e5e7eb;
+        border: 1px solid #d1d5db;
         padding: 0.5rem 0.75rem;
-        border-radius: 0.375rem; /* Tailwind rounded-md */
-        color: #1f2937; /* Tailwind gray-900 */
+        border-radius: 0.375rem;
+        color: #1f2937;
         font-weight: 500;
         line-height: 1.5;
         min-height: 2.5rem;
@@ -95,28 +98,17 @@ include('../../includes/navbar.php');
     }
     .label-style-view {
         display: block;
-        font-size: 0.875rem; /* text-sm */
-        font-weight: 501; /* font-medium */
-        color: #4b5563; /* text-gray-700 */
+        font-size: 0.875rem;
+        font-weight: 501;
+        color: #4b5563;
         margin-bottom: 0.125rem;
     }
 </style>
-<script>
-    // 9 hours in milliseconds (32,400,000 ms)
-    const SESSION_TIMEOUT_MS = 32400000; 
-    const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; // Browser path
 
-    setTimeout(function() {
-        // Alert and redirect
-        alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-        window.location.href = LOGIN_PAGE_URL; 
-        
-    }, SESSION_TIMEOUT_MS);
-</script>
 <body class="bg-gray-100 font-sans">
 
 <div class="w-[85%] ml-[15%]">
-    <div class="w-2xl p-8 bg-white shadow-lg rounded-lg mt-10 mx-auto max-w-4xl">
+    <div class="w-full p-8 bg-white shadow-lg rounded-lg mt-10 mx-auto max-w-4xl">
         
         <?php if ($error_message): ?>
             <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
@@ -124,11 +116,11 @@ include('../../includes/navbar.php');
                 <span class="block sm:inline"><?php echo $error_message; ?></span>
             </div>
             <div class="mt-4">
-                <a href="vehicle.php" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition duration-300">Go Back</a>
+                <a href="vehicle.php?purpose=<?= urlencode($current_purpose) ?>&status=<?= urlencode($current_status) ?>" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition duration-300">Go Back</a>
             </div>
         <?php else: ?>
 
-            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-3  pb-1 flex justify-between items-center">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 mb-3 pb-1 flex justify-between items-center">
                 Vehicle Details: <?= htmlspecialchars($vehicle_data['vehicle_no']) ?>
                 <span class="text-sm font-semibold py-1 px-3 rounded-full <?= $status_color_class ?> text-white"><?= $status_text ?></span>
             </h1>
@@ -180,7 +172,7 @@ include('../../includes/navbar.php');
                             <div>
                                 <label class="label-style-view">Assigned Route:</label>
                                 <div class="display-field-view font-bold text-indigo-700">
-                                    <?= $assigned_route_code ?> (<?= $assigned_route ?>)
+                                    <?= $assigned_route_code ?> <?= $assigned_route ? "($assigned_route)" : "" ?>
                                 </div>
                             </div>
                         </div>
@@ -191,24 +183,22 @@ include('../../includes/navbar.php');
                 <div class="border pt-2 mt-2 bg-gray-50 p-4 rounded-lg">
                     <h2 class="text-xl font-bold text-gray-800 mb-3 border-b pb-1">Document Expiry Dates</h2>
                     <div class="grid md:grid-cols-2 gap-3">
-                        
                         <div>
                             <label class="label-style-view">License Expiry Date:</label>
                             <div class="display-field-view"><?= htmlspecialchars($vehicle_data['license_expiry_date'] ?? 'N/A') ?></div>
                         </div>
-                        
                         <div>
                             <label class="label-style-view">Insurance Expiry Date:</label>
                             <div class="display-field-view"><?= htmlspecialchars($vehicle_data['insurance_expiry_date'] ?? 'N/A') ?></div>
                         </div>
-                        
                     </div>
                 </div>
 
             </div>
             
             <div class="flex justify-end mt-4 pt-2 border-t border-gray-200 space-x-4">
-                <a href="vehicle.php" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
+                <a href="vehicle.php?purpose=<?= urlencode($current_purpose) ?>&status=<?= urlencode($current_status) ?>" 
+                   class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300 transform hover:scale-105">
                     Close
                 </a>
             </div>

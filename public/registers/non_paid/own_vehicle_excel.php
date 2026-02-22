@@ -11,6 +11,31 @@ list($filterYear, $filterMonth) = explode('-', $filterDate);
 $daysInMonth = cal_days_in_month(CAL_GREGORIAN, (int)$filterMonth, (int)$filterYear);
 $monthName = date('F Y', strtotime($filterDate));
 
+// --- AUTOMATED HOLIDAY FETCHING ---
+// ශ්‍රී ලංකාවේ පොදු නිවාඩු දින API එක හරහා ලබා ගැනීම
+$holidaysArray = [];
+$apiUrl = "https://date.nager.at/api/v3/PublicHolidays/" . $filterYear . "/LK";
+
+// API එකට request එක යැවීම (Context එකක් සහිතව - සමහර servers වලට headers අවශ්‍ය වේ)
+$opts = [
+    "http" => [
+        "method" => "GET",
+        "header" => "User-Agent: PHP-Script\r\n"
+    ]
+];
+$context = stream_context_create($opts);
+$response = @file_get_contents($apiUrl, false, $context);
+
+if ($response) {
+    $holidaysData = json_decode($response, true);
+    foreach ($holidaysData as $holiday) {
+        // අදාළ මාසයට පමණක් දත්ත වෙන් කර ගැනීම
+        if (date('m', strtotime($holiday['date'])) == $filterMonth) {
+            $holidaysArray[] = $holiday['date'];
+        }
+    }
+}
+
 // 2. Set Excel Headers
 $filename = "Own_Vehicle_Detailed_" . $monthName . ".xls";
 header("Content-Type: application/vnd.ms-excel");
@@ -20,10 +45,6 @@ header("Expires: 0");
 
 // 3. Fetch Data from Database
 $attendance = [];
-
-// --- SQL MODIFICATION ---
-// We added a subquery to fetch the SUM of distance from own_vehicle_extra
-// matching EmpID, VehicleNo, Month, and Year.
 
 $sql = "SELECT 
             ov.emp_id, 
@@ -48,25 +69,18 @@ $sql = "SELECT
             AND YEAR(ova.date) = ? 
             AND MONTH(ova.date) = ?
         WHERE 
-            ov.vehicle_no IS NOT NULL AND ov.vehicle_no != ''
+            ov.vehicle_no IS NOT NULL AND ov.vehicle_no != '' AND ov.is_active = 1
         ORDER BY 
             ov.emp_id ASC, ov.vehicle_no ASC";
 
 $stmt = $conn->prepare($sql);
-
-// We need 4 integer parameters now:
-// 1 & 2 for the Subquery (Year, Month)
-// 3 & 4 for the Main Join (Year, Month)
 $stmt->bind_param('iiii', $filterYear, $filterMonth, $filterYear, $filterMonth);
-
 $stmt->execute();
 $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
     $empId = $row['emp_id'];
     $vehicleNo = trim($row['vehicle_no']);
-    
-    // Unique Key: EmpID + Vehicle No
     $uniqueKey = $empId . '_' . $vehicleNo;
     
     if (!isset($attendance[$uniqueKey])) {
@@ -74,12 +88,11 @@ while ($row = $result->fetch_assoc()) {
             'emp_id' => $empId,
             'calling_name' => $row['calling_name'] ?? 'Unknown',
             'vehicle_no' => $vehicleNo,
-            'total_distance' => $row['total_distance'] ?? 0, // Capture the distance sum
+            'total_distance' => $row['total_distance'] ?? 0,
             'days' => []
         ];
     }
     
-    // Mark Attendance Days
     if (!empty($row['attendance_date'])) {
         $day = (int)date('j', strtotime($row['attendance_date']));
         $attendance[$uniqueKey]['days'][$day] = true;
@@ -95,8 +108,8 @@ while ($row = $result->fetch_assoc()) {
         th { background-color: #4F81BD; color: white; border: 1px solid #000; padding: 5px; text-align: center; }
         td { border: 1px solid #000; padding: 5px; text-align: center; vertical-align: middle; }
         
-        /* Styles */
         .weekend { background-color: #FF99CC; } 
+        .holiday { background-color: #FFC000; font-weight: bold; } /* Mercantile Holiday Color */
         .present { background-color: #C6EFCE; color: #006100; font-weight: bold; }
         .header-info { font-size: 16px; font-weight: bold; text-align: left; }
         .vehicle-col { background-color: #f2f2f2; }
@@ -122,16 +135,23 @@ while ($row = $result->fetch_assoc()) {
             
             <?php
             for ($d = 1; $d <= $daysInMonth; $d++) {
-                $dateStr = "$filterYear-$filterMonth-$d";
+                $dateStr = sprintf("%s-%s-%02d", $filterYear, $filterMonth, $d);
                 $dayOfWeek = date('N', strtotime($dateStr)); 
                 $isWeekend = ($dayOfWeek >= 6);
+                $isHoliday = in_array($dateStr, $holidaysArray);
                 
-                $headerColor = $isWeekend ? 'background-color: #C0504D;' : ''; 
+                $headerColor = '';
+                if ($isHoliday) {
+                    $headerColor = 'background-color: #E46C0A;'; // Holiday header color
+                } elseif ($isWeekend) {
+                    $headerColor = 'background-color: #C0504D;'; 
+                }
+                
                 echo "<th style='width: 30px; $headerColor'>$d</th>";
             }
             ?>
             <th style="width: 60px; background-color: #F79646;">Total Days</th>
-            <th style="width: 80px; background-color: #92D050;">Total Distance</th>
+            <th style="width: 80px; background-color: #92D050;">Extra Distance</th>
         </tr>
 
         <?php
@@ -139,7 +159,6 @@ while ($row = $result->fetch_assoc()) {
             echo "<tr><td colspan='" . ($daysInMonth + 5) . "'>No vehicles registered in the system.</td></tr>";
         } else {
             foreach ($attendance as $uniqueKey => $data) {
-                // Total Days count for this specific vehicle
                 $totalDays = count($data['days']);
                 ?>
                 <tr>
@@ -149,23 +168,26 @@ while ($row = $result->fetch_assoc()) {
 
                     <?php
                     for ($d = 1; $d <= $daysInMonth; $d++) {
-                        $dateStr = "$filterYear-$filterMonth-$d";
+                        $dateStr = sprintf("%s-%s-%02d", $filterYear, $filterMonth, $d);
                         $dayOfWeek = date('N', strtotime($dateStr)); 
                         $isWeekend = ($dayOfWeek >= 6);
-                        
+                        $isHoliday = in_array($dateStr, $holidaysArray);
                         $isPresent = isset($data['days'][$d]);
                         
-                        $style = "";
+                        $class = "";
                         $content = "";
 
                         if ($isPresent) {
-                            $style = "class='present'";
+                            $class = "class='present'";
                             $content = "P"; 
+                        } elseif ($isHoliday) {
+                            $class = "class='holiday'"; 
+                            $content = "H"; 
                         } elseif ($isWeekend) {
-                            $style = "class='weekend'"; 
+                            $class = "class='weekend'"; 
                         }
 
-                        echo "<td $style>$content</td>";
+                        echo "<td $class>$content</td>";
                     }
                     ?>
                     

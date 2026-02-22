@@ -20,27 +20,26 @@ if (isset($_GET['date'])) {
     $filterDate = $_GET['date'];
 }
 
-// ---------------------------------------------------------
-// 1. FETCH DATA (Logic: Night 6PM to Next Day 8AM = Same Day)
-// ---------------------------------------------------------
-// මෙහිදී අප භාවිතා කරන්නේ TIMESTAMP(nh.date, nh.time) එකෙන් පැය 8ක් අඩු කිරීමේ උපක්‍රමයයි.
-// එවිට පසුදා උදේ 8 ට පෙර දත්ත, පෙර දිනටම ගොනු වී අංකනය වේ.
+// FETCH DATA
+$startRange = $filterDate . ' 12:00:00';
+$endRange = date('Y-m-d', strtotime($filterDate . ' +1 day')) . ' 11:59:59';
+
 $sql = "
     SELECT nh.*, 
            emp.calling_name as done_by_name,
            ROW_NUMBER() OVER (
-               PARTITION BY DATE_FORMAT(DATE_SUB(CAST(CONCAT(nh.date, ' ', nh.time) AS DATETIME), INTERVAL 8 HOUR), '%Y-%m') 
+               PARTITION BY DATE(DATE_SUB(CAST(CONCAT(nh.date, ' ', nh.time) AS DATETIME), INTERVAL 12 HOUR)) 
                ORDER BY nh.date ASC, nh.time ASC
-           ) as monthly_id
+           ) as daily_id
     FROM nh_register nh
     LEFT JOIN admin a ON nh.user_id = a.user_id
     LEFT JOIN employee emp ON a.emp_id = emp.emp_id
-    WHERE nh.date = ? 
-    ORDER BY nh.time DESC
+    WHERE CAST(CONCAT(nh.date, ' ', nh.time) AS DATETIME) BETWEEN ? AND ?
+    ORDER BY nh.date DESC, nh.time DESC
 ";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param('s', $filterDate);
+$stmt->bind_param('ss', $startRange, $endRange);
 $stmt->execute();
 $result = $stmt->get_result();
 $heldup_records = $result->fetch_all(MYSQLI_ASSOC);
@@ -86,8 +85,15 @@ include('../../../includes/navbar.php');
                 <i class="fas fa-chevron-right"></i>
             </a>
         </div>
+        <?php if ($is_logged_in): ?>
+            <a href="nh_export_excel.php?month=<?php echo $filterDate; ?>" 
+            class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs">
+                <i class="fas fa-file-excel mr-1"></i> Export Excel
+            </a>
+        <?php endif; ?>
         <span class="text-gray-600">|</span>
-        <a href="nh_add<?php echo $can_act ? '.php' : '_trip.php'; ?>" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs">
+        <a href="<?php echo $is_logged_in ? 'nh_add.php' : 'nh_add_trip.php'; ?>" 
+        class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs">
             Add Trip
         </a>
     </div>
@@ -98,22 +104,22 @@ include('../../../includes/navbar.php');
         <table class="w-full table-auto">
             <thead class="bg-blue-600 text-white text-sm">
                 <tr>
-                    <th class="px-4 py-3 text-left">Monthly ID</th>
-                    <th class="px-4 py-3 text-left">Time</th>
+                    <th class="px-4 py-3 text-left">Daily ID</th>
+                    <th class="px-4 py-3 text-left">Schedule</th> <th class="px-4 py-3 text-left">Time</th>
                     <th class="px-4 py-3 text-left">Vehicle No</th>
                     <th class="px-4 py-3 text-left">Op Code</th>
                     <th class="px-4 py-3 text-center">Qty</th>
+                <?php if ($is_logged_in): ?>
                     <th class="px-4 py-3 text-center">Distance</th>
                     <th class="px-4 py-3 text-left">Done By</th>
-                    <?php if ($is_logged_in): ?>
-                        <th class="px-4 py-3 text-center">Action</th>
-                    <?php endif; ?>
+                    <th class="px-4 py-3 text-center">Action</th>
+                <?php endif; ?>
                 </tr>
             </thead>
             <tbody class="text-gray-700 divide-y divide-gray-200 text-sm">
                 <?php if (empty($heldup_records)): ?>
                     <tr>
-                        <td colspan="8" class="px-6 py-4 text-center text-gray-500">No records found for <?php echo htmlspecialchars($filterDate); ?>.</td>
+                        <td colspan="9" class="px-6 py-4 text-center text-gray-500">No records found for <?php echo htmlspecialchars($filterDate); ?>.</td>
                     </tr>
                 <?php else: ?>
                     <?php foreach ($heldup_records as $row): 
@@ -123,7 +129,10 @@ include('../../../includes/navbar.php');
                     ?>
                         <tr class="<?php echo $row_class; ?> border-b border-gray-100 transition duration-150">
                             <td class="px-4 py-3 font-mono text-blue-600 font-bold">
-                                #<?php echo $row['monthly_id']; ?>
+                                #<?php echo $row['daily_id']; ?>
+                            </td>
+                            <td class="px-4 py-3 font-semibold text-indigo-600 uppercase">
+                                <?php echo htmlspecialchars($row['schedule_time'] ?: '-'); ?>
                             </td>
                             <td class="px-4 py-3"><?php echo date('H:i', strtotime($row['time'])); ?></td>
                             <td class="px-4 py-3 font-bold uppercase"><?php echo htmlspecialchars($row['vehicle_no']); ?></td>
@@ -131,14 +140,16 @@ include('../../../includes/navbar.php');
                                 <?php if ($is_completed): ?>
                                     <span class="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-bold"><?php echo htmlspecialchars($row['op_code']); ?></span>
                                 <?php else: ?>
-                                    <span class="text-gray-400 text-xs italic">Pending</span>
+                                    <span class="text-red-500 text-xs italic font-bold animate-pulse">
+                                        <i class="fas fa-circle text-[8px] mr-1"></i> Pending
+                                    </span>
                                 <?php endif; ?>
                             </td>
                             <td class="px-4 py-3 text-center"><?php echo $row['quantity']; ?></td>
-                            <td class="px-4 py-3 text-center font-mono"><?php echo ($row['distance'] > 0) ? number_format($row['distance'], 2) . ' km' : '-'; ?></td>
-                            <td class="px-4 py-3 text-xs"><?php echo htmlspecialchars($row['done_by_name'] ?: '-'); ?></td>
-
                             <?php if ($is_logged_in): ?>
+                                <td class="px-4 py-3 text-center font-mono"><?php echo ($row['distance'] > 0) ? number_format($row['distance'], 2) . ' km' : '-'; ?></td>
+                                <td class="px-4 py-3 text-xs"><?php echo htmlspecialchars($row['done_by_name'] ?: '-'); ?></td>
+                                
                                 <td class="px-4 py-3 text-center">
                                     <?php if (!$is_completed): ?>
                                         <a href="nh_complete_trip.php?id=<?php echo $row['id']; ?>" class="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1.5 rounded shadow inline-flex items-center">

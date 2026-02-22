@@ -23,28 +23,27 @@ $dateObj = DateTime::createFromFormat('!m', $month);
 $monthName = $dateObj->format('F');
 $reportTitle = "Own Vehicle (Fuel Allowance) Payments History - " . $monthName . " " . $year;
 
-// Fetch Data
+// --- UPDATED SQL FETCH ---
+// JOIN එකේදී emp_id සහ vehicle_no යන දෙකම පරීක්ෂා කරයි
 $sql = "
     SELECT 
         ovp.emp_id, 
+        ovp.vehicle_no,
         ovp.no_of_attendance, 
         ovp.distance AS total_distance, 
         ovp.monthly_payment,
         ovp.fixed_amount,
-        e.calling_name,
-        ov.vehicle_no
+        e.calling_name
     FROM 
         own_vehicle_payments ovp
     JOIN 
         employee e ON ovp.emp_id = e.emp_id
-    LEFT JOIN
-        own_vehicle ov ON ovp.emp_id = ov.emp_id
     WHERE 
         ovp.month = ? 
     AND 
         ovp.year = ? 
     ORDER BY 
-        e.calling_name ASC
+        e.calling_name ASC, ovp.vehicle_no ASC
 ";
 
 $stmt = $conn->prepare($sql);
@@ -84,20 +83,20 @@ if ($result && $result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
         echo '<tr>';
         
-        // Employee + Vehicle
+        // Employee + Vehicle (දැන් ovp.vehicle_no එක කෙලින්ම භාවිතා කරයි)
         $empDisplay = htmlspecialchars($row['calling_name']) . ' (' . htmlspecialchars($row['vehicle_no']) . ')';
         echo '<td style="vertical-align: middle;">' . $empDisplay . '</td>';
         
-        // Attendance Days (Right Align)
+        // Attendance Days
         echo '<td style="text-align:right; vertical-align: middle;">' . number_format($row['no_of_attendance']) . '</td>';
         
-        // Distance (Right Align)
+        // Distance
         echo '<td style="text-align:right; vertical-align: middle;">' . number_format($row['total_distance'], 2) . '</td>';
 
-        // Fixed Amount (Right Align)
+        // Fixed Amount
         echo '<td style="text-align:right; vertical-align: middle;">' . number_format($row['fixed_amount'], 2) . '</td>';
         
-        // Payment (Right Align + Bold)
+        // Payment
         echo '<td style="text-align:right; font-weight:bold; vertical-align: middle;">' . number_format($row['monthly_payment'], 2) . '</td>';
         
         echo '</tr>';

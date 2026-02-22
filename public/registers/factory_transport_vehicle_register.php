@@ -276,6 +276,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
         <table class="min-w-full table-auto">
             <thead class="bg-blue-600 text-white">
                 <tr>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-2 py-2 text-center w-12 shadow-md">No</th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-2 py-2 text-center w-12 shadow-md">St</th>
                     
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-2 text-left shadow-md">Date</th>
@@ -300,9 +301,10 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
             <tbody>
                 <?php
                 if (empty($grouped)) {
-                    $colspan = ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])) ? 9 : 8;
+                    $colspan = ($is_logged_in && isset($user_role) && in_array($user_role, ['super admin', 'admin', 'developer'])) ? 10 : 9;
                     echo "<tr><td colspan='{$colspan}' class='border px-4 py-2 text-center text-gray-500'>No factory transport vehicle record available for today.</td></tr>";
                 } else {
+                    $row_no = 1; // Initialize row number
                     foreach ($grouped as $entry) {
                         
                         // Prepare time strings
@@ -383,6 +385,8 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                             $assigned_vehicle_display = $entry['morning_vehicle'] ?? $entry['evening_vehicle']; 
 
                             echo "<tr class='{$combined_row_class}'>
+                            
+                                <td class='border px-2 py-2 text-center'>{$row_no}</td>
                                 <td class='border px-2 py-2 text-center'>{$status_badge}</td>
                                 <td class='border px-4 py-2'>{$entry['date']}</td>
                                 <td class='border px-4 py-2'>{$entry['route_name']}</td>
@@ -397,6 +401,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                 <td class='border px-4 py-2 {$e_text_style}'>{$evening_time}</td>
                                 {$action_btn}
                             </tr>";
+                            $row_no++;
                             
                         } else {
                             // Split Rows
@@ -417,6 +422,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                 }
 
                                 echo "<tr class='{$morning_row_class}'>
+                                    <td class='border px-2 py-2 text-center'>{$row_no}</td>
                                     <td class='border px-2 py-2 text-center'>{$status_badge}</td>
                                     <td class='border px-4 py-2'>{$entry['date']}</td>
                                     <td class='border px-4 py-2'>{$entry['route_name']}</td>
@@ -427,6 +433,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                     <td class='border px-4 py-2'>-</td> 
                                     {$m_btn_only}
                                 </tr>";
+                                $row_no++;
                             } 
 
                             if ($has_evening) {
@@ -446,6 +453,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                 }
 
                                 echo "<tr class='{$evening_row_class}'>
+                                    <td class='border px-2 py-2 text-center'>{$row_no}</td>
                                     <td class='border px-2 py-2 text-center'>{$status_badge}</td>
                                     <td class='border px-4 py-2'>{$entry['date']}</td>
                                     <td class='border px-4 py-2'>{$entry['route_name']}</td>
@@ -455,7 +463,7 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
                                     <td class='border px-4 py-2'>-</td> 
                                     <td class='border px-4 py-2 {$e_text_style}'>{$evening_time}</td>
                                     {$e_btn_only}
-                                </tr>";
+                                </tr>";$row_no++;
                             }
                         } 
                     } 

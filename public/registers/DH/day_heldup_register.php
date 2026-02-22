@@ -146,11 +146,17 @@ include('../../../includes/navbar.php');
                     <th class="px-4 py-3">Op Code</th>
                     <th class="px-4 py-3">Out Time</th>
                     <th class="px-4 py-3">In Time</th>
-                    <th class="px-4 py-3 text-right">Distance (km)</th>
+                     <?php if ($is_logged_in): ?>
+                        <th class="px-4 py-3 text-right">Distance (km)</th>
+                    <?php endif; ?>
                     <th class="px-4 py-3 text-center">Emps</th>
-                    <th class="px-4 py-3">Done By</th>
+                     <?php if ($is_logged_in): ?>
+                        <th class="px-4 py-3">Done By</th>
+                    <?php endif; ?>
                     <th class="px-4 py-3 text-center">Details</th>
+                     <?php if ($is_logged_in): ?>
                     <th class="px-4 py-3 text-center">Action</th>
+                    <?php endif; ?>
                 </tr>
             </thead>
             <tbody>
@@ -174,12 +180,17 @@ include('../../../includes/navbar.php');
                             <td class="px-4 py-3"><?php echo $entry['op_code']; ?></td>
                             <td class="px-4 py-3"><?php echo htmlspecialchars($entry['out_time'] ?? '---'); ?></td>
                             <td class="px-4 py-3"><?php echo htmlspecialchars($entry['in_time'] ?? '---'); ?></td>
+                             <?php if ($is_logged_in): ?>
                             <td class="px-4 py-3 text-right font-mono"><?php echo number_format($entry['distance'] ?? 0, 2); ?></td>
+                            <?php endif; ?>
                             <td class="px-4 py-3 text-center"><span class="bg-gray-200 text-gray-700 py-0.5 px-2 rounded-full text-xs font-bold"><?php echo $entry['employee_count']; ?></span></td>
+                            <?php if ($is_logged_in): ?>
                             <td class="px-4 py-3 text-xs"><?php echo htmlspecialchars($entry['done_by_user_display'] ?? '---'); ?></td>
+                            <?php endif; ?>
                             <td class="px-4 py-3 text-center">
                                 <button data-trip-id="<?php echo $trip_id; ?>" class="view-reasons-btn bg-indigo-100 hover:bg-indigo-200 text-indigo-700 p-1.5 rounded-full"><i class="fas fa-eye"></i></button>
                             </td>
+                            <?php if ($is_logged_in): ?>   
                             <td class="px-4 py-3 text-center flex justify-center gap-1">
                                 <?php if ($is_locked): ?>
                                     <span class="text-red-500 font-bold text-[10px] uppercase italic border border-red-200 px-1 rounded bg-red-50"><i class="fas fa-lock mr-1"></i>Locked</span>
@@ -214,6 +225,7 @@ include('../../../includes/navbar.php');
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </td>
+                            <?php endif; ?>
                         </tr>
                     <?php endforeach; ?>
                 <?php endif; ?>

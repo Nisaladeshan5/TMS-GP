@@ -4,23 +4,19 @@
 require_once '../../includes/session_check.php';
 include('../../includes/db.php');
 
-// 1. Inputs ලබා ගැනීම
 $month = isset($_GET['month']) ? str_pad($_GET['month'], 2, '0', STR_PAD_LEFT) : date('m');
 $year = isset($_GET['year']) ? (int)$_GET['year'] : date('Y');
 
-// 2. Excel Headers සැකසීම
 $monthName = date('F', mktime(0, 0, 0, $month, 1));
-$filename = "Extra_Vehicle_Cost_Allocation_{$year}_{$month}.xls";
-$reportTitle = "Extra Vehicle Cost Allocation Report - " . $monthName . " " . $year;
+$filename = "Supplier_GL_Dept_Allocation_{$year}_{$month}.xls";
+$reportTitle = "EV Cost Allocation - " . $monthName . " " . $year;
 
 header("Content-Type: application/vnd.ms-excel");
 header("Content-Disposition: attachment; filename=\"$filename\"");
 header("Pragma: no-cache");
 header("Expires: 0");
 
-// --- CORE FUNCTIONS (EV Specific) ---
-
-// Fuel Rate ලබා ගැනීමේ Function එක
+// --- FUNCTIONS ---
 function get_rate_for_date($rate_id, $trip_date, $history) {
     if (!isset($history[$rate_id])) return 0;
     foreach ($history[$rate_id] as $record) {
@@ -29,23 +25,21 @@ function get_rate_for_date($rate_id, $trip_date, $history) {
     return end($history[$rate_id])['rate'] ?? 0;
 }
 
-// EV වියදම ගණනය කර Matrix එකක් ලබා ගැනීම
 function get_ev_cost_matrix($conn, $month, $year) {
-    // A. Fuel History ලබා ගැනීම
+    // A. Fuel History
     $fuel_history = [];
     $fuel_res = $conn->query("SELECT rate_id, rate, date FROM fuel_rate ORDER BY date DESC");
     while ($f_row = $fuel_res->fetch_assoc()) {
         $fuel_history[$f_row['rate_id']][] = ['date' => $f_row['date'], 'rate' => (float)$f_row['rate']];
     }
 
-    // B. Op Services Rates ලබා ගැනීම
+    // B. Op Services & Route Specs
     $op_rates = [];
     $op_res = $conn->query("SELECT op_code, extra_rate_ac, extra_rate FROM op_services");
     while ($o_row = $op_res->fetch_assoc()) {
         $op_rates[$o_row['op_code']] = ['ac' => (float)$o_row['extra_rate_ac'], 'non_ac' => (float)$o_row['extra_rate']];
     }
 
-    // C. Route & Vehicle Specs ලබා ගැනීම
     $route_data = [];
     $rt_res = $conn->query("SELECT route_code, fixed_amount, vehicle_no, with_fuel FROM route");
     while ($r_row = $rt_res->fetch_assoc()) {
@@ -60,9 +54,9 @@ function get_ev_cost_matrix($conn, $month, $year) {
 
     $matrix = [];
 
-    // Main SQL Query
+    // C. Main Query (Supplier Code added)
     $sql = "SELECT 
-                evr.id as trip_id, evr.date, evr.distance, evr.op_code, evr.route, evr.ac_status,
+                evr.id as trip_id, evr.date, evr.distance, evr.op_code, evr.route, evr.ac_status, evr.supplier_code,
                 gl.gl_code, gl.gl_name, 
                 e.department, e.direct,
                 COUNT(eter.id) AS emp_count_group,
@@ -73,7 +67,7 @@ function get_ev_cost_matrix($conn, $month, $year) {
             JOIN gl gl ON r.gl_code = gl.gl_code
             LEFT JOIN employee e ON eter.emp_id = e.emp_id 
             WHERE MONTH(evr.date) = ? AND YEAR(evr.date) = ? AND evr.done = 1
-            GROUP BY evr.id, gl.gl_code, e.department, e.direct";
+            GROUP BY evr.id, evr.supplier_code, gl.gl_code, e.department, e.direct";
 
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ss", $month, $year);
@@ -84,7 +78,6 @@ function get_ev_cost_matrix($conn, $month, $year) {
         $trip_cost = 0;
         $dist = (float)$row['distance'];
         
-        // 1. Trip එකේ මුළු මුදල ගණනය කිරීම
         if (!empty($row['op_code'])) {
             $op = $row['op_code'];
             if (isset($op_rates[$op])) {
@@ -107,82 +100,73 @@ function get_ev_cost_matrix($conn, $month, $year) {
 
         $total_heads = (int)$row['total_trip_employees'];
         if ($total_heads > 0) {
-            // එක් සේවකයෙකුට පිරිවැය බෙදා හැරීම
             $cost_per_head = $trip_cost / $total_heads;
             $group_cost = $cost_per_head * $row['emp_count_group'];
 
-            $gl_code = $row['gl_code'];
-            $gl_name = $row['gl_name'];
-            $dept = !empty($row['department']) ? $row['department'] : 'Unassigned';
-            
-            $is_direct = isset($row['direct']) && strtoupper(trim($row['direct'])) === 'YES';
-            $type = $is_direct ? 'Direct' : 'Indirect';
+            $sup_code = !empty($row['supplier_code']) ? $row['supplier_code'] : 'NO_SUPPLIER';
+            $gl_code  = $row['gl_code'];
+            $gl_name  = $row['gl_name'];
+            $dept     = !empty($row['department']) ? $row['department'] : 'Unassigned';
+            $type     = (isset($row['direct']) && strtoupper(trim($row['direct'])) === 'YES') ? 'Direct' : 'Indirect';
 
-            if (!isset($matrix[$gl_code])) {
-                $matrix[$gl_code] = ['name' => $gl_name, 'depts' => []];
+            // Hierarchical Matrix Structure
+            if (!isset($matrix[$sup_code])) {
+                $matrix[$sup_code] = [];
             }
-            if (!isset($matrix[$gl_code]['depts'][$dept])) {
-                $matrix[$gl_code]['depts'][$dept] = ['Direct' => 0, 'Indirect' => 0];
+            if (!isset($matrix[$sup_code][$gl_code])) {
+                $matrix[$sup_code][$gl_code] = ['name' => $gl_name, 'depts' => []];
             }
-            $matrix[$gl_code]['depts'][$dept][$type] += $group_cost;
+            if (!isset($matrix[$sup_code][$gl_code]['depts'][$dept])) {
+                $matrix[$sup_code][$gl_code]['depts'][$dept] = ['Direct' => 0, 'Indirect' => 0];
+            }
+            $matrix[$sup_code][$gl_code]['depts'][$dept][$type] += $group_cost;
         }
     }
     return $matrix;
 }
 
-// 3. Process Data
 $final_data = get_ev_cost_matrix($conn, $month, $year);
 
-// --- OUTPUT TABLE DATA (EXCEL STYLE) ---
+// --- OUTPUT ---
 echo '<table border="1">';
+echo '<tr><td colspan="7" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">' . $reportTitle . '</td></tr>';
 
-// Title Header
-echo '<tr><td colspan="6" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">' . $reportTitle . '</td></tr>';
-
-// Column Headers
 echo '<tr style="color:white; font-weight:bold; text-align:center;">';
+echo '<th style="background-color:#4F81BD;">Supplier Code</th>';
 echo '<th style="background-color:#4F81BD;">GL Code</th>';
 echo '<th style="background-color:#4F81BD;">GL Name</th>';
 echo '<th style="background-color:#4F81BD;">Department</th>';
-echo '<th style="background-color:#4F81BD;">Direct Cost (LKR)</th>';
-echo '<th style="background-color:#4F81BD;">Indirect Cost (LKR)</th>';
-echo '<th style="background-color:#4F81BD;">Total Cost (LKR)</th>';
+echo '<th style="background-color:#4F81BD;">Direct (LKR)</th>';
+echo '<th style="background-color:#4F81BD;">Indirect (LKR)</th>';
+echo '<th style="background-color:#4F81BD;">Total (LKR)</th>';
 echo '</tr>';
 
-$grand_total = 0; $grand_direct = 0; $grand_indirect = 0;
-
+$grand_total = 0;
 if (!empty($final_data)) {
-    foreach ($final_data as $gl_code => $data) {
-        foreach ($data['depts'] as $dept => $costs) {
-            $direct = $costs['Direct'];
-            $indirect = $costs['Indirect'];
-            $row_total = $direct + $indirect;
-            
-            $grand_total += $row_total;
-            $grand_direct += $direct;
-            $grand_indirect += $indirect;
-            
-            echo '<tr>';
-            echo '<td style="mso-number-format:\'@\';">' . htmlspecialchars($gl_code) . '</td>';
-            echo '<td>' . htmlspecialchars($data['name']) . '</td>';
-            echo '<td>' . htmlspecialchars($dept) . '</td>';
-            echo '<td style="text-align:right;">' . ($direct > 0 ? number_format($direct, 2, '.', '') : '0.00') . '</td>';
-            echo '<td style="text-align:right;">' . ($indirect > 0 ? number_format($indirect, 2, '.', '') : '0.00') . '</td>';
-            echo '<td style="text-align:right; font-weight:bold;">' . number_format($row_total, 2, '.', '') . '</td>';
-            echo '</tr>';
+    foreach ($final_data as $sup_code => $gl_list) {
+        foreach ($gl_list as $gl_code => $gl_data) {
+            foreach ($gl_data['depts'] as $dept => $costs) {
+                $row_total = $costs['Direct'] + $costs['Indirect'];
+                $grand_total += $row_total;
+                
+                echo '<tr>';
+                echo '<td style="mso-number-format:\'@\';">' . htmlspecialchars($sup_code) . '</td>';
+                echo '<td style="mso-number-format:\'@\';">' . htmlspecialchars($gl_code) . '</td>';
+                echo '<td>' . htmlspecialchars($gl_data['name']) . '</td>';
+                echo '<td>' . htmlspecialchars($dept) . '</td>';
+                echo '<td style="text-align:right;">' . number_format($costs['Direct'], 2, '.', '') . '</td>';
+                echo '<td style="text-align:right;">' . number_format($costs['Indirect'], 2, '.', '') . '</td>';
+                echo '<td style="text-align:right; font-weight:bold;">' . number_format($row_total, 2, '.', '') . '</td>';
+                echo '</tr>';
+            }
         }
     }
-
-    // Grand Total Row
-    echo '<tr>';
-    echo '<td colspan="3" style="text-align:right; font-weight:bold;">GRAND TOTAL</td>';
-    echo '<td style="text-align:right; font-weight:bold; background-color:#FFFF00;">' . number_format($grand_direct, 2, '.', '') . '</td>';
-    echo '<td style="text-align:right; font-weight:bold; background-color:#FFFF00;">' . number_format($grand_indirect, 2, '.', '') . '</td>';
-    echo '<td style="text-align:right; font-weight:bold; background-color:#FFFF00;">' . number_format($grand_total, 2, '.', '') . '</td>';
+    echo '<tr style="font-weight:bold;">';
+    echo '<td colspan="6" style="background-color:#FFFF00; text-align:right;">GRAND TOTAL</td>';
+    echo '<td style="background-color:#FFFF00; text-align:right;">' . number_format($grand_total, 2, '.', '') . '</td>';
     echo '</tr>';
 } else {
-    echo '<tr><td colspan="6" style="text-align:center;">No records found for this period.</td></tr>';
+    echo '<tr><td colspan="7" style="text-align:center;">No records found.</td></tr>';
 }
-
 echo '</table>';
 ?>

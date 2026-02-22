@@ -1,5 +1,5 @@
 <?php
-// own_vehicle_payments_done.php (Finalize Own Vehicle Payments - BUTTON LOADING MECHANISM)
+// own_vehicle_payments_done.php (Finalize Own Vehicle Payments - Updated Calculation Logic)
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
@@ -37,9 +37,10 @@ function get_applicable_fuel_price($conn, $rate_id, $datetime) {
 function calculate_own_vehicle_payment($conn, $emp_id, $vehicle_no, $consumption, $daily_distance, $fixed_amount_orig, $rate_id, $month, $year, $is_paid) { 
     $consumption = (float)$consumption;
     $daily_distance = (float)$daily_distance;
-    $fixed_amount = ($is_paid === 1) ? (float)$fixed_amount_orig : 0.00;
     
-    $total_monthly_payment = $fixed_amount; 
+    // වැදගත්: ගෙවීම් සක්‍රීය (is_paid == 1) නම් පමණක් Fixed Amount එක මුලින් එකතු කරයි
+    $total_monthly_payment = ($is_paid === 1) ? (float)$fixed_amount_orig : 0.00; 
+    
     $total_attendance_days = 0;
     $total_calculated_distance = 0.00;
     
@@ -59,30 +60,36 @@ function calculate_own_vehicle_payment($conn, $emp_id, $vehicle_no, $consumption
     $extra_records = $extra_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $extra_stmt->close();
     
+    // Attendance Processing
     foreach ($attendance_records as $record) {
-        $datetime = $record['date'] . ' ' . $record['time']; 
-        $fuel_price = get_applicable_fuel_price($conn, $rate_id, $datetime);
-        if ($fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
-             if ($is_paid === 1) {
+        $total_attendance_days++;
+        $total_calculated_distance += $daily_distance;
+
+        // ගෙවීම් සක්‍රීය නම් පමණක් මුදල ගණනය කර එකතු කරයි
+        if ($is_paid === 1) {
+            $datetime = $record['date'] . ' ' . $record['time']; 
+            $fuel_price = get_applicable_fuel_price($conn, $rate_id, $datetime);
+            if ($fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
                 $day_rate = ($consumption / 100) * $daily_distance * $fuel_price;
                 $total_monthly_payment += $day_rate;
-             }
-             $total_calculated_distance += $daily_distance;
-             $total_attendance_days++;
+            }
         }
     }
     
+    // Extra Trip Processing
     foreach ($extra_records as $record) {
-        $datetime = $record['date'] . ' ' . $record['out_time'];
         $extra_dist = (float)$record['distance'];
-        $fuel_price = get_applicable_fuel_price($conn, $rate_id, $datetime);
-        if ($fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
-            if ($is_paid === 1) {
+        $total_calculated_distance += $extra_dist;
+
+        // ගෙවීම් සක්‍රීය නම් පමණක් මුදල ගණනය කර එකතු කරයි
+        if ($is_paid === 1) {
+            $datetime = $record['date'] . ' ' . $record['out_time'];
+            $fuel_price = get_applicable_fuel_price($conn, $rate_id, $datetime);
+            if ($fuel_price > 0 && $consumption > 0 && $daily_distance > 0) {
                 $day_rate_base = ($consumption / 100) * $daily_distance * $fuel_price;
                 $rate_per_km = $day_rate_base / $daily_distance; 
                 $total_monthly_payment += ($rate_per_km * $extra_dist);
             }
-            $total_calculated_distance += $extra_dist;
         }
     }
 
@@ -90,7 +97,7 @@ function calculate_own_vehicle_payment($conn, $emp_id, $vehicle_no, $consumption
         'monthly_payment' => $total_monthly_payment, 
         'attendance_days' => $total_attendance_days,
         'total_distance' => $total_calculated_distance,
-        'fixed_amount' => $fixed_amount,
+        'fixed_amount' => ($is_paid === 1) ? (float)$fixed_amount_orig : 0.00,
     ];
 }
 
@@ -137,7 +144,8 @@ if (isset($_POST['finalize_payments'])) {
                 $finalize_month, $finalize_year, (int)$ov_row['paid']
             );
             
-            if ($results['attendance_days'] > 0 || $results['total_distance'] > 0 || $results['fixed_amount'] > 0) {
+            // Payment 0 වුවත් Attendance හෝ Distance තිබේ නම් record එක insert කළ යුතුය
+            if ($results['attendance_days'] > 0 || $results['total_distance'] > 0 || $results['monthly_payment'] > 0 || $results['fixed_amount'] > 0) {
                  $payment_data[] = [
                     'emp_id' => $ov_row['emp_id'], 
                     'vehicle_no' => $ov_row['vehicle_no'],
@@ -322,7 +330,6 @@ ob_end_flush();
         finalizeButton.addEventListener('click', function() {
             if (confirm("Confirm Finalization for <?php echo $available_month_name; ?>?")) {
                 
-                // --- Staff payments mechanism: Update button state ---
                 finalizeButton.disabled = true;
                 finalizeButton.classList.add('opacity-75', 'cursor-not-allowed');
                 finalizeButton.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> <span>Processing...</span>';
