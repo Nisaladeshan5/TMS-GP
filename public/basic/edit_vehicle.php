@@ -218,7 +218,7 @@ include('../../includes/navbar.php');
                     <div>
                         <label class="block text-sm font-bold text-gray-700 mb-1">Vehicle Type</label>
                         <select name="type" required class="w-full p-2.5 border border-gray-300 rounded-lg">
-                            <?php $types = ['van', 'bus', 'car', 'wheel', 'motor bike']; ?>
+                            <?php $types = ['van', 'bus', 'car', 'wheel', 'motor bike', 'lorry', 'tractor']; ?>
                             <?php foreach ($types as $t): ?>
                                 <option value="<?= $t ?>" <?= ($t == $vehicle_data['type']) ? 'selected' : '' ?>><?= ucfirst($t) ?></option>
                             <?php endforeach; ?>

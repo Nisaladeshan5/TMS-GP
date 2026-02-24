@@ -172,7 +172,7 @@ include('../../../includes/navbar.php');
                         
                         $t_year = (int)date('Y', strtotime($entry['date']));
                         $t_month = (int)date('m', strtotime($entry['date']));
-                        $is_locked = ($t_year <= $max_year || ($t_year == $max_year && $t_month <= $max_month));
+                        $is_locked = ($t_year < $max_year || ($t_year == $max_year && $t_month <= $max_month));
                     ?>
                         <tr class="<?php echo $row_class; ?> border-b border-gray-100 transition duration-150">
                             <td class="px-4 py-3 font-medium"><?php echo $trip_id; ?></td>

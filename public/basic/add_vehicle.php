@@ -180,6 +180,8 @@ include('../../includes/navbar.php');
                             <option value="car">Car</option>
                             <option value="wheel">Wheel</option>
                             <option value="motor bike">Motor Bike</option>
+                            <option value="lorry">Lorry</option>
+                            <option value="tractor">Tractor</option>
                         </select>
                     </div>
                     <div>

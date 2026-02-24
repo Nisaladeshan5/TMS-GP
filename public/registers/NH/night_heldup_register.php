@@ -62,6 +62,20 @@ include('../../../includes/navbar.php');
         .toast.show { opacity: 1; }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
+        
+        /* Modal & Blur Fixes */
+        .modal-active { overflow: hidden; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f8fafc; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Glassmorphism Backdrop */
+        .glass-overlay {
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -105,13 +119,15 @@ include('../../../includes/navbar.php');
             <thead class="bg-blue-600 text-white text-sm">
                 <tr>
                     <th class="px-4 py-3 text-left">Daily ID</th>
-                    <th class="px-4 py-3 text-left">Schedule</th> <th class="px-4 py-3 text-left">Time</th>
+                    <th class="px-4 py-3 text-left">Schedule</th> 
+                    <th class="px-4 py-3 text-left">Time</th>
                     <th class="px-4 py-3 text-left">Vehicle No</th>
                     <th class="px-4 py-3 text-left">Op Code</th>
                     <th class="px-4 py-3 text-center">Qty</th>
                 <?php if ($is_logged_in): ?>
                     <th class="px-4 py-3 text-center">Distance</th>
                     <th class="px-4 py-3 text-left">Done By</th>
+                    <th class="px-4 py-3 text-center">Details</th>
                     <th class="px-4 py-3 text-center">Action</th>
                 <?php endif; ?>
                 </tr>
@@ -119,7 +135,7 @@ include('../../../includes/navbar.php');
             <tbody class="text-gray-700 divide-y divide-gray-200 text-sm">
                 <?php if (empty($heldup_records)): ?>
                     <tr>
-                        <td colspan="9" class="px-6 py-4 text-center text-gray-500">No records found for <?php echo htmlspecialchars($filterDate); ?>.</td>
+                        <td colspan="10" class="px-6 py-4 text-center text-gray-500">No records found.</td>
                     </tr>
                 <?php else: ?>
                     <?php foreach ($heldup_records as $row): 
@@ -128,21 +144,15 @@ include('../../../includes/navbar.php');
                         $can_edit = $is_completed && ((int)$row['user_id'] === $current_session_user_id);
                     ?>
                         <tr class="<?php echo $row_class; ?> border-b border-gray-100 transition duration-150">
-                            <td class="px-4 py-3 font-mono text-blue-600 font-bold">
-                                #<?php echo $row['daily_id']; ?>
-                            </td>
-                            <td class="px-4 py-3 font-semibold text-indigo-600 uppercase">
-                                <?php echo htmlspecialchars($row['schedule_time'] ?: '-'); ?>
-                            </td>
+                            <td class="px-4 py-3 font-mono text-blue-600 font-bold">#<?php echo $row['daily_id']; ?></td>
+                            <td class="px-4 py-3 font-semibold text-indigo-600 uppercase"><?php echo htmlspecialchars($row['schedule_time'] ?: '-'); ?></td>
                             <td class="px-4 py-3"><?php echo date('H:i', strtotime($row['time'])); ?></td>
                             <td class="px-4 py-3 font-bold uppercase"><?php echo htmlspecialchars($row['vehicle_no']); ?></td>
                             <td class="px-4 py-3">
                                 <?php if ($is_completed): ?>
                                     <span class="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-bold"><?php echo htmlspecialchars($row['op_code']); ?></span>
                                 <?php else: ?>
-                                    <span class="text-red-500 text-xs italic font-bold animate-pulse">
-                                        <i class="fas fa-circle text-[8px] mr-1"></i> Pending
-                                    </span>
+                                    <span class="text-red-500 text-xs italic font-bold animate-pulse">Pending</span>
                                 <?php endif; ?>
                             </td>
                             <td class="px-4 py-3 text-center"><?php echo $row['quantity']; ?></td>
@@ -150,6 +160,12 @@ include('../../../includes/navbar.php');
                                 <td class="px-4 py-3 text-center font-mono"><?php echo ($row['distance'] > 0) ? number_format($row['distance'], 2) . ' km' : '-'; ?></td>
                                 <td class="px-4 py-3 text-xs"><?php echo htmlspecialchars($row['done_by_name'] ?: '-'); ?></td>
                                 
+                                <td class="px-4 py-3 text-center">
+                                    <button onclick="viewParticipants(<?php echo $row['id']; ?>)" class="text-blue-500 hover:text-blue-700 transition-all transform hover:scale-125 focus:outline-none">
+                                        <i class="fas fa-eye fa-lg"></i>
+                                    </button>
+                                </td>
+
                                 <td class="px-4 py-3 text-center">
                                     <?php if (!$is_completed): ?>
                                         <a href="nh_complete_trip.php?id=<?php echo $row['id']; ?>" class="bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1.5 rounded shadow inline-flex items-center">
@@ -172,9 +188,96 @@ include('../../../includes/navbar.php');
     </div>
 </div>
 
+<div id="participantModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 glass-overlay transition-all duration-300">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100">
+        <div class="bg-gradient-to-r from-blue-700 to-indigo-900 text-white px-6 py-5 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-users text-xl text-yellow-400"></i>
+                <div>
+                    <h3 class="font-bold text-lg leading-tight">Trip Crew</h3>
+                    <p class="text-[10px] text-blue-200 uppercase tracking-tighter">Night Heldup Register</p>
+                </div>
+            </div>
+            <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-white/20 flex items-center justify-center transition focus:outline-none text-2xl">&times;</button>
+        </div>
+        
+        <div class="p-0">
+            <div id="modalLoader" class="hidden py-16 text-center">
+                <i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
+                <p class="mt-3 text-gray-500 text-sm">Getting details...</p>
+            </div>
+            <div id="modalContent" class="max-h-[60vh] overflow-y-auto custom-scrollbar">
+                <table class="w-full text-sm text-left">
+                    <thead class="sticky top-0 bg-gray-50/95 backdrop-blur-sm z-10 border-b">
+                        <tr>
+                            <th class="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Emp ID</th>
+                            <th class="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Name</th>
+                            <th class="px-6 py-4 text-xs font-bold text-gray-500 uppercase text-right">Dept</th>
+                        </tr>
+                    </thead>
+                    <tbody id="participantListContent" class="divide-y divide-gray-50">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="bg-gray-50/50 px-6 py-4 flex justify-end">
+            <button onclick="closeModal()" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-lg transition transform hover:scale-105 active:scale-95">
+                Got it
+            </button>
+        </div>
+    </div>
+</div>
+
 <div id="toast-container"></div>
 
 <script>
+    function viewParticipants(tripId) {
+        const modal = document.getElementById('participantModal');
+        const contentBody = document.getElementById('participantListContent');
+        const loader = document.getElementById('modalLoader');
+        const contentTable = document.getElementById('modalContent');
+
+        modal.classList.remove('hidden');
+        document.body.classList.add('modal-active');
+        loader.classList.remove('hidden');
+        contentTable.classList.add('hidden');
+        contentBody.innerHTML = ''; 
+
+        fetch(`get_trip_participants.php?trip_id=${tripId}`)
+            .then(response => response.json())
+            .then(data => {
+                loader.classList.add('hidden');
+                contentTable.classList.remove('hidden');
+                if (data.length === 0) {
+                    contentBody.innerHTML = '<tr><td colspan="3" class="px-6 py-12 text-center text-gray-400 font-medium">No team members assigned.</td></tr>';
+                } else {
+                    data.forEach(emp => {
+                        contentBody.innerHTML += `
+                            <tr class="hover:bg-blue-50/50 transition">
+                                <td class="px-6 py-4 font-mono text-blue-600 font-bold text-xs">${emp.emp_id}</td>
+                                <td class="px-6 py-4 font-semibold text-gray-800">${emp.calling_name}</td>
+                                <td class="px-6 py-4 text-right"><span class="px-2 py-1 bg-gray-100 text-gray-600 rounded text-[10px] font-bold uppercase tracking-tight">${emp.department}</span></td>
+                            </tr>`;
+                    });
+                }
+            })
+            .catch(() => {
+                loader.classList.add('hidden');
+                contentTable.classList.remove('hidden');
+                contentBody.innerHTML = '<tr><td colspan="3" class="px-6 py-12 text-center text-red-500 font-bold">Failed to connect to database.</td></tr>';
+            });
+    }
+
+    function closeModal() {
+        document.getElementById('participantModal').classList.add('hidden');
+        document.body.classList.remove('modal-active');
+    }
+
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('participantModal')) { closeModal(); }
+    }
+
     function showToast(message, type) {
         const toastContainer = document.getElementById('toast-container');
         const toast = document.createElement('div');
