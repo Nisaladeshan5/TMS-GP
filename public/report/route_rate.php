@@ -240,8 +240,8 @@ include('../../includes/navbar.php');
             <div class="flex justify-center gap-6 pb-2 border-b border-gray-100 shrink-0 flex-wrap">
                 <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-500"></span><span class="text-xs font-bold text-gray-600">Bus</span></div>
                 <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#eab308]"></span><span class="text-xs font-bold text-gray-600">Van (Non A/C)</span></div>
-                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#f97316]"></span><span class="text-xs font-bold text-gray-600">Van (Front A/C)</span></div>
-                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#dc2626]"></span><span class="text-xs font-bold text-gray-600">Van (Dual A/C)</span></div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#4dff47]"></span><span class="text-xs font-bold text-gray-600">Van (Front A/C)</span></div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-[#fd0000]"></span><span class="text-xs font-bold text-gray-600">Van (Dual A/C)</span></div>
                 <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-gray-400"></span><span class="text-xs font-bold text-gray-600">Other</span></div>
             </div>
 
@@ -281,11 +281,11 @@ include('../../includes/navbar.php');
                     <span class="text-xs font-bold text-gray-600">Van (Non A/C)</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="w-3 h-3 rounded-full bg-[#f97316]"></span>
+                    <span class="w-3 h-3 rounded-full bg-[#4dff47]"></span>
                     <span class="text-xs font-bold text-gray-600">Van (Front A/C)</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="w-3 h-3 rounded-full bg-[#dc2626]"></span>
+                    <span class="w-3 h-3 rounded-full bg-[#fd0000]"></span>
                     <span class="text-xs font-bold text-gray-600">Van (Dual A/C)</span>
                 </div>
                 <div class="flex items-center gap-2">
@@ -372,9 +372,9 @@ include('../../includes/navbar.php');
         if(t.includes('bus')) return '#3b82f6';
         if(t.includes('van')) {
             if(ac.includes('non')) return '#eab308';
-            if(ac.includes('dual')) return '#dc2626';
-            if(ac.includes('front')) return '#f97316';
-            return '#f97316';
+            if(ac.includes('dual')) return '#fd0000';
+            if(ac.includes('front')) return '#4dff47';
+            return '#f38a13';
         }
         return '#9ca3af';
     }
@@ -494,10 +494,10 @@ include('../../includes/navbar.php');
                     createDataset('Van (Non A/C)', '#eab308', d => checkStr(d.vehicle_type, 'van') && checkStr(d.ac_type, 'non')),
                     
                     // 3. Van - Front A/C (Orange)
-                    createDataset('Van (Front A/C)', '#f97316', d => checkStr(d.vehicle_type, 'van') && checkStr(d.ac_type, 'front')),
+                    createDataset('Van (Front A/C)', '#4dff47', d => checkStr(d.vehicle_type, 'van') && checkStr(d.ac_type, 'front')),
                     
                     // 4. Van - Dual A/C (Red)
-                    createDataset('Van (Dual A/C)', '#dc2626', d => checkStr(d.vehicle_type, 'van') && checkStr(d.ac_type, 'dual')),
+                    createDataset('Van (Dual A/C)', '#fd0000', d => checkStr(d.vehicle_type, 'van') && checkStr(d.ac_type, 'dual')),
                     
                     // 5. Other (Gray) - Catches anything not matched above
                     createDataset('Other', '#9ca3af', d => 

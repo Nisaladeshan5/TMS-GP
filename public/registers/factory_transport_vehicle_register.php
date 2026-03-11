@@ -248,6 +248,9 @@ uksort($grouped, function($key1, $key2) use ($grouped) {
         </a>
     </div>
         <?php if ($is_logged_in): ?>
+            <a href="late_routes.php" class="text-gray-300 hover:text-red-400 transition" title="Late Routes">
+                Late Routes
+            </a>
             <a href="unmark_factory_route_attendace.php" class="text-gray-300 hover:text-red-400 transition" title="Unmark Routes">
                 Unmark Routes
             </a>

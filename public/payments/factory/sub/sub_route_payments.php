@@ -13,7 +13,7 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 include('../../../../includes/db.php');
 
 // =======================================================================
-// 1. UPDATED FUEL CALCULATION LOGIC (Like Factory Payments)
+// 1. UPDATED FUEL CALCULATION LOGIC
 // =======================================================================
 
 function get_fuel_price_changes_in_month($conn, $rate_id, $month, $year) {
@@ -98,49 +98,10 @@ function calculate_sub_route_monthly_data($conn, $parent_route_code, $vehicle_no
         'days_run' => $days_run
     ];
 }
-$current_month_sys = (int)date('n');
-$current_year_sys = (int)date('Y');
+
 // =======================================================================
 // 2. LOGIC & DATA FETCH
 // =======================================================================
-$max_payments_sql = "SELECT MAX(month) AS max_month, MAX(year) AS max_year FROM monthly_payments_sub"; 
-$max_payments_result = $conn->query($max_payments_sql);
-$db_max_month = 0; $db_max_year = 0;
-
-if ($max_payments_result && $max_payments_result->num_rows > 0) {
-    $max_data = $max_payments_result->fetch_assoc();
-    $db_max_month = (int)($max_data['max_month'] ?? 0);
-    $db_max_year = (int)($max_data['max_year'] ?? 0);
-}
-$start_month = 0; $start_year = 0;
-
-// Limit එක තීරණය කිරීම (අවසාන මාසය + 1)
-if ($db_max_month == 0) {
-    $limit_month = 1;
-    $limit_year = $current_year_sys - 1;
-} elseif ($db_max_month == 12) {
-    $limit_month = 1;
-    $limit_year = $db_max_year + 1;
-} else {
-    $limit_month = $db_max_month + 1;
-    $limit_year = $db_max_year;
-}
-
-// Limit එක වත්මන් මාසයට වඩා වැඩි විය නොහැක
-if (($limit_year > $current_year_sys) || ($limit_year == $current_year_sys && $limit_month > $current_month_sys)) {
-    $limit_month = $current_month_sys;
-    $limit_year = $current_year_sys;
-}
-
-$selected_month = (int)date('m');
-$selected_year = (int)date('Y');
-
-if (isset($_GET['month_year']) && !empty($_GET['month_year'])) {
-    $parts = explode('-', $_GET['month_year']);
-    if (count($parts) == 2) { $selected_year = (int)$parts[0]; $selected_month = (int)$parts[1]; }
-}
-
-$payment_data = [];
 
 function get_adjustments($conn, $sub_route_code, $month, $year) {
     $sql = "SELECT SUM(adjustment_days) as total_adj FROM sub_route_adjustments WHERE sub_route_code = ? AND month = ? AND year = ?";
@@ -152,6 +113,64 @@ function get_adjustments($conn, $sub_route_code, $month, $year) {
     $stmt->close();
     return (int)($row['total_adj'] ?? 0);
 }
+
+/**
+ * අලුතින් එක් කළ කොටස: Reduction මුදල ලබා ගැනීම (Direct amount deduction)
+ */
+function get_sub_reductions($conn, $sub_route_code, $month, $year) {
+    // SQL වල MONTH() සහ YEAR() function භාවිතයෙන් date එකෙන් අගයන් වෙන් කර ගනී
+    $sql = "SELECT SUM(amount) as total_red FROM sub_reduction 
+            WHERE sub_route_code = ? 
+            AND MONTH(date) = ? 
+            AND YEAR(date) = ?";
+    
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) return 0;
+
+    // "sii" -> string, integer, integer
+    $stmt->bind_param("sii", $sub_route_code, $month, $year);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+
+    return (float)($row['total_red'] ?? 0);
+}
+
+$current_month_sys = (int)date('n');
+$current_year_sys = (int)date('Y');
+
+$max_payments_sql = "SELECT month, year FROM monthly_payments_sub ORDER BY year DESC, month DESC LIMIT 1"; 
+$max_payments_result = $conn->query($max_payments_sql);
+$db_max_month = 0; $db_max_year = 0;
+
+if ($max_payments_result && $max_payments_result->num_rows > 0) {
+    $max_data = $max_payments_result->fetch_assoc();
+    $db_max_month = (int)($max_data['month'] ?? 0);
+    $db_max_year = (int)($max_data['year'] ?? 0);
+}
+
+if ($db_max_month == 0) {
+    $limit_month = 1; $limit_year = $current_year_sys - 1;
+} elseif ($db_max_month == 12) {
+    $limit_month = 1; $limit_year = $db_max_year + 1;
+} else {
+    $limit_month = $db_max_month + 1; $limit_year = $db_max_year;
+}
+
+if (($limit_year > $current_year_sys) || ($limit_year == $current_year_sys && $limit_month > $current_month_sys)) {
+    $limit_month = $current_month_sys; $limit_year = $current_year_sys;
+}
+
+$selected_month = (int)date('m');
+$selected_year = (int)date('Y');
+
+if (isset($_GET['month_year']) && !empty($_GET['month_year'])) {
+    $parts = explode('-', $_GET['month_year']);
+    if (count($parts) == 2) { $selected_year = (int)$parts[0]; $selected_month = (int)$parts[1]; }
+}
+
+$payment_data = [];
 
 $sub_route_sql = "SELECT sub_route_code, route_code, sub_route AS sub_route_name, vehicle_no, fixed_rate, with_fuel, distance FROM sub_route WHERE is_active = 1 ORDER BY sub_route_code ASC";
 $sub_route_result = $conn->query($sub_route_sql);
@@ -170,10 +189,14 @@ if ($sub_route_result && $sub_route_result->num_rows > 0) {
         $base_attendance = $calc['days_run'];
         $adjustments = get_adjustments($conn, $sub_route_code, $selected_month, $selected_year);
         
+        // අලුතින් එක් කළ කොටස: Reduction මුදල ගණනයට ගැනීම
+        $reduction_amt = get_sub_reductions($conn, $sub_route_code, $selected_month, $selected_year);
+
         $final_days = $base_attendance + $adjustments;
         if($final_days < 0) $final_days = 0;
 
-        $total_payment = $calc['total_fuel_based_pay'] + ($adjustments * $calc['avg_day_rate']);
+        // මුළු ගෙවීම = (පැමිණීමේ දිනවල ගෙවීම + Adjustment දිනවල ගෙවීම) - Reduction මුදල
+        $total_payment = ($calc['total_fuel_based_pay'] + ($adjustments * $calc['avg_day_rate'])) - $reduction_amt;
 
         $payment_data[] = [
             'sub_route_code' => $sub_route_code,
@@ -183,6 +206,7 @@ if ($sub_route_result && $sub_route_result->num_rows > 0) {
             'day_rate'       => $calc['avg_day_rate'], 
             'base_days'      => $base_attendance,
             'adjustments'    => $adjustments,
+            'reduction'      => $reduction_amt, // PDF/Excel සඳහා data array එකට එක් කළා
             'final_days'     => $final_days,
             'total_payment'  => $total_payment
         ];
@@ -259,6 +283,7 @@ include('../../../../includes/navbar.php');
             </div>
         </form>
         <span class="text-gray-600 text-lg font-thin">|</span>
+        
         <button onclick="viewAdjustmentsLog()" class="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide no-loader"><i class="fas fa-list-alt"></i> Log</button>
         
         <form method="POST" action="download_sub_route_excel.php" target="_blank" class="inline no-loader">
@@ -272,6 +297,7 @@ include('../../../../includes/navbar.php');
 
         <a href="sub_payments_done.php" class="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide"><i class="fas fa-check-circle"></i> Done</a>
         <a href="sub_payments_history.php" class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide"><i class="fas fa-history"></i> History</a>
+        <a href="adjustment_sub.php" class="text-gray-300 hover:text-yellow-400 transition">Adjustments</a>
         <span class="text-gray-600 text-lg font-thin">|</span>
         <div class="relative">
             <button id="menuBtn" class="flex items-center gap-2 text-gray-300 hover:text-white transition focus:outline-none text-xs uppercase tracking-wide font-bold bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-md border border-gray-600">
@@ -329,7 +355,14 @@ include('../../../../includes/navbar.php');
                                             <?php endif; ?>
                                         </div>
                                     </td>
-                                    <td class="py-3 px-6 text-right font-extrabold text-blue-700 text-base"><?php echo number_format($data['total_payment'], 2); ?></td>
+                                    <td class="py-3 px-6 text-right font-extrabold text-blue-700 text-base">
+                                        <?php echo number_format($data['total_payment'], 2); ?>
+                                        <?php if ($data['reduction'] > 0): ?>
+                                            <div class="text-[10px] text-red-500 font-normal mt-0.5">
+                                                (Reduced: -<?php echo number_format($data['reduction'], 2); ?>)
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
                                     <td class="py-3 px-6 text-center">
                                         <a href="download_sub_route_pdf.php?sub_route_code=<?php echo $data['sub_route_code']; ?>&month=<?php echo $selected_month; ?>&year=<?php echo $selected_year; ?>&amount=<?php echo urlencode($data['total_payment']); ?>" class="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors inline-block no-loader" title="Download PDF"><i class="fas fa-file-pdf fa-lg"></i></a>
                                     </td>
@@ -417,6 +450,7 @@ include('../../../../includes/navbar.php');
 </div>
 
 <script>
+    // JavaScript code elements (Dropdown, Loader, Adjustments) remain the same
     document.addEventListener('DOMContentLoaded', function() {
         const menuBtn = document.getElementById('menuBtn');
         const dropdownMenu = document.getElementById('dropdownMenu');
@@ -483,12 +517,6 @@ include('../../../../includes/navbar.php');
         });
     }
 
-    function getMonthName(monthNumber) {
-        const date = new Date();
-        date.setMonth(monthNumber - 1);
-        return date.toLocaleString('default', { month: 'short' });
-    }
-
     function viewAdjustmentsLog() {
         document.getElementById('viewLogModal').classList.remove('hidden');
         document.getElementById('historyFilter').value = 'current'; 
@@ -514,7 +542,7 @@ include('../../../../includes/navbar.php');
                     const isPositive = item.adjustment_days > 0;
                     const badgeClass = isPositive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
                     const sign = isPositive ? '+' : '';
-                    const paymentMonthStr = `${getMonthName(item.month)} ${item.year}`;
+                    const paymentMonthStr = `${new Date(0, item.month-1).toLocaleString('default', {month:'short'})} ${item.year}`;
                     const row = `
                         <tr class="hover:bg-gray-50 transition-colors">
                             <td class="px-5 py-3 text-gray-800 font-medium">${item.sub_route_code} <br> <span class="text-xs text-gray-500 font-normal">${item.sub_route}</span></td>
@@ -542,7 +570,6 @@ include('../../../../includes/navbar.php');
         loader.classList.add("flex");
     }
 
-    // Link වලට Loader එක
     document.querySelectorAll("a").forEach(link => {
         link.addEventListener("click", function () {
             if (link.target !== "_blank" && !link.classList.contains("no-loader") && link.href.includes('.php')) {
@@ -551,10 +578,8 @@ include('../../../../includes/navbar.php');
         });
     });
 
-    // Forms submit වෙද්දී Loader එක (Dropdown එකත් ඇතුළුව)
     document.querySelectorAll("form").forEach(form => {
         form.addEventListener("submit", function () {
-            // මෙන්න මේ condition එක එකතු කරා "no-loader" තියෙන form එකක් නම් loader එක එන්න එපා කියලා
             if (!form.classList.contains("no-loader")) {
                 showLoader("Applying data...");
             }

@@ -97,7 +97,9 @@ include('../../includes/navbar.php');
         </div>
 
         <span class="text-gray-600 text-lg font-thin">|</span>
-
+        <a href="export_users.php" class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            Excel
+        </a>
         <form id="pdfForm" action="generate_qr_pdf.php" method="POST" target="_blank" class="flex items-center">
             <input type="hidden" name="selected_emp_ids" id="selectedEmpIds">
             <button type="submit" id="generateQrBtn" disabled 
@@ -107,7 +109,7 @@ include('../../includes/navbar.php');
         </form>
 
         <a href="add_user.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
-            <i class="fas fa-user-plus"></i> Add User
+            Add User
         </a>
     </div>
 </div>

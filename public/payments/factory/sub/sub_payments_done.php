@@ -1,5 +1,5 @@
 <?php
-// sub_payments_done.php (Finalize Sub Route Payments - Updated with Slab Calculation)
+// sub_payments_done.php (Finalize Sub Route Payments - Updated with Reductions)
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
@@ -20,7 +20,7 @@ date_default_timezone_set('Asia/Colombo');
 include('../../../../includes/db.php'); 
 
 // =======================================================================
-// 0. ADVANCED HELPER FUNCTIONS (Slab-based Logic)
+// 0. ADVANCED HELPER FUNCTIONS (Slab-based Logic & Reductions)
 // =======================================================================
 
 function get_fuel_price_changes_in_month($conn, $rate_id, $month, $year) {
@@ -62,6 +62,24 @@ function get_sub_route_adjustments_count($conn, $sub_route_code, $month, $year) 
     $row = $result->fetch_assoc();
     $stmt->close();
     return (int)($row['total_adj'] ?? 0);
+}
+
+/**
+ * අලුතින් එක් කළ කොටස: Date එකෙන් Month/Year බලන Reduction logic එක
+ */
+function get_sub_reductions($conn, $sub_route_code, $month, $year) {
+    $sql = "SELECT SUM(amount) as total_red FROM sub_reduction 
+            WHERE sub_route_code = ? 
+            AND MONTH(date) = ? 
+            AND YEAR(date) = ?";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) return 0;
+    $stmt->bind_param("sii", $sub_route_code, $month, $year);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    return (float)($row['total_red'] ?? 0);
 }
 
 // =======================================================================
@@ -160,10 +178,9 @@ if (isset($_POST['finalize_payments'])) {
                 $total_fuel_based_pay += ($fixed_rate + $fuel_cost_per_km) * $distance;
             }
 
-            // D. Adjustments & Average Rate
+            // D. Adjustments & Reductions
             $avg_day_rate = ($base_days_count > 0) ? ($total_fuel_based_pay / $base_days_count) : 0;
             
-            // If no base days, but adjustments exist, we need a fallback day rate
             if ($avg_day_rate == 0 && $v_info) {
                 $sql_fallback = "SELECT rate FROM fuel_rate WHERE rate_id = ? ORDER BY date DESC LIMIT 1";
                 $st_f = $conn->prepare($sql_fallback);
@@ -176,8 +193,12 @@ if (isset($_POST['finalize_payments'])) {
             }
 
             $adj_days = get_sub_route_adjustments_count($conn, $sub_code, $finalize_month, $finalize_year);
+            $reduction_amt = get_sub_reductions($conn, $sub_code, $finalize_month, $finalize_year); // අලුතින් එක් කළා
+
             $final_days_count = max(0, $base_days_count + $adj_days);
-            $final_total_payment = $total_fuel_based_pay + ($adj_days * $avg_day_rate);
+            
+            // මුළු ගෙවීමෙන් reduction මුදල අඩු කිරීම:
+            $final_total_payment = ($total_fuel_based_pay + ($adj_days * $avg_day_rate)) - $reduction_amt;
 
             if ($final_days_count > 0 || $final_total_payment > 0) {
                  $payment_data[] = [

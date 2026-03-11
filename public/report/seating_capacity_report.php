@@ -77,8 +77,8 @@ if ($result) {
         $row['stand_eff_color'] = ($stand_cap > 0) ? $get_eff_color($stand_util, $emp_standing, $stand_cap) : '#94a3b8';
 
         $is_bus = (strpos(strtolower($v_type), 'bus') !== false);
-        $row['bar_color'] = $is_bus ? '#1d4ed8' : '#0acad1';
-        $row['bar_bg'] = $is_bus ? '#bfdbfe' : '#bfe6f1';
+        $row['bar_color'] = $is_bus ? '#10b981' : '#3cff00';
+        $row['bar_bg'] = $is_bus ? '#ef4444' : '#ef4444';
 
         if($v_type !== 'Not Assigned' && !in_array($v_type, $unique_types)) {
             $unique_types[] = $v_type;
@@ -272,7 +272,7 @@ include('../../includes/navbar.php');
         type: 'doughnut',
         data: {
             labels: ['Occupied Seats', 'Available Seats'],
-            datasets: [{ data: [<?php echo $total_seat_used; ?>, <?php echo $avail_seat; ?>], backgroundColor: ['#ef4444', '#10b981'], borderWidth: 0 }]
+            datasets: [{ data: [<?php echo $total_seat_used; ?>, <?php echo $avail_seat; ?>], backgroundColor: ['#10b981', '#ef4444'], borderWidth: 0 }]
         },
         options: donutOptions
     });
@@ -281,7 +281,7 @@ include('../../includes/navbar.php');
         type: 'doughnut',
         data: {
             labels: ['Occupied Standing', 'Available Standing'],
-            datasets: [{ data: [<?php echo $total_stand_used; ?>, <?php echo $avail_stand; ?>], backgroundColor: ['#ef4444', '#10b981'], borderWidth: 0 }]
+            datasets: [{ data: [<?php echo $total_stand_used; ?>, <?php echo $avail_stand; ?>], backgroundColor: ['#10b981', '#ef4444'], borderWidth: 0 }]
         },
         options: donutOptions
     });
@@ -317,7 +317,7 @@ include('../../includes/navbar.php');
                     {
                         label: 'Standing Actual',
                         data: data.map(i => i.emp_standing),
-                        backgroundColor: '#b91c1c',
+                        backgroundColor: '#8f1eeb',
                         stack: 'S1',
                         datalabels: {
                             color: (ctx) => data[ctx.dataIndex].stand_eff_color,
@@ -330,7 +330,7 @@ include('../../includes/navbar.php');
                     {
                         label: 'Free Standing',
                         data: data.map(i => Math.max(0, i.standing_capacity - i.emp_standing)),
-                        backgroundColor: '#fca5a5',
+                        backgroundColor: '#d49ff3',
                         stack: 'S1', datalabels: { display: false }
                     }
                 ]

@@ -1,6 +1,5 @@
 <?php
-// day_heldup_add.php - Manual entry form for Day Heldup records
-
+// day_heldup_add.php - Fully Updated with Padding and Validation
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -58,13 +57,14 @@ include('../../../includes/navbar.php');
         .toast.show { opacity: 1; }
         .toast.success { background-color: #10B981; }
         .toast.error { background-color: #EF4444; }
+        .invalid-id { border: 2px solid #EF4444 !important; background-color: #FEF2F2; }
     </style>
 </head>
 <body class="bg-gray-100 font-sans">
     <div id="toast-container"></div>
 
     <div class="w-[85%] ml-[15%] flex justify-center p-3">
-        <div class="container max-w-2xl bg-white shadow-lg rounded-lg p-8 mt-2">
+        <div class="container max-w-3xl bg-white shadow-lg rounded-lg p-8 mt-2">
             
             <div class="flex justify-between items-start border-b pb-2 mb-4">
                 <div>
@@ -124,14 +124,23 @@ include('../../../includes/navbar.php');
                             <i class="fas fa-plus-circle mr-1"></i>Add Row
                         </button>
                     </div>
+
+                    <div class="hidden md:grid grid-cols-12 gap-2 px-2 text-[10px] font-bold text-indigo-400 uppercase">
+                        <div class="col-span-3">ID</div>
+                        <div class="col-span-4">Name</div>
+                        <div class="col-span-5">Reason</div>
+                    </div>
                     
-                    <div id="reason-entry-0" class="grid md:grid-cols-3 gap-4 reason-entry">
-                        <div>
-                            <input type="text" name="emp_id[]" placeholder="Employee ID" class="block w-full rounded-md border-gray-300 shadow-sm p-2 uppercase text-sm">
+                    <div id="reason-entry-0" class="grid grid-cols-1 md:grid-cols-12 gap-2 reason-entry items-center">
+                        <div class="md:col-span-3">
+                            <input type="text" name="emp_id[]" placeholder="ID" class="emp-id-input block w-full rounded-md border-gray-300 shadow-sm p-2 uppercase text-sm" required>
                         </div>
-                        <div class="md:col-span-2">
-                            <select name="reason_code[]" class="block w-full rounded-md border-gray-300 shadow-sm p-2 text-sm">
-                                <option value="" selected>Select Reason</option>
+                        <div class="md:col-span-4">
+                            <input type="text" readonly placeholder="Auto Load Name" class="emp-name-display block w-full rounded-md border-transparent bg-indigo-100/50 p-2 text-sm text-gray-600 focus:outline-none">
+                        </div>
+                        <div class="md:col-span-5 flex items-center space-x-2">
+                            <select name="reason_code[]" class="block w-full rounded-md border-gray-300 shadow-sm p-2 text-sm" required>
+                                <option value="" selected disabled>Select Reason</option>
                                 <?php 
                                 $current_cat = '';
                                 foreach ($available_reasons as $r):
@@ -170,6 +179,7 @@ include('../../../includes/navbar.php');
     </div>
 
     <script>
+        // --- Configuration & Constants ---
         const opCodeSelect = document.getElementById('op_code'); 
         const vehicleNoInput = document.getElementById('vehicle_no'); 
         const addHeldupForm = document.getElementById('addHeldupForm');
@@ -178,22 +188,11 @@ include('../../../includes/navbar.php');
         const addReasonEntryBtn = document.getElementById('addReasonEntryBtn');
         const afterSubmitSelect = document.getElementById('after_submit_action');
         const modeBadge = document.getElementById('mode-badge');
-        
-        let entryCounter = 1;
         const availableReasons = <?php echo json_encode($available_reasons); ?>; 
         const loggedInUserId = document.getElementById('loggedInUserId').value;
+        let entryCounter = 1;
 
-        // Update badge UI based on dropdown
-        afterSubmitSelect.addEventListener('change', function() {
-            if(this.value === 'stay') {
-                modeBadge.innerText = "Multi-Entry Mode";
-                modeBadge.className = "px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full uppercase";
-            } else {
-                modeBadge.innerText = "Standard Mode";
-                modeBadge.className = "px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-full uppercase";
-            }
-        });
-
+        // --- Helper: Toast Messages ---
         function showToast(message, type = 'success') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -206,7 +205,81 @@ include('../../../includes/navbar.php');
             }, 3000);
         }
 
-        // Fetch vehicle logic
+        // --- Logic: Auto-Format Employee ID (Padding) ---
+        function formatEmployeeID(val) {
+            val = val.toUpperCase().trim();
+            if (!val) return "";
+
+            // GP Logic: e.g. 7135 -> GP007135
+            if (/^\d+$/.test(val)) {
+                return "GP" + val.padStart(6, '0');
+            }
+
+            // ST Logic: e.g. ST8 -> ST000008
+            if (val.startsWith("ST")) {
+                let num = val.replace("ST", "");
+                if (/^\d+$/.test(num)) return "ST" + num.padStart(6, '0');
+            }
+
+            // GPD Logic: e.g. D187 -> GPD00187
+            if (val.startsWith("D")) {
+                let num = val.replace("D", "");
+                if (/^\d+$/.test(num)) return "GPD" + num.padStart(5, '0');
+            }
+            if (val.startsWith("GPD")) {
+                let num = val.replace("GPD", "");
+                if (/^\d+$/.test(num)) return "GPD" + num.padStart(5, '0');
+            }
+
+            return val;
+        }
+
+        // --- Logic: Fetch Employee Name ---
+        async function fetchEmployeeName(inputElement) {
+            const row = inputElement.closest('.reason-entry');
+            const nameDisplay = row.querySelector('.emp-name-display');
+            const empId = inputElement.value.trim();
+
+            if (!empId) {
+                nameDisplay.value = "";
+                inputElement.classList.remove('invalid-id');
+                return;
+            }
+
+            nameDisplay.value = "Searching...";
+            
+            try {
+                const response = await fetch('day_heldup_fetch_employee.php', {
+                    method: 'POST',
+                    body: new URLSearchParams({ emp_id: empId }),
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    nameDisplay.value = data.name;
+                    inputElement.classList.remove('invalid-id');
+                    nameDisplay.classList.remove('text-red-500');
+                } else {
+                    nameDisplay.value = "INVALID ID";
+                    nameDisplay.classList.add('text-red-500');
+                    inputElement.classList.add('invalid-id');
+                    showToast("Employee not found in database", "error");
+                }
+            } catch (err) {
+                nameDisplay.value = "Error";
+            }
+        }
+
+        // Event: ID Change (Format + Fetch)
+        document.addEventListener('change', function(e) {
+            if (e.target && e.target.classList.contains('emp-id-input')) {
+                e.target.value = formatEmployeeID(e.target.value);
+                fetchEmployeeName(e.target);
+            }
+        });
+
+        // --- Logic: OP Code -> Vehicle ---
         opCodeSelect.addEventListener('change', async function() {
             if (!this.value) return;
             vehicleNoInput.value = '...';
@@ -221,10 +294,10 @@ include('../../../includes/navbar.php');
             } catch (e) { showToast('Error fetching vehicle', 'error'); }
         });
 
-        // Add reason row
+        // --- Logic: Dynamic Rows ---
         addReasonEntryBtn.addEventListener('click', () => {
             const id = entryCounter++;
-            let options = '<option value="">Select Reason</option>';
+            let options = '<option value="" selected disabled>Select Reason</option>';
             let cat = '';
             availableReasons.forEach(r => {
                 if (r.reason_category !== cat) {
@@ -234,42 +307,52 @@ include('../../../includes/navbar.php');
                 }
                 options += `<option value="${r.reason_code}">${r.reason}</option>`;
             });
+
             const html = `
-                <div id="reason-entry-${id}" class="grid md:grid-cols-3 gap-4 reason-entry pt-2 border-t border-indigo-100 mt-2">
-                    <input type="text" name="emp_id[]" placeholder="Employee ID" class="block w-full rounded-md border-gray-300 shadow-sm p-2 uppercase text-sm">
-                    <div class="md:col-span-2 flex items-center space-x-2">
-                        <select name="reason_code[]" class="block w-full rounded-md border-gray-300 shadow-sm p-2 text-sm">${options}</select>
-                        <button type="button" onclick="this.parentElement.parentElement.remove()" class="text-red-500 hover:text-red-700"><i class="fas fa-times"></i></button>
+                <div id="reason-entry-${id}" class="grid grid-cols-1 md:grid-cols-12 gap-2 reason-entry items-center pt-2 border-t border-indigo-100 mt-2">
+                    <div class="md:col-span-3">
+                        <input type="text" name="emp_id[]" placeholder="ID" class="emp-id-input block w-full rounded-md border-gray-300 shadow-sm p-2 uppercase text-sm" required>
+                    </div>
+                    <div class="md:col-span-4">
+                        <input type="text" readonly placeholder="Auto Load Name" class="emp-name-display block w-full rounded-md border-transparent bg-indigo-100/50 p-2 text-sm text-gray-600 focus:outline-none">
+                    </div>
+                    <div class="md:col-span-5 flex items-center space-x-2">
+                        <select name="reason_code[]" class="block w-full rounded-md border-gray-300 shadow-sm p-2 text-sm" required>${options}</select>
+                        <button type="button" onclick="this.parentElement.parentElement.remove()" class="text-red-400 hover:text-red-600"><i class="fas fa-times"></i></button>
                     </div>
                 </div>`;
             reasonContainer.insertAdjacentHTML('beforeend', html);
         });
 
-        // Form Submit
+        // --- Logic: Form Submission ---
         addHeldupForm.addEventListener('submit', async function(e) {
             e.preventDefault();
+
+            // Check if any row has an invalid ID
+            if (document.querySelectorAll('.invalid-id').length > 0) {
+                showToast("Please provide valid Employee IDs.", "error");
+                return;
+            }
+
             const action = afterSubmitSelect.value;
-            
-            // Collect Reason Data
             const reasonData = [];
             const rows = reasonContainer.querySelectorAll('.reason-entry');
-            let valid = true;
+            let allValid = true;
 
             rows.forEach(row => {
                 const eid = row.querySelector('[name="emp_id[]"]').value.trim();
                 const rcode = row.querySelector('[name="reason_code[]"]').value;
-                if (eid || rcode) {
-                    if (!eid || !rcode) {
-                        showToast('Both Employee ID and Reason are required for each row.', 'error');
-                        valid = false;
-                        return;
-                    }
-                    reasonData.push({ emp_id: eid.toUpperCase(), reason_code: rcode });
+                const ename = row.querySelector('.emp-name-display').value;
+
+                if (!eid || !rcode || ename === "INVALID ID" || ename === "Searching...") {
+                    allValid = false;
+                    return;
                 }
+                reasonData.push({ emp_id: eid, reason_code: rcode });
             });
 
-            if (!valid || reasonData.length === 0) {
-                if(reasonData.length === 0) showToast('Add at least one employee/reason.', 'error');
+            if (!allValid || reasonData.length === 0) {
+                showToast('Please complete all rows with valid data.', 'error');
                 return;
             }
 
@@ -294,31 +377,40 @@ include('../../../includes/navbar.php');
                     if (action === 'redirect') {
                         setTimeout(() => window.location.href = 'day_heldup_register.php', 1000);
                     } else {
-                        // MULTI-ENTRY LOGIC: Keep core details, clear the rest
+                        // Multi-entry reset logic
                         const savedOp = opCodeSelect.value;
                         const savedVeh = vehicleNoInput.value;
                         const savedDate = document.getElementById('date').value;
 
                         addHeldupForm.reset();
-                        
-                        // Restore core info
                         opCodeSelect.value = savedOp;
                         vehicleNoInput.value = savedVeh;
                         document.getElementById('date').value = savedDate;
-                        afterSubmitSelect.value = 'stay'; // Keep dropdown on 'stay'
+                        afterSubmitSelect.value = 'stay';
 
-                        // Reset Rows
                         reasonContainer.querySelectorAll('.reason-entry:not(#reason-entry-0)').forEach(r => r.remove());
+                        document.querySelector('.emp-name-display').value = "";
                         entryCounter = 1;
                     }
                 } else {
                     showToast(data.message, 'error');
                 }
             } catch (err) {
-                showToast('Server connection error.', 'error');
+                showToast('Server error. Please try again.', 'error');
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = 'Submit';
+            }
+        });
+
+        // Mode badge update
+        afterSubmitSelect.addEventListener('change', function() {
+            if(this.value === 'stay') {
+                modeBadge.innerText = "Multi-Entry Mode";
+                modeBadge.className = "px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full uppercase";
+            } else {
+                modeBadge.innerText = "Standard Mode";
+                modeBadge.className = "px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-full uppercase";
             }
         });
     </script>

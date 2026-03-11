@@ -201,7 +201,10 @@ include('../../includes/header.php'); include('../../includes/navbar.php');
             </div>
             <div class="bg-white p-4 border rounded flex justify-between items-center shadow-sm">
                 <div class="flex items-center gap-3"><i class="fas fa-plus-circle text-indigo-600 bg-indigo-100 p-2 rounded"></i><span class="font-bold text-sm">Extra Vehicle</span></div>
-                <a href="download_ev_cost_breakdown.php?month=<?php echo $s_month; ?>&year=<?php echo $s_year; ?>" class="text-xs bg-gray-100 px-3 py-2 text-indigo-600 font-bold rounded border hover:bg-indigo-50 transition" target="_blank"><i class="fas fa-file-excel mr-1"></i> Cost Breakdown</a>
+                <div class="flex gap-2">
+                    <a href="ev_journal.php?period=<?php echo $c_val; ?>" class="text-xs bg-gray-100 px-3 py-2 rounded border">Journal</a>
+                    <a href="download_ev_cost_breakdown.php?month=<?php echo $s_month; ?>&year=<?php echo $s_year; ?>" class="text-xs bg-indigo-50 text-indigo-600 px-3 py-2 rounded border border-indigo-200 font-bold" target="_blank"><i class="fas fa-file-excel mr-1"></i> Cost Breakdown</a>
+                </div>
             </div>
         </div>
         <?php endif; ?>

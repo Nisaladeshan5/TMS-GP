@@ -8,7 +8,7 @@ $month = isset($_GET['month']) ? str_pad($_GET['month'], 2, '0', STR_PAD_LEFT) :
 $year = isset($_GET['year']) ? (int)$_GET['year'] : date('Y');
 
 $monthName = date('F', mktime(0, 0, 0, $month, 1));
-$filename = "Supplier_GL_Dept_Allocation_{$year}_{$month}.xls";
+$filename = "GL_Dept_Allocation_Custom_{$year}_{$month}.xls";
 $reportTitle = "EV Cost Allocation - " . $monthName . " " . $year;
 
 header("Content-Type: application/vnd.ms-excel");
@@ -26,14 +26,13 @@ function get_rate_for_date($rate_id, $trip_date, $history) {
 }
 
 function get_ev_cost_matrix($conn, $month, $year) {
-    // A. Fuel History
+    // A. Fuel History & Rates (Standard logic)
     $fuel_history = [];
     $fuel_res = $conn->query("SELECT rate_id, rate, date FROM fuel_rate ORDER BY date DESC");
     while ($f_row = $fuel_res->fetch_assoc()) {
         $fuel_history[$f_row['rate_id']][] = ['date' => $f_row['date'], 'rate' => (float)$f_row['rate']];
     }
 
-    // B. Op Services & Route Specs
     $op_rates = [];
     $op_res = $conn->query("SELECT op_code, extra_rate_ac, extra_rate FROM op_services");
     while ($o_row = $op_res->fetch_assoc()) {
@@ -54,10 +53,10 @@ function get_ev_cost_matrix($conn, $month, $year) {
 
     $matrix = [];
 
-    // C. Main Query (Supplier Code added)
+    // C. Main Query - Reason Code eka check karanna ona nisa select ekata damma
     $sql = "SELECT 
-                evr.id as trip_id, evr.date, evr.distance, evr.op_code, evr.route, evr.ac_status, evr.supplier_code,
-                gl.gl_code, gl.gl_name, 
+                evr.id as trip_id, evr.date, evr.distance, evr.op_code, evr.route, evr.ac_status,
+                gl.gl_code, gl.gl_name, r.reason_code, r.reason,
                 e.department, e.direct,
                 COUNT(eter.id) AS emp_count_group,
                 (SELECT COUNT(*) FROM ev_trip_employee_reasons WHERE trip_id = evr.id) AS total_trip_employees
@@ -67,7 +66,7 @@ function get_ev_cost_matrix($conn, $month, $year) {
             JOIN gl gl ON r.gl_code = gl.gl_code
             LEFT JOIN employee e ON eter.emp_id = e.emp_id 
             WHERE MONTH(evr.date) = ? AND YEAR(evr.date) = ? AND evr.done = 1
-            GROUP BY evr.id, evr.supplier_code, gl.gl_code, e.department, e.direct";
+            GROUP BY evr.id, gl.gl_code, r.reason_code, e.department, e.direct";
 
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ss", $month, $year);
@@ -78,6 +77,7 @@ function get_ev_cost_matrix($conn, $month, $year) {
         $trip_cost = 0;
         $dist = (float)$row['distance'];
         
+        // Cost calculation (Standard)
         if (!empty($row['op_code'])) {
             $op = $row['op_code'];
             if (isset($op_rates[$op])) {
@@ -103,23 +103,36 @@ function get_ev_cost_matrix($conn, $month, $year) {
             $cost_per_head = $trip_cost / $total_heads;
             $group_cost = $cost_per_head * $row['emp_count_group'];
 
-            $sup_code = !empty($row['supplier_code']) ? $row['supplier_code'] : 'NO_SUPPLIER';
-            $gl_code  = $row['gl_code'];
-            $gl_name  = $row['gl_name'];
-            $dept     = !empty($row['department']) ? $row['department'] : 'Unassigned';
-            $type     = (isset($row['direct']) && strtoupper(trim($row['direct'])) === 'YES') ? 'Direct' : 'Indirect';
+            $gl_code     = $row['gl_code'];
+            $gl_name     = $row['gl_name'];
+            $reason_code = $row['reason_code'];
+            $reason      = $row['reason'];
+            $dept        = !empty($row['department']) ? $row['department'] : 'Unassigned';
+            $type        = (isset($row['direct']) && strtoupper(trim($row['direct'])) === 'YES') ? 'Direct' : 'Indirect';
 
-            // Hierarchical Matrix Structure
-            if (!isset($matrix[$sup_code])) {
-                $matrix[$sup_code] = [];
+            // --- CUSTOM GROUPING LOGIC ---
+            // 614003 saha SUB- nam, key ekata reason_code ekath ekkama danna.
+            // Nathnam kalin wage GL code eka witharak key ekata danna.
+            if ($gl_code == '614003' && strpos($reason_code, 'SUB-') === 0) {
+                $group_key = $gl_code . "_" . $reason_code;
+                $display_reason = $reason;
+            } else {
+                $group_key = $gl_code;
+                $display_reason = ""; // summary rows walata reason pennanna ona na
             }
-            if (!isset($matrix[$sup_code][$gl_code])) {
-                $matrix[$sup_code][$gl_code] = ['name' => $gl_name, 'depts' => []];
+
+            if (!isset($matrix[$group_key])) {
+                $matrix[$group_key] = [
+                    'gl_code' => $gl_code,
+                    'gl_name' => $gl_name,
+                    'reason'  => $display_reason,
+                    'depts'   => []
+                ];
             }
-            if (!isset($matrix[$sup_code][$gl_code]['depts'][$dept])) {
-                $matrix[$sup_code][$gl_code]['depts'][$dept] = ['Direct' => 0, 'Indirect' => 0];
+            if (!isset($matrix[$group_key]['depts'][$dept])) {
+                $matrix[$group_key]['depts'][$dept] = ['Direct' => 0, 'Indirect' => 0];
             }
-            $matrix[$sup_code][$gl_code]['depts'][$dept][$type] += $group_cost;
+            $matrix[$group_key]['depts'][$dept][$type] += $group_cost;
         }
     }
     return $matrix;
@@ -132,9 +145,9 @@ echo '<table border="1">';
 echo '<tr><td colspan="7" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">' . $reportTitle . '</td></tr>';
 
 echo '<tr style="color:white; font-weight:bold; text-align:center;">';
-echo '<th style="background-color:#4F81BD;">Supplier Code</th>';
 echo '<th style="background-color:#4F81BD;">GL Code</th>';
 echo '<th style="background-color:#4F81BD;">GL Name</th>';
+echo '<th style="background-color:#4F81BD;">Reason</th>';
 echo '<th style="background-color:#4F81BD;">Department</th>';
 echo '<th style="background-color:#4F81BD;">Direct (LKR)</th>';
 echo '<th style="background-color:#4F81BD;">Indirect (LKR)</th>';
@@ -143,22 +156,20 @@ echo '</tr>';
 
 $grand_total = 0;
 if (!empty($final_data)) {
-    foreach ($final_data as $sup_code => $gl_list) {
-        foreach ($gl_list as $gl_code => $gl_data) {
-            foreach ($gl_data['depts'] as $dept => $costs) {
-                $row_total = $costs['Direct'] + $costs['Indirect'];
-                $grand_total += $row_total;
-                
-                echo '<tr>';
-                echo '<td style="mso-number-format:\'@\';">' . htmlspecialchars($sup_code) . '</td>';
-                echo '<td style="mso-number-format:\'@\';">' . htmlspecialchars($gl_code) . '</td>';
-                echo '<td>' . htmlspecialchars($gl_data['name']) . '</td>';
-                echo '<td>' . htmlspecialchars($dept) . '</td>';
-                echo '<td style="text-align:right;">' . number_format($costs['Direct'], 2, '.', '') . '</td>';
-                echo '<td style="text-align:right;">' . number_format($costs['Indirect'], 2, '.', '') . '</td>';
-                echo '<td style="text-align:right; font-weight:bold;">' . number_format($row_total, 2, '.', '') . '</td>';
-                echo '</tr>';
-            }
+    foreach ($final_data as $key => $data) {
+        foreach ($data['depts'] as $dept => $costs) {
+            $row_total = $costs['Direct'] + $costs['Indirect'];
+            $grand_total += $row_total;
+            
+            echo '<tr>';
+            echo '<td style="mso-number-format:\'@\';">' . htmlspecialchars($data['gl_code']) . '</td>';
+            echo '<td>' . htmlspecialchars($data['gl_name']) . '</td>';
+            echo '<td style="mso-number-format:\'@\';">' . htmlspecialchars($data['reason']) . '</td>';
+            echo '<td>' . htmlspecialchars($dept) . '</td>';
+            echo '<td style="text-align:right;">' . number_format($costs['Direct'], 2, '.', '') . '</td>';
+            echo '<td style="text-align:right;">' . number_format($costs['Indirect'], 2, '.', '') . '</td>';
+            echo '<td style="text-align:right; font-weight:bold;">' . number_format($row_total, 2, '.', '') . '</td>';
+            echo '</tr>';
         }
     }
     echo '<tr style="font-weight:bold;">';

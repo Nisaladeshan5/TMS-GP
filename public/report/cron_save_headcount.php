@@ -35,7 +35,7 @@ $sql_src = "
         SUM(CASE WHEN direct = 'NO' THEN 1 ELSE 0 END) AS IndirectCount,
         COUNT(*) AS TotalCount
     FROM employee
-    WHERE SUBSTRING(route, 5, 1) = 'F'
+    WHERE SUBSTRING(route, 5, 1) = 'F' AND is_active = 1 AND vacated = 0
     GROUP BY department
 ";
 

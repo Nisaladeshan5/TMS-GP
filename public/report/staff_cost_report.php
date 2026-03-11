@@ -71,7 +71,7 @@ if ($has_history) {
             SUM(CASE WHEN direct = 'NO' THEN 1 ELSE 0 END) AS IndirectCount,
             COUNT(*) AS TotalCount
         FROM employee
-        WHERE SUBSTRING(route, 5, 1) = 'S'
+        WHERE SUBSTRING(route, 5, 1) = 'S' AND is_active = 1 AND vacated = 0
         GROUP BY department
         ORDER BY department
     ";
@@ -114,9 +114,8 @@ header("Expires: 0");
         <tr>
             <th colspan="6" style="text-align: left; background-color: #f2f2f2; height: 25px;">
                 <span style="margin-right: 20px;"><strong>Total Staff Cost:</strong> <?php echo number_format($totalStaffCost, 2); ?></span>
-                <span style="margin-right: 20px;"><strong>Total Employees (S):</strong> <?php echo $grandTotalEmployees; ?></span>
+                <span style="margin-right: 20px;"><strong>Total Employees:</strong> <?php echo $grandTotalEmployees; ?></span>
                 <span><strong>Cost Per Head:</strong> <?php echo number_format($costPerHead, 2); ?></span>
-                <span style="float:right; font-size:10px; color:#555;">(Source: <?php echo $dataSource; ?>)</span>
             </th>
         </tr>
 

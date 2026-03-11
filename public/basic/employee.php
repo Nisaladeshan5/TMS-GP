@@ -353,7 +353,6 @@ $initial_result = getEmployeeData($conn, $filters);
         <a href="overview.php" class="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded shadow-md transition border border-sky-500 hover:border-sky-400 font-semibold">
             <i class="fas fa-chart-pie"></i> Overview
         </a>
-
     </div>
 </div>
 

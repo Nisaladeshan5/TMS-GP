@@ -18,7 +18,7 @@ include('../../includes/db.php');
 $current_month_sys = (int)date('n');
 $current_year_sys = (int)date('Y');
 
-$max_payments_sql = "SELECT MAX(month) AS max_month, MAX(year) AS max_year FROM monthly_payments_sf";
+$max_payments_sql = "SELECT month, year FROM monthly_payments_sf ORDER BY year DESC, month DESC LIMIT 1";
 $max_payments_result = $conn->query($max_payments_sql);
 
 $db_max_month = 0;
@@ -26,8 +26,8 @@ $db_max_year = 0;
 
 if ($max_payments_result && $max_payments_result->num_rows > 0) {
     $max_data = $max_payments_result->fetch_assoc();
-    $db_max_month = (int)($max_data['max_month'] ?? 0);
-    $db_max_year = (int)($max_data['max_year'] ?? 0);
+    $db_max_month = (int)($max_data['month'] ?? 0);
+    $db_max_year = (int)($max_data['year'] ?? 0);
 }
 
 $start_month = 0;
