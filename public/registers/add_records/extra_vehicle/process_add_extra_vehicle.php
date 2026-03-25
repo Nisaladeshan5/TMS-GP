@@ -31,15 +31,23 @@ try {
     $trip_time = trim($_POST['time'] ?? '');
     $distance = floatval($_POST['distance'] ?? 0);
     $done_flag = ($distance > 0) ? 1 : 0;
+    
+    // Capture Remarks
+    $remarks = trim($_POST['remarks'] ?? '');
 
+    // Capture Codes
     $selected_route_code = trim($_POST['route_code'] ?? '');
+    $selected_sub_route_code = trim($_POST['sub_route_code'] ?? ''); // NEW: Sub Route
     $selected_op_code = trim($_POST['op_code'] ?? '');
     
-    $trip_op_code = null;
     $trip_route_code = null;
+    $trip_sub_route_code = null; // NEW
+    $trip_op_code = null;
 
     if (!empty($selected_route_code)) {
         $trip_route_code = $selected_route_code;
+    } elseif (!empty($selected_sub_route_code)) {
+        $trip_sub_route_code = $selected_sub_route_code; // NEW
     } elseif (!empty($selected_op_code)) {
         $trip_op_code = $selected_op_code;
     }
@@ -56,7 +64,7 @@ try {
     if (empty($to_location)) $missing[] = 'To Location';
     if (empty($trip_date)) $missing[] = 'Date';
     if (empty($trip_time)) $missing[] = 'Time';
-    if (empty($trip_route_code) && empty($trip_op_code)) $missing[] = 'Route or Op Code';
+    if (empty($trip_route_code) && empty($trip_sub_route_code) && empty($trip_op_code)) $missing[] = 'Route, Sub Route or Op Code'; // UPDATED
     
     if (empty($reason_groups) || empty($emp_id_groups)) {
         $missing[] = 'At least one Reason & Employee';
@@ -67,99 +75,46 @@ try {
         exit();
     } 
 
-    // =======================================================================
-    // 3. ID VALIDATION (DUPLICATES + DB CHECK)
-    // =======================================================================
-    
-    // A. Collect all submitted IDs from all groups into a single list
+    // --- ID VALIDATION BLOCK ---
     $all_submitted_ids = [];
     foreach ($emp_id_groups as $group) {
         if (is_array($group)) {
             foreach ($group as $id) {
                 $clean_id = trim($id);
-                if (!empty($clean_id)) {
-                    $all_submitted_ids[] = $clean_id;
-                }
+                if (!empty($clean_id)) { $all_submitted_ids[] = $clean_id; }
             }
         }
     }
 
-    // B. NEW: CHECK FOR DUPLICATES WITHIN THE TRIP
-    // array_count_values will count how many times each ID appears
     if (!empty($all_submitted_ids)) {
         $id_counts = array_count_values($all_submitted_ids);
         $duplicate_ids = [];
-
         foreach ($id_counts as $id => $count) {
-            if ($count > 1) {
-                $duplicate_ids[] = $id;
-            }
+            if ($count > 1) { $duplicate_ids[] = $id; }
         }
-
         if (!empty($duplicate_ids)) {
-            echo json_encode([
-                'success' => false, 
-                'message' => "Duplicate Error: Employee ID(s) repeated in this trip: " . implode(', ', $duplicate_ids)
-            ]);
-            exit(); // Stop execution
+            echo json_encode(['success' => false, 'message' => "Duplicate Error: Employee ID(s) repeated: " . implode(', ', $duplicate_ids)]);
+            exit();
         }
     }
-
-    // C. Check against database (using unique list to be efficient)
-    $unique_ids = array_unique($all_submitted_ids);
-
-    if (!empty($unique_ids)) {
-        $count = count($unique_ids);
-        $placeholders = implode(',', array_fill(0, $count, '?'));
-        $types = str_repeat('i', $count); // Assuming integer IDs
-        
-        $sql_check = "SELECT emp_id FROM employee WHERE emp_id IN ($placeholders)";
-        $stmt_check = $conn->prepare($sql_check);
-        
-        if ($stmt_check) {
-            $stmt_check->bind_param($types, ...$unique_ids);
-            $stmt_check->execute();
-            $result = $stmt_check->get_result();
-            
-            $found_ids = [];
-            while ($row = $result->fetch_assoc()) {
-                $found_ids[] = $row['emp_id'];
-            }
-            $stmt_check->close();
-            
-            $invalid_ids = array_diff($unique_ids, $found_ids);
-            
-            if (!empty($invalid_ids)) {
-                echo json_encode([
-                    'success' => false, 
-                    'message' => "Validation Error: The following Employee IDs do not exist: " . implode(', ', $invalid_ids)
-                ]);
-                exit(); 
-            }
-        } else {
-            throw new Exception("Database error during validation: " . $conn->error);
-        }
-    }
-    // =======================================================================
-    // END VALIDATION BLOCK
-    // =======================================================================
 
     // 4. Start Transaction
     $conn->begin_transaction();
         
-    // A. Insert into extra_vehicle_register
+    // A. Insert into extra_vehicle_register (UPDATED WITH SUB_ROUTE)
     $sql_main = "INSERT INTO extra_vehicle_register 
-                    (vehicle_no, supplier_code, from_location, to_location, date, time, distance, done, op_code, route, ac_status, user_id) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"; 
+                    (vehicle_no, supplier_code, from_location, to_location, date, time, distance, done, op_code, route, sub_route, ac_status, remarks, user_id) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"; 
     
     $user_id = $_SESSION['user_id'] ?? 0;
     $stmt_main = $conn->prepare($sql_main);
     
-    $stmt_main->bind_param("ssssssdissii", 
+    // "ssssssdisssisi" -> added one 's' for sub_route
+    $stmt_main->bind_param("ssssssdisssisi", 
         $vehicle_no, $supplier_code, $from_location, $to_location, $trip_date, $trip_time, 
         $distance, $done_flag, 
-        $trip_op_code, $trip_route_code, 
-        $ac_status, $user_id
+        $trip_op_code, $trip_route_code, $trip_sub_route_code, // Added sub_route variable
+        $ac_status, $remarks, $user_id
     );
 
     if (!$stmt_main->execute()) {

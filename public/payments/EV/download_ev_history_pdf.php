@@ -19,6 +19,8 @@ date_default_timezone_set('Asia/Colombo');
 $code = $_GET['code'] ?? ''; 
 $month = isset($_GET['month']) ? (int)$_GET['month'] : 0; 
 $year = isset($_GET['year']) ? (int)$_GET['year'] : 0;
+// ADDED: Capture the type from URL if available
+$type = $_GET['type'] ?? 'Unknown';
 
 if (!$code || !$month || !$year) {
     die("Invalid Request parameters.");
@@ -26,7 +28,7 @@ if (!$code || !$month || !$year) {
 
 $monthName = date('F', mktime(0,0,0,$month,10));
 
-// --- 2. Extend FPDF Class (EXACT COPY from your download_ev_pdf.php) ---
+// --- 2. Extend FPDF Class ---
 class PDF extends FPDF
 {
     protected $period;
@@ -147,7 +149,7 @@ $pdf->SetReportDetails($monthName, $year);
 $pdf->AddPage();
 $pdf->SetFont('Arial', '', 12);
 
-// Subtitle
+// Subtitle (UPDATED TO SHOW TYPE)
 $pdf->Cell(0,10,"Summary for {$monthName}, {$year}",0,1,'C');
 $pdf->Cell(0,5,"Identifier: " . $data['code'],0,1,'C');
 $pdf->Ln(8);
@@ -188,7 +190,7 @@ $pdf->SetFillColor(255,255,255); // White Rows
 $pdf->Cell(130,8,'Total Distance (Km)',1,0,'L',1);
 $pdf->Cell(60,8,number_format($data['total_distance'], 2),1,1,'R',1);
 
-// Data Row 2: Rate (NEW ADDITION)
+// Data Row 2: Rate
 $pdf->Cell(130,8,'Average Rate (LKR/Km)',1,0,'L',1);
 $pdf->Cell(60,8,number_format($data['rate'], 2),1,1,'R',1);
 
@@ -201,7 +203,9 @@ $pdf->Cell(60,8,number_format($data['monthly_payment'], 2),1,1,'R',1);
 $pdf->Ln(10);
 
 // Output
-$filename = "EV_Voucher_" . $code . "_" . date('Y-m', mktime(0,0,0,$month,1,$year)) . ".pdf";
+// Removed slash to avoid potential file naming issues if code contains slash
+$safe_code = str_replace('/', '-', $code);
+$filename = "EV_Voucher_" . $safe_code . "_" . date('Y-m', mktime(0,0,0,$month,1,$year)) . ".pdf";
 $pdf->Output('D', $filename);
 
 $conn->close();

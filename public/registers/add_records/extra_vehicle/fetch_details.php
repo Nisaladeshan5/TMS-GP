@@ -1,6 +1,6 @@
 <?php
 // fetch_details.php
-include('../../../../includes/db.php'); // Adjust path as needed
+include('../../../../includes/db.php'); // ඔබේ db path එක නිවැරදිදැයි බලන්න
 
 header('Content-Type: application/json');
 
@@ -15,55 +15,54 @@ if (isset($_GET['code_type']) && isset($_GET['trip_code'])) {
     $vehicle_no = null;
 
     if ($code_type === 'Route') {
-        // --- ROUTE CODE LOOKUP (SIMPLIFIED) ---
-        // We now assume the 'route' table directly contains both supplier_code and vehicle_no
-        $sql = "SELECT supplier_code, vehicle_no FROM route WHERE route_code = ?";
+        // --- ROUTE LOOKUP ---
+        // route table එකෙන් supplier සහ vehicle ලබා ගැනීම
+        $sql = "SELECT supplier_code, vehicle_no FROM route WHERE route_code = ? LIMIT 1";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("s", $trip_code);
         $stmt->execute();
         $result = $stmt->get_result();
         
-        if ($result->num_rows > 0) {
-            $row = $result->fetch_assoc();
-            // Capture both values from the single query
+        if ($row = $result->fetch_assoc()) {
             $supplier_code = $row['supplier_code'];
-            $vehicle_no = $row['vehicle_no']; // Capture vehicle_no directly
+            $vehicle_no = $row['vehicle_no'];
         }
-        $stmt->close(); // Statement closing is necessary
+        $stmt->close();
         
+    } elseif ($code_type === 'Sub_Route') {
+        // --- SUB ROUTE LOOKUP (NEW) ---
+        // sub_route table එකෙන් supplier සහ vehicle ලබා ගැනීම
+        $sql = "SELECT supplier_code, vehicle_no FROM sub_route WHERE sub_route_code = ? LIMIT 1";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $trip_code);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($row = $result->fetch_assoc()) {
+            $supplier_code = $row['supplier_code'];
+            $vehicle_no = $row['vehicle_no'];
+        }
+        $stmt->close();
+
     } elseif ($code_type === 'Operation') {
-        // --- OPERATION CODE LOOKUP (Logic remains the same, as it links vehicle_no to supplier) ---
+        // --- OPERATION LOOKUP ---
+        // දැන් කෙලින්ම op_services table එකේ ඇති supplier_code එක ලබා ගනී
+        $sql = "SELECT supplier_code, vehicle_no FROM op_services WHERE op_code = ? LIMIT 1";
         
-        // 1. Get vehicle_no from the 'op_services' table
-        $sql_op = "SELECT vehicle_no FROM op_services WHERE op_code = ?";
-        $stmt_op = $conn->prepare($sql_op);
-        $stmt_op->bind_param("s", $trip_code);
-        $stmt_op->execute();
-        $result_op = $stmt_op->get_result();
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $trip_code);
+        $stmt->execute();
+        $result = $stmt->get_result();
 
-        if ($result_op->num_rows > 0) {
-            $row_op = $result_op->fetch_assoc();
-            $vehicle_no = $row_op['vehicle_no'];
-
-            // 2. Use the vehicle_no to find the supplier_code from the 'vehicle' table
-            if ($vehicle_no) {
-                $sql_veh = "SELECT supplier_code FROM vehicle WHERE vehicle_no = ?";
-                $stmt_veh = $conn->prepare($sql_veh);
-                $stmt_veh->bind_param("s", $vehicle_no);
-                $stmt_veh->execute();
-                $result_veh = $stmt_veh->get_result();
-
-                if ($result_veh->num_rows > 0) {
-                    $row_veh = $result_veh->fetch_assoc();
-                    $supplier_code = $row_veh['supplier_code'];
-                }
-                $stmt_veh->close();
-            }
+        if ($row = $result->fetch_assoc()) {
+            // වාහනය මත පදනම් නොවී, Operation එකට අදාළ Supplier ලබා ගනී
+            $supplier_code = $row['supplier_code'];
+            $vehicle_no = $row['vehicle_no'];
         }
-        $stmt_op->close();
+        $stmt->close();
     }
 
-    // --- Final Response Check ---
+    // දත්ත පරීක්ෂාව
     if ($supplier_code) {
         $response = [
             'success' => true,
@@ -73,14 +72,14 @@ if (isset($_GET['code_type']) && isset($_GET['trip_code'])) {
     } else {
         $response = [
             'success' => false,
-            'message' => 'Code not found or primary data (Supplier/Vehicle) missing.',
+            'message' => 'Supplier not assigned to this ' . $code_type,
             'supplier_code' => null,
             'vehicle_no' => null
         ];
     }
 
 } else {
-    $response['message'] = 'Code or type not provided.';
+    $response['message'] = 'Code or type missing.';
 }
 
 echo json_encode($response);

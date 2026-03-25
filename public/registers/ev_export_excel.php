@@ -30,9 +30,12 @@ echo '<tr>
         <th style="background-color: #2563eb; color: white;">Date</th>
         <th style="background-color: #2563eb; color: white;">Vehicle No</th>
         <th style="background-color: #2563eb; color: white;">Supplier</th>
-        <th style="background-color: #2563eb; color: white;">Op/Route Code</th>
+        <th style="background-color: #2563eb; color: white;">Op/Route/Sub Code</th>
         <th style="background-color: #2563eb; color: white;">A/C</th>
         <th style="background-color: #2563eb; color: white;">Distance (km)</th>
+        <th style="background-color: #2563eb; color: white;">From</th>
+        <th style="background-color: #2563eb; color: white;">To</th>
+        <th style="background-color: #2563eb; color: white;">Remarks</th>
         <th style="background-color: #2563eb; color: white;">Passengers & Reasons (ID - Name)</th>
       </tr>';
 
@@ -56,26 +59,44 @@ $result = $stmt->get_result();
 
 if ($result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
-        $op_or_route = !empty($row['route']) ? "RT: ".$row['route'] : "OP: ".$row['op_code'];
+        
+        // --- ADDED SUB ROUTE LOGIC ---
+        $display_code = '';
+        if (!empty($row['route'])) {
+            $display_code = "RT: " . $row['route'];
+        } elseif (!empty($row['sub_route'])) {
+            $display_code = "SUB: " . $row['sub_route'];
+        } elseif (!empty($row['op_code'])) {
+            $display_code = "OP: " . $row['op_code'];
+        } else {
+            $display_code = "Pending";
+        }
+
         $ac_label = ($row['ac_status'] == 1) ? "Yes" : "No";
 
         echo '<tr>';
         echo '<td style="text-align: center;">' . $row['id'] . '</td>';
         echo '<td>' . $row['date'] . '</td>';
-        echo '<td style="font-weight: bold; text-transform: uppercase;">' . htmlspecialchars($row['vehicle_no']) . '</td>';
+        echo '<td style="font-weight: bold; text-transform: uppercase;">' . htmlspecialchars($row['vehicle_no'] ?? '') . '</td>';
         echo '<td>' . htmlspecialchars($row['supplier'] ?? '-') . '</td>';
-        echo '<td style="text-align: center;">' . htmlspecialchars($op_or_route) . '</td>';
+        
+        // Updated Code Display
+        echo '<td style="text-align: center;">' . htmlspecialchars($display_code) . '</td>';
+        
         echo '<td style="text-align: center;">' . $ac_label . '</td>';
-        echo '<td style="text-align: right;">' . number_format($row['distance'], 2) . '</td>';
-        // සේවක විස්තර: "ID - Name (Reason) / ID - Name (Reason)"
+        echo '<td style="text-align: right;">' . number_format($row['distance'] ?? 0, 2) . '</td>';
+        echo '<td>' . htmlspecialchars($row['from_location'] ?? '') . '</td>';
+        echo '<td>' . htmlspecialchars($row['to_location'] ?? '') . '</td>';
+        echo '<td>' . htmlspecialchars($row['remarks'] ?? '') . '</td>';
         echo '<td>' . htmlspecialchars($row['passenger_details'] ?? '-') . '</td>';
         echo '</tr>';
     }
 } else {
-    echo '<tr><td colspan="8" style="text-align: center; padding: 10px;">No completed records found for ' . $month_only . '</td></tr>';
+    echo '<tr><td colspan="11" style="text-align: center; padding: 10px;">No completed records found for ' . $month_only . '</td></tr>';
 }
 
 echo '</table>';
 $stmt->close();
 $conn->close();
 exit;
+?>

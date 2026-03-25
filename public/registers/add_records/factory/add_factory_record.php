@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             SELECT 
                 r.vehicle_no, 
                 v.driver_NIC, 
-                v.supplier_code
+                r.supplier_code
             FROM route r 
             JOIN vehicle v ON r.vehicle_no = v.vehicle_no 
             WHERE r.route_code = ?";

@@ -1,5 +1,5 @@
 <?php
-// download_ev_pdf.php - Generates PDF summary for Extra Vehicle Payments
+// download_ev_pdf.php - Generates PDF summary for Extra Vehicle Payments (Updated with Sub Route)
 
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
@@ -16,8 +16,8 @@ require('../fpdf.php'); // Ensure fpdf.php is in the correct path relative to th
 date_default_timezone_set('Asia/Colombo');
 
 // --- 1. Get Inputs ---
-$identifier = $_GET['id'] ?? ''; // This is either Op Code or Route Code
-$type = $_GET['type'] ?? '';     // 'Operation' or 'Route'
+$identifier = $_GET['id'] ?? ''; // This is either Op Code, Route Code, or Sub Route Code
+$type = $_GET['type'] ?? '';     // 'Operation', 'Route', or 'Sub Route'
 $selected_month = isset($_GET['month']) ? (int)$_GET['month'] : date('m'); 
 $selected_year = isset($_GET['year']) ? (int)$_GET['year'] : date('Y');
 
@@ -28,7 +28,7 @@ if (!$identifier || !$type) {
 $monthName = date('F', mktime(0,0,0,$selected_month,10));
 $filterMonthNum = str_pad($selected_month, 2, '0', STR_PAD_LEFT);
 
-// --- 2. Extend FPDF Class (Same Style as Reference) ---
+// --- 2. Extend FPDF Class ---
 class PDF extends FPDF
 {
     protected $identifier;
@@ -108,7 +108,7 @@ class PDF extends FPDF
     }
 }
 
-// --- 3. PRE-FETCH DATA (Same Logic as ev_payments.php) ---
+// --- 3. PRE-FETCH DATA ---
 
 // A. Fuel Rate History
 $fuel_history = [];
@@ -155,6 +155,19 @@ if ($rt_res) {
     }
 }
 
+// E. Sub Route Data (NEW)
+$sub_route_data = [];
+$sub_rt_res = $conn->query("SELECT sub_route_code, fixed_rate, vehicle_no, with_fuel FROM sub_route WHERE is_active = 1");
+if ($sub_rt_res) {
+    while ($row = $sub_rt_res->fetch_assoc()) {
+        $sub_route_data[$row['sub_route_code']] = [
+            'fixed_rate' => (float)$row['fixed_rate'], 
+            'assigned_vehicle' => $row['vehicle_no'], 
+            'with_fuel' => (int)$row['with_fuel']
+        ];
+    }
+}
+
 // --- 4. FETCH TRIPS ---
 $sql = "
     SELECT evr.*, s.supplier, s.supplier_code, s.email, s.beneficiaress_name, s.bank, s.branch, s.acc_no
@@ -163,9 +176,11 @@ $sql = "
     WHERE MONTH(evr.date) = ? AND YEAR(evr.date) = ? AND evr.done = 1
 ";
 
-// Filter by ID based on type
+// Filter by ID based on type (UPDATED)
 if ($type === 'Route') {
     $sql .= " AND evr.route = ?";
+} elseif ($type === 'Sub Route') {
+    $sql .= " AND evr.sub_route = ?";
 } else {
     $sql .= " AND evr.op_code = ?";
 }
@@ -195,13 +210,32 @@ while ($row = $result->fetch_assoc()) {
     $pay_amount = 0;
     $rate_applied = 0;
 
-    // Calc Logic (Mirrors ev_payments.php)
+    // Calc Logic 
     if (!empty($row['op_code'])) {
         if (isset($op_rates[$row['op_code']])) {
             $rate_applied = ($row['ac_status'] == 1) ? $op_rates[$row['op_code']]['ac'] : $op_rates[$row['op_code']]['non_ac'];
             $pay_amount = $distance * $rate_applied;
         }
-    } elseif (!empty($row['route'])) {
+    } 
+    // UPDATED: SUB ROUTE CALCULATION
+    elseif (!empty($row['sub_route'])) {
+        if (isset($sub_route_data[$row['sub_route']])) {
+            $fixed = $sub_route_data[$row['sub_route']]['fixed_rate'];
+            $assigned_veh = $sub_route_data[$row['sub_route']]['assigned_vehicle'];
+            $with_fuel = $sub_route_data[$row['sub_route']]['with_fuel'];
+            $fuel_cost = 0;
+
+            if ($with_fuel == 1 && !empty($assigned_veh) && isset($vehicle_specs[$assigned_veh])) {
+                $v_spec = $vehicle_specs[$assigned_veh];
+                $km_l = $v_spec['km_per_liter'];
+                $fuel_rate = get_rate_for_date($v_spec['rate_id'], $trip_date, $fuel_history);
+                if ($km_l > 0) $fuel_cost = $fuel_rate / $km_l;
+            }
+            $rate_applied = $fixed + $fuel_cost;
+            $pay_amount = $distance * $rate_applied;
+        }
+    } 
+    elseif (!empty($row['route'])) {
         if (isset($route_data[$row['route']])) {
             $fixed = $route_data[$row['route']]['fixed_amount'];
             $assigned_veh = $route_data[$row['route']]['assigned_vehicle'];
@@ -239,8 +273,15 @@ $pdf->SetReportDetails($identifier, $type, $monthName, $selected_year);
 $pdf->AddPage();
 $pdf->SetFont('Arial', '', 12);
 
-// Subtitle
-$title_text = ($type === 'Route') ? "Route Code: " . $identifier : "Op Code: " . $identifier;
+// Subtitle (UPDATED TITLE FOR SUB ROUTE)
+if ($type === 'Route') {
+    $title_text = "Route Code: " . $identifier;
+} elseif ($type === 'Sub Route') {
+    $title_text = "Sub Route Code: " . $identifier;
+} else {
+    $title_text = "Op Code: " . $identifier;
+}
+
 $pdf->Cell(0,10,"Summary for {$monthName}, {$selected_year}",0,1,'C');
 $pdf->Cell(0,5,$title_text,0,1,'C');
 $pdf->Ln(8);

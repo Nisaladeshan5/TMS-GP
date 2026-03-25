@@ -1,5 +1,5 @@
 <?php
-// all_payments_summary.php - Grand Summary (Styled like own_vehicle_payments.php)
+// all_payments_summary.php - Grand Summary
 
 require_once '../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -12,21 +12,24 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 }
 
 include('../../includes/db.php');
-include('../../includes/header.php'); // Commented out in template, usually replaced by custom header
-include('../../includes/navbar.php'); // Commented out in template
+include('../../includes/header.php'); 
+include('../../includes/navbar.php'); 
 date_default_timezone_set('Asia/Colombo');
 
 // =======================================================================
-// 1. FILTERS & LOGIC (UNCHANGED)
+// 1. FILTERS & LOGIC
 // =======================================================================
 $selected_month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
 $selected_year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 
-// --- 2. DATA AGGREGATION LOGIC (UNCHANGED) ---
+// --- 2. DATA AGGREGATION LOGIC ---
+// Total of 7 SELECT statements = 14 parameters needed
 $sql = "
     SELECT supplier_code, SUM(monthly_payment) as amount, 'Staff' as category FROM monthly_payments_sf WHERE month = ? AND year = ? GROUP BY supplier_code
     UNION ALL
     SELECT supplier_code, SUM(monthly_payment) as amount, 'Factory' as category FROM monthly_payments_f WHERE month = ? AND year = ? GROUP BY supplier_code
+    UNION ALL
+    SELECT supplier_code, SUM(monthly_payment) as amount, 'sub' as category FROM monthly_payments_sub WHERE month = ? AND year = ? GROUP BY supplier_code
     UNION ALL
     SELECT supplier_code, SUM(monthly_payment) as amount, 'Night Emergency' as category FROM monthly_payment_ne WHERE month = ? AND year = ? GROUP BY supplier_code
     UNION ALL
@@ -38,25 +41,34 @@ $sql = "
 ";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iiiiiiiiiiii", 
-    $selected_month, $selected_year, 
-    $selected_month, $selected_year, 
-    $selected_month, $selected_year, 
-    $selected_month, $selected_year, 
-    $selected_month, $selected_year, 
-    $selected_month, $selected_year
-);
-$stmt->execute();
-$result = $stmt->get_result();
+
+if ($stmt) {
+    // We have 7 pairs of (month, year), so we need 14 'i's
+    $stmt->bind_param("iiiiiiiiiiiiii", 
+        $selected_month, $selected_year, // 1. Staff
+        $selected_month, $selected_year, // 2. Factory
+        $selected_month, $selected_year, // 3. Sub
+        $selected_month, $selected_year, // 4. Night Emergency
+        $selected_month, $selected_year, // 5. Extra Vehicle
+        $selected_month, $selected_year, // 6. Day Heldup
+        $selected_month, $selected_year  // 7. Night Heldup
+    );
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    die("Database query failed: " . $conn->error);
+}
 
 $summary_data = [];
 $supplier_info = [];
 
+// Fetch supplier names
 $sup_res = $conn->query("SELECT supplier_code, supplier FROM supplier");
 while ($row = $sup_res->fetch_assoc()) {
     $supplier_info[$row['supplier_code']] = $row['supplier'];
 }
 
+// Process query results
 while ($row = $result->fetch_assoc()) {
     $sup_code = $row['supplier_code'];
     $cat = $row['category'];
@@ -78,7 +90,6 @@ $stmt->close();
 
 $page_title = "Total Payments Summary";
 
-// Month Names for Dropdown
 $monthNames = [
     '1' => 'January', '2' => 'February', '3' => 'March', '4' => 'April',
     '5' => 'May', '6' => 'June', '7' => 'July', '8' => 'August',
@@ -104,21 +115,11 @@ $monthNames = [
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
-        /* Dropdown Menu Styles */
         .dropdown-menu { display: none; position: absolute; right: 0; top: 120%; z-index: 50; min-width: 220px; background-color: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15); overflow: hidden; animation: slideDown 0.2s ease-out; }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .dropdown-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #374151; font-size: 0.875rem; transition: background-color 0.15s; }
         .dropdown-item:hover { background-color: #f3f4f6; color: #111827; }
     </style>
-    
-    <script>
-        const SESSION_TIMEOUT_MS = 32400000; 
-        const LOGIN_PAGE_URL = "/TMS/includes/client_logout.php"; 
-        setTimeout(function() {
-            alert("Your session has expired due to 9 hours of inactivity. Please log in again.");
-            window.location.href = LOGIN_PAGE_URL; 
-        }, SESSION_TIMEOUT_MS);
-    </script>
 </head>
 
 <body class="bg-gray-100">
@@ -128,6 +129,7 @@ $monthNames = [
         <p class="text-gray-300 text-sm tracking-wide">Loading...</p>
     </div>
 </div>
+
 <div class="bg-gradient-to-r from-gray-900 to-indigo-900 text-white h-16 flex justify-between items-center shadow-lg w-[85%] ml-[15%] px-6 sticky top-0 z-40 border-b border-gray-700">
     <div class="flex items-center gap-3">
         <div class="text-lg font-bold tracking-wide bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 bg-clip-text text-transparent">
@@ -136,37 +138,26 @@ $monthNames = [
     </div>
     
     <div class="flex items-center gap-4 text-sm font-medium">
-        
         <form method="get" action="" class="flex items-center gap-2">
-            
             <div class="relative">
-                <select name="month" onchange="this.form.submit()" 
-                        class="appearance-none bg-gray-800 text-white border border-gray-600 rounded-md py-1.5 pl-3 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 cursor-pointer hover:bg-gray-700 transition font-mono">
+                <select name="month" onchange="this.form.submit()" class="appearance-none bg-gray-800 text-white border border-gray-600 rounded-md py-1.5 pl-3 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 cursor-pointer hover:bg-gray-700 transition font-mono">
                     <?php foreach ($monthNames as $val => $name): ?>
                         <option value="<?php echo $val; ?>" <?php echo ($selected_month == $val) ? 'selected' : ''; ?>>
                             <?php echo $name; ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
-                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                    <i class="fas fa-chevron-down text-[10px]"></i>
-                </div>
             </div>
 
             <div class="relative">
-                <select name="year" onchange="this.form.submit()" 
-                        class="appearance-none bg-gray-800 text-white border border-gray-600 rounded-md py-1.5 pl-3 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 cursor-pointer hover:bg-gray-700 transition font-mono">
+                <select name="year" onchange="this.form.submit()" class="appearance-none bg-gray-800 text-white border border-gray-600 rounded-md py-1.5 pl-3 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-500 cursor-pointer hover:bg-gray-700 transition font-mono">
                     <?php for ($y = date('Y'); $y >= 2020; $y--): ?>
                         <option value="<?php echo $y; ?>" <?php echo ($selected_year == $y) ? 'selected' : ''; ?>>
                             <?php echo $y; ?>
                         </option>
                     <?php endfor; ?>
                 </select>
-                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                    <i class="fas fa-chevron-down text-[10px]"></i>
-                </div>
             </div>
-
         </form>
 
         <span class="text-gray-600 text-lg font-thin">|</span>
@@ -192,21 +183,18 @@ $monthNames = [
                 </div>
             </div>
         </div>
-
     </div>
 </div>
 
 <div class="flex flex-col items-center mt-2 w-[85%] ml-[15%] p-2">
-    
     <div class="w-full">
-        
         <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm text-left">
                     <thead class="bg-blue-600 text-white uppercase text-xs tracking-wider">
                         <tr>
-                            <th class="py-3 px-6 font-semibold border-b border-blue-500 text-left">Supplier Code</th>
-                            <th class="py-3 px-6 font-semibold border-b border-blue-500 text-left">Supplier Name</th>
+                            <th class="py-3 px-6 font-semibold border-b border-blue-500">Supplier Code</th>
+                            <th class="py-3 px-6 font-semibold border-b border-blue-500">Supplier Name</th>
                             <th class="py-3 px-6 font-semibold border-b border-blue-500 text-right">Total Payment (LKR)</th>
                             <th class="py-3 px-6 font-semibold border-b border-blue-500 text-center">Actions</th>
                         </tr>
@@ -215,35 +203,22 @@ $monthNames = [
                         <?php if (empty($summary_data)): ?>
                             <tr>
                                 <td colspan="4" class="py-4 text-center text-gray-500 text-base font-medium">
-                                    No payment records found for <?php echo date('F Y', mktime(0, 0, 0, $selected_month, 10, $selected_year)); ?>.
+                                    No records found for <?php echo date('F Y', mktime(0, 0, 0, $selected_month, 10, $selected_year)); ?>.
                                 </td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($summary_data as $sup_code => $data): ?>
-                                <tr class="hover:bg-indigo-50 transition duration-150 group">
-                                    <td class="py-3 px-6 font-medium text-gray-800">
-                                        <?php echo htmlspecialchars($data['code']); ?>
-                                    </td>
-                                    <td class="py-3 px-6 font-medium text-gray-600">
-                                        <?php echo htmlspecialchars($data['name']); ?>
-                                    </td>
-                                    <td class="py-3 px-6 text-right font-extrabold text-blue-700 text-base">
-                                        <?php echo number_format($data['total'], 2); ?>
-                                    </td>
+                                <tr class="hover:bg-indigo-50 transition duration-150">
+                                    <td class="py-3 px-6 font-medium text-gray-800"><?php echo htmlspecialchars($data['code']); ?></td>
+                                    <td class="py-3 px-6 font-medium text-gray-600"><?php echo htmlspecialchars($data['name']); ?></td>
+                                    <td class="py-3 px-6 text-right font-extrabold text-blue-700 text-base"><?php echo number_format($data['total'], 2); ?></td>
                                     <td class="py-3 px-6 text-center">
-                                        
-                                        <button onclick='openModal(<?php echo json_encode($data); ?>)' 
-                                                class="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors inline-block mr-2"
-                                                title="View Breakdown">
+                                        <button onclick='openModal(<?php echo json_encode($data); ?>)' class="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors inline-block mr-2">
                                             <i class="fas fa-eye"></i>
                                         </button>
-                                        
-                                        <a href="download_all_payment_pdf.php?supplier_code=<?php echo urlencode($data['code']); ?>&month=<?php echo $selected_month; ?>&year=<?php echo $selected_year; ?>" 
-                                           class="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors inline-block"
-                                           title="Download PDF" target="_blank">
+                                        <a href="download_all_payment_pdf.php?supplier_code=<?php echo urlencode($data['code']); ?>&month=<?php echo $selected_month; ?>&year=<?php echo $selected_year; ?>" class="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors inline-block" target="_blank">
                                             <i class="fas fa-file-pdf"></i>
                                         </a>
-
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -252,126 +227,62 @@ $monthNames = [
                 </table>
             </div>
         </div>
-
     </div>
 </div>
 
 <div id="detailModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm hidden items-center justify-center z-50">
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 transform transition-all scale-100 border border-gray-200">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 border border-gray-200">
         <div class="flex justify-between items-center mb-4 border-b pb-3">
             <h3 class="text-xl font-bold text-gray-800" id="modalTitle">Payment Breakdown</h3>
-            <button onclick="closeModal()" class="text-gray-400 hover:text-red-500 text-2xl transition focus:outline-none">&times;</button>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-red-500 text-2xl focus:outline-none">&times;</button>
         </div>
-        
-        <div id="modalContent" class="space-y-3">
-            </div>
-
+        <div id="modalContent" class="space-y-3"></div>
         <div class="mt-6 pt-4 border-t flex justify-end">
-            <button onclick="closeModal()" class="bg-gray-800 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition shadow-md font-semibold text-sm">Close</button>
+            <button onclick="closeModal()" class="bg-gray-800 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition font-semibold text-sm">Close</button>
         </div>
     </div>
 </div>
 
 <script>
-    // --- Dropdown Menu Logic ---
-    document.addEventListener('DOMContentLoaded', function() {
-        const menuBtn = document.getElementById('menuBtn');
-        const dropdownMenu = document.getElementById('dropdownMenu');
-
-        menuBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            if (dropdownMenu.style.display === 'block') {
-                dropdownMenu.style.display = 'none';
-            } else {
-                dropdownMenu.style.display = 'block';
-            }
-        });
-
-        document.addEventListener('click', function(e) {
-            if (!menuBtn.contains(e.target) && !dropdownMenu.contains(e.target)) {
-                dropdownMenu.style.display = 'none';
-            }
-        });
+    // Dropdown Logic
+    const menuBtn = document.getElementById('menuBtn');
+    const dropdownMenu = document.getElementById('dropdownMenu');
+    menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdownMenu.style.display = dropdownMenu.style.display === 'block' ? 'none' : 'block';
     });
+    document.addEventListener('click', () => dropdownMenu.style.display = 'none');
 
-    // --- Modal Logic ---
+    // Modal Logic
     function openModal(data) {
         document.getElementById('modalTitle').innerText = data.name + " (" + data.code + ")";
         const content = document.getElementById('modalContent');
         let html = '<table class="w-full text-sm">';
-        
-        // Loop through details
         for (const [category, amount] of Object.entries(data.details)) {
-            html += `
-                <tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                    <td class="py-2 text-gray-600 font-medium">${category}</td>
-                    <td class="py-2 text-right font-bold text-gray-800">${parseFloat(amount).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
-                </tr>
-            `;
+            html += `<tr class="border-b border-gray-100 hover:bg-gray-50">
+                        <td class="py-2 text-gray-600 font-medium">${category}</td>
+                        <td class="py-2 text-right font-bold text-gray-800">${parseFloat(amount).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                     </tr>`;
         }
-        
-        // Grand Total Row
-        html += `
-            <tr class="bg-blue-50 font-bold border-t-2 border-blue-100">
-                <td class="py-3 pl-2 text-blue-800 uppercase text-xs tracking-wider">Grand Total</td>
-                <td class="py-3 pr-2 text-right text-blue-800 text-lg">${parseFloat(data.total).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
-            </tr>
-        </table>`;
-        
+        html += `<tr class="bg-blue-50 font-bold">
+                    <td class="py-3 pl-2 text-blue-800">Grand Total</td>
+                    <td class="py-3 pr-2 text-right text-blue-800 text-lg">${parseFloat(data.total).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                 </tr></table>`;
         content.innerHTML = html;
-        document.getElementById('detailModal').classList.remove('hidden');
-        document.getElementById('detailModal').classList.add('flex');
+        document.getElementById('detailModal').classList.replace('hidden', 'flex');
     }
 
     function closeModal() {
-        document.getElementById('detailModal').classList.add('hidden');
-        document.getElementById('detailModal').classList.remove('flex');
+        document.getElementById('detailModal').classList.replace('flex', 'hidden');
     }
-    
-    // Close on clicking outside
-    document.getElementById('detailModal').addEventListener('click', function(e) {
-        if (e.target === this) closeModal();
-    });
 
+    // Loader Logic
     const loader = document.getElementById("pageLoader");
-
-    function showLoader(text = "Loading factory payments…") {
+    function showLoader(text) {
         loader.querySelector("p").innerText = text;
-        loader.classList.remove("hidden");
-        loader.classList.add("flex");
+        loader.classList.replace("hidden", "flex");
     }
-
-    // 🔹 All normal links
-    document.querySelectorAll("a").forEach(link => {
-        link.addEventListener("click", function () {
-            if (link.target !== "_blank" && !link.classList.contains("no-loader")) {
-                showLoader("Loading page…");
-            }
-        });
-    });
-
-    // 🔹 All forms (including month filter form)
-    document.querySelectorAll("form").forEach(form => {
-        form.addEventListener("submit", function () {
-            showLoader("Applying filter…");
-        });
-    });
-
-    // 🔹 Month and Year dropdowns (Updated for Summary Page)
-    const monthSelect = document.querySelector("select[name='month']");
-    const yearSelect = document.querySelector("select[name='year']");
-
-    if (monthSelect) {
-        monthSelect.addEventListener("change", function () {
-            showLoader("Loading summary...");
-        });
-    }
-
-    if (yearSelect) {
-        yearSelect.addEventListener("change", function () {
-            showLoader("Loading summary...");
-        });
-    }
+    document.querySelectorAll("form").forEach(f => f.addEventListener("submit", () => showLoader("Applying filter...")));
 </script>
 
 </body>

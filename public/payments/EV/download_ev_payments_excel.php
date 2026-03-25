@@ -1,5 +1,5 @@
 <?php
-// download_ev_payments.php - Generates Excel summary for Extra Vehicle Payments (Styled)
+// download_ev_payments.php - Generates Excel summary for Extra Vehicle Payments (Styled with Sub Route)
 
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -22,7 +22,7 @@ $filterYear = $_GET['year'] ?? date('Y');
 $filterMonthNum = str_pad($filterMonthNum, 2, '0', STR_PAD_LEFT);
 $monthName = date('F', mktime(0, 0, 0, (int)$filterMonthNum, 1));
 
-// --- 2. PRE-FETCH DATA (Same Logic as ev_payments.php) ---
+// --- 2. PRE-FETCH DATA ---
 
 // A. Fuel Rate History
 $fuel_history = [];
@@ -82,6 +82,19 @@ if ($rt_res) {
     }
 }
 
+// E. Sub Route Data (NEW)
+$sub_route_data = [];
+$sub_rt_res = $conn->query("SELECT sub_route_code, fixed_rate, vehicle_no, with_fuel FROM sub_route WHERE is_active = 1");
+if ($sub_rt_res) {
+    while ($row = $sub_rt_res->fetch_assoc()) {
+        $sub_route_data[$row['sub_route_code']] = [
+            'fixed_rate' => (float)$row['fixed_rate'], 
+            'assigned_vehicle' => $row['vehicle_no'], 
+            'with_fuel' => (int)$row['with_fuel']
+        ];
+    }
+}
+
 // --- 3. MAIN CALCULATION & AGGREGATION ---
 $payment_data = [];
 
@@ -121,7 +134,26 @@ while ($row = $result->fetch_assoc()) {
             $pay_amount = $distance * $rate;
         }
     } 
-    // --- LOGIC 2: ROUTE CODE ---
+    // --- LOGIC 2: SUB ROUTE CODE (NEW) ---
+    elseif (!empty($row['sub_route'])) {
+        $identifier = $row['sub_route'];
+        $type = 'Sub Route';
+        if (isset($sub_route_data[$identifier])) {
+            $fixed_amount = $sub_route_data[$identifier]['fixed_rate'];
+            $assigned_vehicle = $sub_route_data[$identifier]['assigned_vehicle'];
+            $with_fuel = $sub_route_data[$identifier]['with_fuel'];
+            $fuel_cost_per_km = 0;
+            
+            if ($with_fuel == 1 && !empty($assigned_vehicle) && isset($vehicle_specs[$assigned_vehicle])) {
+                $v_spec = $vehicle_specs[$assigned_vehicle];
+                $km_l = $v_spec['km_per_liter'];
+                $fuel_rate = get_rate_for_date($v_spec['rate_id'], $trip_date, $fuel_history);
+                if ($km_l > 0) $fuel_cost_per_km = $fuel_rate / $km_l;
+            }
+            $pay_amount = $distance * ($fixed_amount + $fuel_cost_per_km);
+        }
+    }
+    // --- LOGIC 3: ROUTE CODE ---
     elseif (!empty($row['route'])) {
         $identifier = $row['route'];
         $type = 'Route';
@@ -190,7 +222,7 @@ header("Expires: 0");
                 </th>
             </tr>
             <tr>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Identifier (OP/Route)</th>
+                <th style="background-color: #ADD8E6; font-weight: bold;">Identifier (OP/Route/Sub)</th>
                 <th style="background-color: #ADD8E6; font-weight: bold;">Type</th>
                 <th style="background-color: #ADD8E6; font-weight: bold;">Supplier</th>
                 <th style="background-color: #ADD8E6; font-weight: bold;">Vehicle No (Ref)</th>

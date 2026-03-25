@@ -69,6 +69,19 @@ function calculate_monthly_ev_data($conn, $month, $year) {
         }
     }
 
+    // E. Sub Route Data (NEW)
+    $sub_route_data = [];
+    $sub_rt_res = $conn->query("SELECT sub_route_code, fixed_rate, vehicle_no, with_fuel FROM sub_route WHERE is_active = 1");
+    if ($sub_rt_res) {
+        while ($row = $sub_rt_res->fetch_assoc()) {
+            $sub_route_data[$row['sub_route_code']] = [
+                'fixed_rate' => (float)$row['fixed_rate'], 
+                'assigned_vehicle' => $row['vehicle_no'], 
+                'with_fuel' => (int)$row['with_fuel']
+            ];
+        }
+    }
+
     // 2. Fetch Trips
     $sql = "
         SELECT 
@@ -116,7 +129,28 @@ function calculate_monthly_ev_data($conn, $month, $year) {
                 $pay_amount = $distance * $rate;
             }
         } 
-        // Logic 2: Route Code
+        // Logic 2: Sub Route Code (NEW)
+        elseif (!empty($row['sub_route'])) {
+            $identifier = $row['sub_route'];
+            $type = 'Sub Route';
+            if (isset($sub_route_data[$identifier])) {
+                $fixed_amount = $sub_route_data[$identifier]['fixed_rate'];
+                $assigned_vehicle = $sub_route_data[$identifier]['assigned_vehicle'];
+                $with_fuel = $sub_route_data[$identifier]['with_fuel'];
+                $fuel_cost_per_km = 0;
+                
+                if ($with_fuel == 1 && !empty($assigned_vehicle) && isset($vehicle_specs[$assigned_vehicle])) {
+                    $v_spec = $vehicle_specs[$assigned_vehicle];
+                    $km_l = $v_spec['km_per_liter'];
+                    $rate_id = $v_spec['rate_id'];
+                    $fuel_rate = $get_rate_for_date($rate_id, $trip_date);
+                    
+                    if ($km_l > 0) $fuel_cost_per_km = $fuel_rate / $km_l;
+                }
+                $pay_amount = $distance * ($fixed_amount + $fuel_cost_per_km);
+            }
+        }
+        // Logic 3: Route Code
         elseif (!empty($row['route'])) {
             $identifier = $row['route'];
             $type = 'Route';
@@ -548,7 +582,7 @@ ob_end_flush();
                         if (data.status === 'success') {
                             alert(data.message);
                             // Redirect to history page on success
-                            window.location.href = `ev_history.php?month=${availableMonth}&year=${availableYear}`;
+                            window.location.href = `ev_history.php?period=${availableYear}-${String(availableMonth).padStart(2, '0')}`;
                         } else {
                             alert("Failed: " + data.message);
                             finalizeButton.disabled = false;
@@ -576,8 +610,11 @@ ob_end_flush();
     }
 
     document.querySelectorAll("a").forEach(link => {
-        link.addEventListener("click", function () {
-            showLoader("Loading...");
+        link.addEventListener("click", function (e) {
+            // Prevent loader if it's a history link (handled separately) or hash link
+            if (!link.href.includes('ev_history.php') && !link.href.includes('#')) {
+                showLoader("Loading...");
+            }
         });
     });
 </script>

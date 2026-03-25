@@ -218,6 +218,14 @@ include('../../includes/navbar.php');
     </div>
     
     <div class="flex items-center gap-4 text-sm font-medium">
+        <a href="fuel_issue_history.php" class="text-gray-300 hover:text-green-400 transition group relative" title="Route Diesel Issue">
+            <i class="fas fa-fill-drip text-lg"></i>
+            <span class="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-max bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">Route Diesel</span>
+        </a>
+        <a href="route_diesel_issue.php" class="text-gray-300 hover:text-green-400 transition group relative" title="Route Diesel Issue">
+            <i class="fas fa-truck-loading text-lg"></i>
+            <span class="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-max bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">Route Diesel</span>
+        </a>
         <a href="fuel_history.php" class="text-gray-300 hover:text-white transition group relative" title="History">
             <i class="fas fa-history text-lg"></i>
             <span class="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-max bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">History</span>

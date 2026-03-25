@@ -1,5 +1,5 @@
 <?php
-// add_extra_vehicle.php (Updated with Auto-ID Formatting and Name Display)
+// add_extra_vehicle.php (Updated with Auto-ID Formatting, Name Display & Sub Route)
 
 require_once '../../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -20,6 +20,7 @@ date_default_timezone_set('Asia/Colombo');
 // --- DATA FETCH FOR DROPDOWNS ---
 $suppliers_data = []; 
 $route_codes_data = []; 
+$sub_routes_data = []; // New array for Sub Routes
 $op_codes = [];
 $reasons_data = []; 
 
@@ -39,7 +40,15 @@ if ($result_routes) {
     }
 }
 
-// 3. Fetch Op Codes
+// 3. Fetch Sub Route Codes (NEW)
+$result_sub_routes = $conn->query("SELECT sub_route, sub_route_code FROM sub_route WHERE is_active = 1 ORDER BY sub_route ASC");
+if ($result_sub_routes) {
+    while ($row = $result_sub_routes->fetch_assoc()) {
+        $sub_routes_data[] = ['code' => $row['sub_route_code'], 'name' => $row['sub_route']];
+    }
+}
+
+// 4. Fetch Op Codes
 $result_ops = $conn->query("SELECT op_code FROM op_services WHERE is_active = 1 GROUP BY op_code ORDER BY op_code ASC");
 if ($result_ops) {
     while ($row = $result_ops->fetch_assoc()) {
@@ -47,7 +56,7 @@ if ($result_ops) {
     }
 }
 
-// 4. Fetch Reasons
+// 5. Fetch Reasons
 $result_reasons = $conn->query("SELECT reason_code, reason FROM reason ORDER BY reason ASC");
 if ($result_reasons) {
     while ($row = $result_reasons->fetch_assoc()) {
@@ -65,37 +74,14 @@ if ($result_reasons) {
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         /* Toast Notifications CSS */
-        #toast-container {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 2000;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-        }
-        .toast {
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            color: white;
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-        }
-        .toast.show {
-            transform: translateY(0);
-            opacity: 1;
-        }
+        #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
+        .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; }
+        .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background-color: #4CAF50; }
         .toast.error { background-color: #F44336; }
         .toast-icon { width: 1.5rem; height: 1.5rem; margin-right: 0.75rem; }
         
         .readonly-field { background-color: #f3f4f6; cursor: not-allowed; }
-        /* Style for employee name display */
         .emp-name-badge { font-size: 0.65rem; font-weight: 700; color: #4f46e5; font-style: italic; margin-left: 0.25rem; display: block; line-height: 1; margin-top: 2px; }
     </style>
 </head>
@@ -110,13 +96,13 @@ if ($result_reasons) {
             New Extra Vehicle Trip
         </h1>
         
-        <p class="text-gray-500 text-sm mb-6">Enter trip details. You must select either a Route Name or an Operation Code.</p>
+        <p class="text-gray-500 text-sm mb-6">Enter trip details. You must select either a Route, Sub Route, OR an Operation Code.</p>
 
         <form id="tripForm" class="space-y-8">
             
             <div class="bg-blue-50 p-6 rounded-lg border border-blue-200">
                 <h3 class="text-lg font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">Trip Identification</h3>
-                <div class="grid md:grid-cols-2 gap-6">
+                <div class="grid md:grid-cols-3 gap-6">
                     <div>
                         <label for="route_code" class="block text-sm font-medium text-gray-700">Route Name:</label>
                         <select id="route_code" name="route_code" onchange="toggleCodeSelection('route')" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
@@ -128,6 +114,19 @@ if ($result_reasons) {
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    
+                    <div>
+                        <label for="sub_route_code" class="block text-sm font-medium text-gray-700">Sub Route Name:</label>
+                        <select id="sub_route_code" name="sub_route_code" onchange="toggleCodeSelection('sub_route')" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
+                            <option value="">-- Select Sub Route --</option>
+                            <?php foreach ($sub_routes_data as $sub_route): ?>
+                                <option value="<?php echo htmlspecialchars($sub_route['code']); ?>">
+                                    <?php echo htmlspecialchars($sub_route['name']); ?> (<?php echo htmlspecialchars($sub_route['code']); ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
                     <div>
                         <label for="op_code" class="block text-sm font-medium text-gray-700">Operation Code:</label>
                         <select id="op_code" name="op_code" onchange="toggleCodeSelection('op')" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
@@ -194,6 +193,10 @@ if ($result_reasons) {
                     <label for="distance" class="block text-sm font-medium text-gray-700">Distance (Km):</label>
                     <input type="number" step="0.01" id="distance" name="distance" placeholder="0.00 (Leave 0 if pending)" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
                 </div>
+                <div class="md:col-span-2">
+                    <label for="remarks" class="block text-sm font-medium text-gray-700">Remarks:</label>
+                    <textarea id="remarks" name="remarks" rows="2" placeholder="Enter any additional notes here..." class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"></textarea>
+                </div>
             </div>
 
             <div class="bg-gray-50 p-6 rounded-lg border border-gray-200 mt-6">
@@ -201,7 +204,7 @@ if ($result_reasons) {
                     <span>Employee Details</span>
                     <div class="flex space-x-2">
                         <button type="button" id="fetch-route-emps-btn" class="bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 text-xs font-medium shadow-sm transition">
-                            Get Route Employees
+                            Get Route/Sub-Route Employees
                         </button>
                         <button type="button" id="add-reason-group-btn" class="bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 text-xs font-medium shadow-sm transition">
                             + Add Group
@@ -273,15 +276,12 @@ if ($result_reasons) {
         let letters = val.match(/[A-Z]+/g) ? val.match(/[A-Z]+/g).join('') : "";
         let numbers = val.match(/\d+/g) ? val.match(/\d+/g).join('') : "";
         
-        // Logical formatting: D -> GPD, empty -> GP
         if (letters === "D") { letters = "GPD"; } 
         else if (letters === "") { letters = "GP"; }
         
         let currentLen = letters.length + numbers.length;
         let zeros = "";
-        if (currentLen < 8) {
-            zeros = "0".repeat(8 - currentLen);
-        }
+        if (currentLen < 8) { zeros = "0".repeat(8 - currentLen); }
         return letters + zeros + numbers;
     }
 
@@ -293,7 +293,6 @@ if ($result_reasons) {
         let iconPath = type === 'success' 
             ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />'
             : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />';
-
         toast.innerHTML = `<svg class="toast-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">${iconPath}</svg><span>${message}</span>`;
         toastContainer.appendChild(toast);
         setTimeout(() => toast.classList.add('show'), 10);
@@ -303,10 +302,19 @@ if ($result_reasons) {
         }, 3000);
     }
 
-    // --- Toggle Route/Op Code ---
+    // --- Toggle Route/Sub-Route/Op Code ---
+    // If one is selected, clear the other two.
     function toggleCodeSelection(type) {
-        if (type === 'route') { $('#op_code').val(""); } 
-        else { $('#route_code').val(""); }
+        if (type === 'route') { 
+            $('#sub_route_code').val(""); 
+            $('#op_code').val(""); 
+        } else if (type === 'sub_route') {
+            $('#route_code').val(""); 
+            $('#op_code').val(""); 
+        } else if (type === 'op') { 
+            $('#route_code').val(""); 
+            $('#sub_route_code').val(""); 
+        }
     }
 
     // --- Employee ID Validation & Name Display (On Blur) ---
@@ -315,13 +323,10 @@ if ($result_reasons) {
         var rawId = inputField.val().trim();
         if (rawId === "") return;
 
-        // Auto format the ID
         var formattedId = formatEmpID(rawId);
         inputField.val(formattedId);
-
         inputField.removeClass('border-red-500 border-green-500 bg-red-50 bg-green-50');
         
-        // Find or create name display span
         var nameSpan = inputField.closest('.employee-input').find('.emp-name-badge');
         if (nameSpan.length === 0) {
             inputField.after('<span class="emp-name-badge"></span>');
@@ -337,26 +342,33 @@ if ($result_reasons) {
                 if (response.status === 'success') { 
                     inputField.addClass('border-green-500 bg-green-50');
                     nameSpan.text(response.name).css('color', '#4f46e5');
-                } 
-                else {
+                } else {
                     inputField.addClass('border-red-500 bg-red-50');
                     nameSpan.text("Invalid ID!").css('color', '#ef4444');
                     showToast('Invalid Employee ID: ' + formattedId, 'error');
                 }
             },
-            error: function() {
-                nameSpan.text("Error checking ID");
-            }
+            error: function() { nameSpan.text("Error checking ID"); }
         });
     });
 
-    // --- Fetch Route Employees Logic ---
+    // --- Fetch Route Employees Logic (Updated to handle sub-routes) ---
     $('#fetch-route-emps-btn').on('click', function() {
         const routeCode = $('#route_code').val();
+        const subRouteCode = $('#sub_route_code').val();
         const reasonCode = $('.reason-select').first().val();
 
-        if (!routeCode) { showToast("Please select a Route first.", 'error'); return; }
-        if (!reasonCode) { showToast("Please select a Reason first.", 'error'); return; }
+        if (!routeCode && !subRouteCode) { 
+            showToast("Please select either a Route or Sub Route first.", 'error'); 
+            return; 
+        }
+        if (!reasonCode) { 
+            showToast("Please select a Reason first.", 'error'); 
+            return; 
+        }
+
+        // Use either route_code or sub_route_code based on what's selected
+        const identifier = routeCode ? routeCode : subRouteCode;
 
         const btn = $(this);
         btn.prop('disabled', true).text('Fetching...');
@@ -364,12 +376,12 @@ if ($result_reasons) {
         $.ajax({
             url: 'process_fetch_route_employees.php',
             type: 'POST',
-            data: { route_code: routeCode },
+            data: { route_code: identifier }, // sending the selected code
             dataType: 'json',
             success: function(employees) {
-                btn.prop('disabled', false).text('Get Route Employees');
+                btn.prop('disabled', false).text('Get Route/Sub-Route Employees');
                 if (employees.length === 0) {
-                    showToast("No active employees found for this route pattern.", 'error');
+                    showToast("No active employees found for this selection.", 'error');
                     return;
                 }
                 const container = $('.reason-group').first().find('.employee-list-container');
@@ -384,13 +396,12 @@ if ($result_reasons) {
                             </div>
                         </div>`;
                     container.append(html);
-                    // Manually trigger blur to load names
                     container.find('.emp-id-input').last().trigger('blur');
                 });
                 showToast(employees.length + " employees added.", 'success');
             },
             error: function() {
-                btn.prop('disabled', false).text('Get Route Employees');
+                btn.prop('disabled', false).text('Get Route/Sub-Route Employees');
                 showToast("Error fetching employees.", 'error');
             }
         });
@@ -399,8 +410,13 @@ if ($result_reasons) {
     // --- Form Submission Logic ---
     $('#tripForm').on('submit', function(e) {
         e.preventDefault();
-        if (!$('#route_code').val() && !$('#op_code').val()) {
-            showToast("Please select either a Route Name or an Operation Code.", 'error');
+        
+        const routeCode = $('#route_code').val();
+        const subRouteCode = $('#sub_route_code').val();
+        const opCode = $('#op_code').val();
+
+        if (!routeCode && !subRouteCode && !opCode) {
+            showToast("Please select a Route, Sub Route, OR an Operation Code.", 'error');
             return;
         }
         if ($('.emp-id-input.border-red-500').length > 0) {

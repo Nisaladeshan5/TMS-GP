@@ -37,7 +37,7 @@ function calculate_fuel_per_km($conn, $vehicle_no, $consumption_rates) {
 }
 // ------------------------------------------
 
-// --- DATA PROCESSING ---
+// --- DATA PROCESSING (UPDATED FOR MULTIPLE SUB ROUTES) ---
 $sql = "
     SELECT 
         sr.sub_route_code,
@@ -50,7 +50,7 @@ $sql = "
         v.type AS vehicle_type,
         COUNT(e.emp_id) as emp_count
     FROM sub_route sr
-    LEFT JOIN employee e ON sr.sub_route_code = e.sub_route_code
+    LEFT JOIN employee e ON FIND_IN_SET(sr.sub_route_code, e.sub_route_code) > 0
     LEFT JOIN vehicle v ON sr.vehicle_no = v.vehicle_no
     WHERE sr.is_active = 1
     GROUP BY sr.sub_route_code
@@ -192,6 +192,7 @@ include('../../includes/navbar.php');
             <div class="flex justify-center gap-4 mb-2 flex-wrap text-xs">
                 <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-orange-500"></span> <span class="font-bold text-gray-600">Van</span></div>
                 <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-purple-500"></span> <span class="font-bold text-gray-600">Three Wheel</span></div>
+                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-blue-500"></span> <span class="font-bold text-gray-600">Bus</span></div>
                 <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-gray-400"></span> <span class="font-bold text-gray-600">Other</span></div>
                 <div class="flex items-center gap-1.5 border-l pl-3 ml-2 border-gray-300"><span class="w-6 h-0.5 bg-orange-600 border-t-2 border-orange-600"></span> <span class="font-bold text-gray-600">Cost/Emp</span></div>
                 <div class="flex items-center gap-1.5 ml-2"><span class="w-6 h-0.5 bg-green-500 border-t-2 border-dashed border-green-500"></span> <span class="font-bold text-gray-600">Distance (KM)</span></div>
@@ -253,6 +254,7 @@ include('../../includes/navbar.php');
         type = type.toLowerCase();
         if (type.includes('van')) return '#f97316';
         if (type.includes('three') || type.includes('wheel')) return '#a855f7';
+        if (type.includes('bus')) return '#0734ff';
         return '#9ca3af';
     }
 
@@ -292,7 +294,7 @@ include('../../includes/navbar.php');
     }
 
     function updateCharts(data) {
-        const chartData = data.length > 30 ? data.slice(0, 30) : data;
+        const chartData = data;
         const labels = chartData.map(d => d.sub_route_code);
         const dailyRate = chartData.map(d => d.per_day_rate);
         const costPerEmp = chartData.map(d => d.cost_per_emp);

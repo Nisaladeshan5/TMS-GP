@@ -15,8 +15,8 @@ $grouped_data = [];
 $unique_routes = [];
 $unique_types = [];
 $efficiency_high = 0; $efficiency_med = 0; $efficiency_low = 0;
-$total_sub_routes = 0; // Sub-routes ගණන් කිරීමට අලුත් variable එකක්
-$report_data = []; // Keep this for the charts
+$total_sub_routes = 0;
+$report_data = [];
 
 // --- 1. FETCH MAIN ROUTE DATA (Independent Calculation) ---
 $sql_main = "
@@ -56,7 +56,18 @@ if ($result_main) {
 
         $total_cap = $seat_cap + $stand_cap;
         $total_act = $seated_act + $standing_act;
-        $percentage = ($total_cap > 0) ? round(($total_act / $total_cap) * 100, 1) : 0;
+        $percentage = ($total_cap > 0) ? round(($total_act / $total_cap) * 100, 0) : 0;
+
+        // අලුත් ගණනය කිරීම් (Available & Percentages)
+        $s_ava = max(0, $seat_cap - $seated_act);
+        $s_pre = ($seat_cap > 0) ? round(($seated_act / $seat_cap) * 100, 0) : 0;
+        $st_ava = max(0, $stand_cap - $standing_act);
+        $st_pre = ($stand_cap > 0) ? round(($standing_act / $stand_cap) * 100, 0) : 0;
+
+        // Main Route එක සඳහා Sub-route වල Badge Colors යෙදීම
+        if ($percentage >= 95) { $main_status_text = 'Excellent'; $main_badge = 'background-color: #d1fae5; color: #065f46; border: 1px solid #10b981;'; }
+        elseif ($percentage >= 86) { $main_status_text = 'Good'; $main_badge = 'background-color: #fef3c7; color: #92400e; border: 1px solid #f59e0b;'; }
+        else { $main_status_text = 'Underutilized'; $main_badge = 'background-color: #fee2e2; color: #b91c1c; border: 1px solid #ef4444;'; }
 
         $v_type = ucfirst($row['vehicle_type'] ?? 'Unknown');
 
@@ -66,11 +77,17 @@ if ($result_main) {
             'vehicle_no' => $row['vehicle_no'],
             'vehicle_type' => $v_type,
             'main_seat_cap' => $seat_cap,
-            'main_stand_cap' => $stand_cap,
             'main_seated_act' => $seated_act,
+            'main_s_ava' => $s_ava,
+            'main_s_pre' => $s_pre,
+            'main_stand_cap' => $stand_cap,
             'main_standing_act' => $standing_act,
+            'main_st_ava' => $st_ava,
+            'main_st_pre' => $st_pre,
             'main_total_act' => $total_act,
             'main_percentage' => $percentage,
+            'main_badge_style' => $main_badge,
+            'main_status_text' => $main_status_text,
             'sub_routes' => []
         ];
     }
@@ -92,7 +109,7 @@ $sql_sub = "
         COUNT(e.emp_id) AS total_employees
     FROM sub_route sr
     LEFT JOIN vehicle v ON sr.vehicle_no = v.vehicle_no
-    LEFT JOIN employee e ON sr.sub_route_code = e.sub_route_code AND e.is_active = 1 AND e.vacated = 0
+    LEFT JOIN employee e ON FIND_IN_SET(sr.sub_route_code, e.sub_route_code) > 0 AND e.is_active = 1 AND e.vacated = 0
     LEFT JOIN route r ON sr.route_code = r.route_code
     WHERE sr.is_active = 1
     GROUP BY sr.sub_route_code
@@ -116,10 +133,16 @@ if ($result_sub) {
 
         $total_cap = $seat_cap + $stand_cap;
         $total_act = $seated_act + $standing_act;
-        $percentage = ($total_cap > 0) ? round(($total_act / $total_cap) * 100, 1) : 0;
+        $percentage = ($total_cap > 0) ? round(($total_act / $total_cap) * 100, 0) : 0;
 
-        if ($percentage >= 97) { $status_key = 'high'; $color_hex = '#10b981'; $status_text = 'Excellent'; $badge_style = 'background-color: #d1fae5; color: #065f46; border: 1px solid #10b981;'; }
-        elseif ($percentage >= 92) { $status_key = 'medium'; $color_hex = '#f59e0b'; $status_text = 'Good'; $badge_style = 'background-color: #fef3c7; color: #92400e; border: 1px solid #f59e0b;'; }
+        // අලුත් ගණනය කිරීම් (Available & Percentages)
+        $s_ava = max(0, $seat_cap - $seated_act);
+        $s_pre = ($seat_cap > 0) ? round(($seated_act / $seat_cap) * 100, 0) : 0;
+        $st_ava = max(0, $stand_cap - $standing_act);
+        $st_pre = ($stand_cap > 0) ? round(($standing_act / $stand_cap) * 100, 0) : 0;
+
+        if ($percentage >= 95) { $status_key = 'high'; $color_hex = '#10b981'; $status_text = 'Excellent'; $badge_style = 'background-color: #d1fae5; color: #065f46; border: 1px solid #10b981;'; }
+        elseif ($percentage >= 86) { $status_key = 'medium'; $color_hex = '#f59e0b'; $status_text = 'Good'; $badge_style = 'background-color: #fef3c7; color: #92400e; border: 1px solid #f59e0b;'; }
         else { $status_key = 'low'; $color_hex = '#ef4444'; $status_text = 'Underutilized'; $badge_style = 'background-color: #fee2e2; color: #b91c1c; border: 1px solid #ef4444;'; }
 
         $row['percentage'] = $percentage;
@@ -130,11 +153,14 @@ if ($result_sub) {
         $row['seated_count'] = $seated_act;
         $row['standing_count'] = $standing_act;
         $row['stand_cap'] = $stand_cap;
+        $row['s_ava'] = $s_ava;
+        $row['s_pre'] = $s_pre;
+        $row['st_ava'] = $st_ava;
+        $row['st_pre'] = $st_pre;
         $row['vehicle_type_display'] = ucfirst($row['vehicle_type'] ?? 'Unknown');
         
-        $report_data[] = $row; // For charts
+        $report_data[] = $row; 
         
-        // Add to corresponding Main Route
         $r_code = $row['route_code'];
         if (isset($grouped_data[$r_code])) {
             $grouped_data[$r_code]['sub_routes'][] = $row;
@@ -142,21 +168,18 @@ if ($result_sub) {
     }
 }
 
-// --- 3. FILTER OUT MAIN ROUTES WITHOUT SUB-ROUTES & CALCULATE SUB-ROUTE METRICS ---
+// --- 3. FILTER OUT MAIN ROUTES WITHOUT SUB-ROUTES & CALCULATE METRICS ---
 foreach ($grouped_data as $r_code => $data) {
     if (empty($data['sub_routes'])) {
-        // Sub-routes නැති ඒවා අයින් කරනවා
         unset($grouped_data[$r_code]); 
     } else {
-        // මෙතනින් තමයි උඩ කොටු 4ට අදාළව Sub-routes වල දත්ත එකතු කරන්නේ
         foreach ($data['sub_routes'] as $sub) {
             $total_sub_routes++;
-            if ($sub['percentage'] >= 97) { $efficiency_high++; }
-            elseif ($sub['percentage'] >= 92) { $efficiency_med++; }
+            if ($sub['percentage'] >= 95) { $efficiency_high++; }
+            elseif ($sub['percentage'] >= 86) { $efficiency_med++; }
             else { $efficiency_low++; }
         }
 
-        // Filters සඳහා Arrays හදනවා
         if (!in_array($r_code, $unique_routes)) $unique_routes[] = $r_code;
         if (!in_array($data['vehicle_type'], $unique_types) && $data['vehicle_type'] !== 'Unknown') $unique_types[] = $data['vehicle_type'];
     }
@@ -213,9 +236,9 @@ include('../../includes/navbar.php');
         
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 shrink-0">
             <div class="metric-card" style="border-color: #3b82f6;"><p class="text-xs text-gray-500 uppercase font-bold">Total Sub-Routes</p><p class="text-2xl font-bold text-gray-800" id="metric-total"><?php echo $total_sub_routes; ?></p></div>
-            <div class="metric-card" style="border-color: #10b981;"><p class="text-xs text-gray-500 uppercase font-bold">Excellent (≥97%)</p><p class="text-2xl font-bold text-green-600" id="metric-high"><?php echo $efficiency_high; ?></p></div>
-            <div class="metric-card" style="border-color: #f59e0b;"><p class="text-xs text-gray-500 uppercase font-bold">Good (92-97%)</p><p class="text-2xl font-bold text-yellow-600" id="metric-med"><?php echo $efficiency_med; ?></p></div>
-            <div class="metric-card" style="border-color: #ef4444;"><p class="text-xs text-gray-500 uppercase font-bold">Underutilized (<92%)</p><p class="text-2xl font-bold text-red-600" id="metric-low"><?php echo $efficiency_low; ?></p></div>
+            <div class="metric-card" style="border-color: #10b981;"><p class="text-xs text-gray-500 uppercase font-bold">Excellent (≥95%)</p><p class="text-2xl font-bold text-green-600" id="metric-high"><?php echo $efficiency_high; ?></p></div>
+            <div class="metric-card" style="border-color: #f59e0b;"><p class="text-xs text-gray-500 uppercase font-bold">Good (86-95%)</p><p class="text-2xl font-bold text-yellow-600" id="metric-med"><?php echo $efficiency_med; ?></p></div>
+            <div class="metric-card" style="border-color: #ef4444;"><p class="text-xs text-gray-500 uppercase font-bold">Underutilized (<86%)</p><p class="text-2xl font-bold text-red-600" id="metric-low"><?php echo $efficiency_low; ?></p></div>
         </div>
 
         <div class="bg-white p-3 border-b flex justify-between items-center shrink-0 rounded-t-lg shadow-sm">
@@ -243,13 +266,17 @@ include('../../includes/navbar.php');
                     <thead>
                         <tr>
                             <th width="3%"></th>
-                            <th>Code</th>
                             <th>Route / Sub-Route Name</th>
+                            <th>Type</th>
                             <th class="text-center bg-blue-50/50">S.Cap</th>
                             <th class="text-center bg-blue-50/50">S.Act</th>
+                            <th class="text-center bg-blue-50/50">S.Ava</th>
+                            <th class="text-center bg-blue-50/50">S.Pre</th>
                             <th class="text-center bg-red-50/50">St.Cap</th>
                             <th class="text-center bg-red-50/50">St.Act</th>
-                            <th class="text-center">Total</th>
+                            <th class="text-center bg-red-50/50">St.Ava</th>
+                            <th class="text-center bg-red-50/50">St.Pre</th>
+                            <th class="text-center bg-slate-100">Total</th>
                             <th class="text-center">Status</th>
                         </tr>
                     </thead>
@@ -258,19 +285,30 @@ include('../../includes/navbar.php');
                         
                         <tr class="route-header cursor-pointer bg-slate-100 font-bold main-route-row" data-route="<?php echo $route_code; ?>" onclick="toggleRoute('<?php echo $route_code; ?>')">
                             <td class="text-center"><i id="icon-<?php echo $route_code; ?>" class="fas fa-chevron-right text-blue-600"></i></td>
-                            <td class="text-xs text-blue-900"><?php echo $route_code; ?></td>
                             <td>
                                 <span class="text-blue-900"><?php echo htmlspecialchars($data['route_name']); ?></span>
-                                <span class="text-[10px] text-gray-500 ml-2 font-normal">(<?php echo $data['vehicle_no']; ?> | <?php echo $data['vehicle_type']; ?>)</span>
+                                <span class="text-xs font-normal text-gray-500 ml-1">(<?php echo $route_code; ?>)</span>
                             </td>
+                            <td>
+                                <span class="text-xs text-blue-700 uppercase"><?php echo $data['vehicle_type']; ?></span>
+                                <?php if(!empty($data['vehicle_no'])) { echo "<span class='text-[10px] text-gray-400 ml-1 font-normal'>| {$data['vehicle_no']}</span>"; } ?>
+                            </td>
+                            
                             <td class="text-center text-blue-700"><?php echo $data['main_seat_cap']; ?></td>
                             <td class="text-center text-blue-900"><?php echo $data['main_seated_act']; ?></td>
+                            <td class="text-center text-blue-500 font-normal"><?php echo $data['main_s_ava']; ?></td>
+                            <td class="text-center text-[10px] text-blue-600"><?php echo $data['main_s_pre']; ?>%</td>
+                            
                             <td class="text-center text-red-600"><?php echo $data['main_stand_cap']; ?></td>
                             <td class="text-center text-red-800"><?php echo $data['main_standing_act']; ?></td>
+                            <td class="text-center text-red-400 font-normal"><?php echo $data['main_st_ava']; ?></td>
+                            <td class="text-center text-[10px] text-red-500"><?php echo $data['main_st_pre']; ?>%</td>
+                            
                             <td class="text-center bg-gray-200"><?php echo $data['main_total_act']; ?></td>
+                            
                             <td class="text-center">
-                                <span class="px-2 py-0.5 rounded border text-[10px] <?php echo $data['main_percentage'] >= 97 ? 'bg-green-100 text-green-700 border-green-300' : ($data['main_percentage'] >= 92 ? 'bg-yellow-100 text-yellow-700 border-yellow-300' : 'bg-red-100 text-red-700 border-red-300'); ?>">
-                                    <?php echo $data['main_percentage']; ?>% Util.
+                                <span style="font-size: 0.65rem; padding: 2px 8px; border-radius: 99px; font-weight: 700; <?php echo $data['main_badge_style']; ?>">
+                                    <?php echo $data['main_status_text']; ?> (<?php echo $data['main_percentage']; ?>%)
                                 </span>
                             </td>
                         </tr>
@@ -280,16 +318,30 @@ include('../../includes/navbar.php');
                             data-route="<?php echo $sub['route_code']; ?>" 
                             data-status="<?php echo $sub['status_key']; ?>">
                             <td></td>
-                            <td class="text-xs font-bold text-slate-600"><i class="fas fa-level-up-alt fa-rotate-90 mr-1 text-gray-300"></i> <?php echo $sub['sub_route_code']; ?></td>
-                            <td class="italic text-gray-600 pl-4"><?php echo htmlspecialchars($sub['sub_route_name']); ?></td>
-                            <td class="text-center text-gray-400"><?php echo $sub['seat_cap']; ?></td>
-                            <td class="text-center font-bold"><?php echo $sub['seated_count']; ?></td>
-                            <td class="text-center text-gray-400"><?php echo $sub['stand_cap']; ?></td>
-                            <td class="text-center font-bold"><?php echo $sub['standing_count']; ?></td>
+                            <td class="italic text-gray-600 pl-4">
+                                <i class="fas fa-level-up-alt fa-rotate-90 mr-1 text-gray-300"></i> 
+                                <?php echo htmlspecialchars(ucwords(strtolower($sub['sub_route_name']))); ?>
+                            </td>
+                            <td>
+                                <span class="text-xs text-gray-500 uppercase"><?php echo $sub['vehicle_type_display']; ?></span>
+                                <?php if(!empty($sub['vehicle_no'])) { echo "<span class='text-[10px] text-gray-400 ml-1'>| {$sub['vehicle_no']}</span>"; } ?>
+                            </td>
+                            
+                            <td class="text-center text-gray-500"><?php echo $sub['seat_cap']; ?></td>
+                            <td class="text-center font-bold text-gray-800"><?php echo $sub['seated_count']; ?></td>
+                            <td class="text-center text-blue-400 text-xs"><?php echo $sub['s_ava']; ?></td>
+                            <td class="text-center text-gray-400 text-[10px]"><?php echo $sub['s_pre']; ?>%</td>
+                            
+                            <td class="text-center text-gray-500"><?php echo $sub['stand_cap']; ?></td>
+                            <td class="text-center font-bold text-gray-800"><?php echo $sub['standing_count']; ?></td>
+                            <td class="text-center text-red-400 text-xs"><?php echo $sub['st_ava']; ?></td>
+                            <td class="text-center text-gray-400 text-[10px]"><?php echo $sub['st_pre']; ?>%</td>
+                            
                             <td class="text-center font-black bg-slate-50"><?php echo ($sub['seated_count'] + $sub['standing_count']); ?></td>
+                            
                             <td class="text-center">
                                 <span style="font-size: 0.65rem; padding: 2px 8px; border-radius: 99px; font-weight: 700; <?php echo $sub['badge_style']; ?>">
-                                    <?php echo $sub['status_text']; ?>
+                                    <?php echo $sub['status_text']; ?> (<?php echo $sub['percentage']; ?>%)
                                 </span>
                             </td>
                         </tr>
@@ -335,7 +387,6 @@ include('../../includes/navbar.php');
         document.querySelectorAll('.main-route-row').forEach(row => {
             const rCode = row.dataset.route;
             row.style.display = (route === 'all' || rCode === route) ? '' : 'none';
-            // Hide sub-rows initially when filtering main routes
             document.querySelectorAll('.sub-row-' + rCode).forEach(sr => sr.classList.add('hidden'));
             const icon = document.getElementById('icon-' + rCode);
             icon.classList.remove('fa-chevron-down');
@@ -366,26 +417,26 @@ include('../../includes/navbar.php');
         });
     }
 
-    // --- EXCEL EXPORT (WHITE BACKGROUND + BEAUTIFIED TITLES & BORDERS) ---
+    // --- EXCEL EXPORT ---
     async function downloadExcel() {
         const workbook = new ExcelJS.Workbook();
-        
-        // 1. මුළු Sheet එකේම Gridlines අයින් කරලා සුදු පසුබිමක් ලබා දීම
         const sheet = workbook.addWorksheet('Capacity Analysis', { views: [{ showGridLines: false }] });
 
         sheet.columns = [
-            { key: 'code', width: 20 },
             { key: 'name', width: 45 },
-            { key: 'v_type', width: 20 },
-            { key: 's_cap', width: 12 },
-            { key: 's_act', width: 12 },
-            { key: 'st_cap', width: 12 },
-            { key: 'st_act', width: 12 },
-            { key: 'total', width: 15 },
+            { key: 'v_type', width: 25 },
+            { key: 's_cap', width: 10 },
+            { key: 's_act', width: 10 },
+            { key: 's_ava', width: 10 },
+            { key: 's_pre', width: 10 },
+            { key: 'st_cap', width: 10 },
+            { key: 'st_act', width: 10 },
+            { key: 'st_ava', width: 10 },
+            { key: 'st_pre', width: 10 },
+            { key: 'total', width: 12 },
             { key: 'util', width: 15 }
         ];
 
-        // --- BORDER STYLE (කළු පාට පැහැදිලි Border එක) ---
         const tableBorder = {
             top: { style: 'thin', color: { argb: 'FF000000' } },
             bottom: { style: 'thin', color: { argb: 'FF000000' } },
@@ -393,97 +444,84 @@ include('../../includes/navbar.php');
             right: { style: 'thin', color: { argb: 'FF000000' } }
         };
 
-        // 2. Main Title Row (උඩම මාතෘකාව)
-        sheet.mergeCells('A1:I1');
+        sheet.mergeCells('A1:L1');
         const titleRow = sheet.getRow(1);
         titleRow.height = 30;
-        for (let i = 1; i <= 9; i++) {
+        for (let i = 1; i <= 12; i++) {
             const cell = titleRow.getCell(i);
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F4C81' } }; // Dark Blue
-            cell.border = tableBorder; // Title එකටත් Border එක වැටෙනවා
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F4C81' } }; 
+            cell.border = tableBorder; 
         }
         const titleCell = titleRow.getCell(1);
         titleCell.value = 'ROUTE & SUB-ROUTE CAPACITY REPORT';
         titleCell.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
         titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
 
-        // 3. Date Row (දිනය සහ වේලාව)
-        sheet.mergeCells('A2:I2');
+        sheet.mergeCells('A2:L2');
         const dateRow = sheet.getRow(2);
         dateRow.height = 20;
-        for (let i = 1; i <= 9; i++) {
+        for (let i = 1; i <= 12; i++) {
             const cell = dateRow.getCell(i);
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }; // Light Slate
-            cell.border = tableBorder; // Date එකටත් Border එක වැටෙනවා
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+            cell.border = tableBorder; 
         }
         const dateCell = dateRow.getCell(1);
         dateCell.value = 'Generated on: ' + new Date().toLocaleString('en-GB');
         dateCell.font = { size: 10, italic: true, color: { argb: 'FF475569' }, bold: true };
         dateCell.alignment = { vertical: 'middle', horizontal: 'right' };
 
-        // 4. Header Row (Table එකේ Headers)
+        // අලුත් Columns ටික Excel එකටත් එකතු කළා
         const headerRow = sheet.addRow([
-            'Route / Sub Code', 'Route / Sub-Route Name', 'Vehicle Type', 
-            'Seat Cap', 'Seated Act', 'Stand Cap', 'Stand Act', 'Total Emps', 'Util %'
+            'Route Name (Code)', 'Vehicle Type | No', 
+            'S.Cap', 'S.Act', 'S.Ava', 'S.Pre%', 
+            'St.Cap', 'St.Act', 'St.Ava', 'St.Pre%', 
+            'Total Emps', 'Status'
         ]);
         headerRow.height = 25;
         headerRow.eachCell((cell, colNum) => {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } }; // Blue-500
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } };
             cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-            cell.alignment = { vertical: 'middle', horizontal: colNum > 3 ? 'center' : 'left' };
+            cell.alignment = { vertical: 'middle', horizontal: colNum > 2 ? 'center' : 'left' };
             cell.border = tableBorder; 
         });
 
-        // 5. Data Rows
         Object.keys(fullGroupedData).forEach(code => {
             const d = fullGroupedData[code];
             
-            // Main Route Row
             const mainRow = sheet.addRow([
-                d.route_code, 
-                d.route_name, 
-                d.vehicle_type, 
-                d.main_seat_cap, 
-                d.main_seated_act, 
-                d.main_stand_cap, 
-                d.main_standing_act, 
+                d.route_name + ' (' + d.route_code + ')', 
+                d.vehicle_type + ' | ' + (d.vehicle_no || 'N/A'), 
+                d.main_seat_cap, d.main_seated_act, d.main_s_ava, d.main_s_pre + '%', 
+                d.main_stand_cap, d.main_standing_act, d.main_st_ava, d.main_st_pre + '%', 
                 d.main_total_act, 
-                d.main_percentage + '%'
+                d.main_status_text + ' (' + d.main_percentage + '%)'
             ]);
             mainRow.font = { bold: true };
             mainRow.eachCell((cell, colNum) => {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }; // Grey Color for Main Route
-                cell.alignment = { vertical: 'middle', horizontal: colNum > 3 ? 'center' : 'left' };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+                cell.alignment = { vertical: 'middle', horizontal: colNum > 2 ? 'center' : 'left' };
                 cell.border = tableBorder; 
             });
 
-            // Sub Route Rows
             d.sub_routes.forEach(s => {
                 const subRow = sheet.addRow([
-                    '    ↳ ' + s.sub_route_code, 
-                    s.sub_route_name, 
-                    s.vehicle_type_display, 
-                    s.seat_cap, 
-                    s.seated_count, 
-                    s.stand_cap, 
-                    s.standing_count, 
+                    '    ↳ ' + s.sub_route_name + ' (' + s.sub_route_code + ')', 
+                    s.vehicle_type_display + ' | ' + (s.vehicle_no || 'N/A'), 
+                    s.seat_cap, s.seated_count, s.s_ava, s.s_pre + '%', 
+                    s.stand_cap, s.standing_count, s.st_ava, s.st_pre + '%', 
                     (s.seated_count + s.standing_count), 
-                    s.percentage + '%'
+                    s.status_text + ' (' + s.percentage + '%)'
                 ]);
                 subRow.eachCell((cell, colNum) => {
-                    cell.alignment = { vertical: 'middle', horizontal: colNum > 3 ? 'center' : 'left' };
+                    cell.alignment = { vertical: 'middle', horizontal: colNum > 2 ? 'center' : 'left' };
                     cell.border = tableBorder; 
                 });
             });
             
-            // එක Group එකක් ඉවර වුණාම හිස් පේළියක් දානවා (Borders නෑ)
             sheet.addRow([]); 
         });
 
-        // 6. Freeze Top Rows (Title, Date, Headers පල්ලෙහාට යද්දි පේන්න)
         sheet.views = [{ state: 'frozen', ySplit: 3, showGridLines: false }];
-
-        // 7. Download Excel
         const buffer = await workbook.xlsx.writeBuffer();
         saveAs(new Blob([buffer]), `Capacity_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
     }

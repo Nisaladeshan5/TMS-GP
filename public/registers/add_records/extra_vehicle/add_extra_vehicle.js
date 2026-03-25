@@ -2,33 +2,30 @@ $(document).ready(function() {
     
     // --- ELEMENT DECLARATIONS ---
     const routeSelect = $('#route_code');
+    const subRouteSelect = $('#sub_route_code'); // අලුතින් එකතු කළා
     const opSelect = $('#op_code');
     const supplierSelect = $('#supplier_code');
     const vehicleInput = $('#vehicle_no');
-    const distanceInput = $('#distance');
     const statusSpan = $('#supplier_loading_status');
-    const acStatusSelect = $('#ac_status'); 
-    
-    // Get the hidden supplier input
     const hiddenSupplierInput = $('#hidden_supplier_code');
 
     // --- HELPER FUNCTIONS ---
 
     function clearDetails() {
-        supplierSelect.removeClass('bg-gray-200').val(''); 
+        supplierSelect.val('').removeClass('bg-gray-200'); 
         hiddenSupplierInput.val('');
+        vehicleInput.val(''); 
         statusSpan.addClass('hidden').removeClass('text-green-500 text-red-500');
     }
 
-    // 1. Lookup Supplier/Vehicle Details
+    // 1. Lookup Supplier/Vehicle Details based on Selected Code
     function lookupDetails(codeType, tripCode) {
-        
         if (!tripCode) {
             clearDetails();
             return;
         }
         
-        statusSpan.removeClass('hidden').removeClass('text-green-500').addClass('text-red-500').text('Searching...');
+        statusSpan.removeClass('hidden text-green-500').addClass('text-red-500').text('Searching...');
         supplierSelect.addClass('bg-gray-200'); 
 
         $.ajax({
@@ -40,11 +37,14 @@ $(document).ready(function() {
                 statusSpan.addClass('hidden');
                 
                 if (response.success) {
+                    // Supplier set කිරීම (Dropdown & Hidden input)
                     supplierSelect.val(response.supplier_code);
                     hiddenSupplierInput.val(response.supplier_code);
+                    
+                    // Vehicle No set කිරීම
                     vehicleInput.val(response.vehicle_no || ''); 
                     
-                    if (supplierSelect.val()) {
+                    if (response.supplier_code) {
                         statusSpan.removeClass('text-red-500').addClass('text-green-500').text('Found!').removeClass('hidden');
                     }
                 } else {
@@ -54,113 +54,113 @@ $(document).ready(function() {
                 }
             },
             error: function() {
-                statusSpan.removeClass('hidden').addClass('text-red-500').text('Error.');
+                statusSpan.removeClass('hidden').addClass('text-red-500').text('Error checking code.');
                 supplierSelect.removeClass('bg-gray-200'); 
-                hiddenSupplierInput.val('');
             }
         });
     }
 
     // --- EVENT HANDLERS ---
+    
+    // Route Selection Change
     routeSelect.on('change', function() {
         const selectedCode = $(this).val();
+        
+        // අනිත් ඒවා Disable කර හිස් කරයි
         opSelect.prop('disabled', !!selectedCode).val('');
+        subRouteSelect.prop('disabled', !!selectedCode).val(''); // අලුතින් එකතු කළා
+        
         opSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff');
+        subRouteSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff'); // අලුතින් එකතු කළා
+        
+        // Route එකට අදාළ දත්ත සොයයි
         lookupDetails('Route', selectedCode);
     });
 
+    // Sub Route Selection Change (NEW)
+    subRouteSelect.on('change', function() {
+        const selectedCode = $(this).val();
+        
+        // අනිත් ඒවා Disable කර හිස් කරයි
+        opSelect.prop('disabled', !!selectedCode).val('');
+        routeSelect.prop('disabled', !!selectedCode).val('');
+        
+        opSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff');
+        routeSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff');
+        
+        // Sub Route එකට අදාළ දත්ත සොයයි (Sub_Route යන්න fetch_details.php එකට යවයි)
+        lookupDetails('Sub_Route', selectedCode);
+    });
+
+    // Operation Code Selection Change
     opSelect.on('change', function() {
         const selectedCode = $(this).val();
+        
+        // අනිත් ඒවා Disable කර හිස් කරයි
         routeSelect.prop('disabled', !!selectedCode).val('');
+        subRouteSelect.prop('disabled', !!selectedCode).val(''); // අලුතින් එකතු කළා
+        
         routeSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff');
+        subRouteSelect.css('background-color', selectedCode ? '#e0e0e0' : '#ffffff'); // අලුතින් එකතු කළා
+        
+        // Operation එකට අදාළ දත්ත සොයයි
         lookupDetails('Operation', selectedCode);
     });
-    
 
     // ======================================================
-    //  EMPLOYEE & REASON GROUP LOGIC (UPDATED)
+    // EMPLOYEE & REASON GROUP LOGIC 
     // ======================================================
     
-    // --- 1. ADD NEW REASON GROUP ---
     $('#add-reason-group-btn').click(function () {
-        // Clone the first group
         var $template = $('.reason-group').first();
         var $newGroup = $template.clone();
 
-        // Clear Inputs & Selects
         $newGroup.find('input').val(''); 
         $newGroup.find('select').val(''); 
-
-        // Enable Remove Button
         $newGroup.find('.remove-group-btn').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
 
-        // Reset Employee List (Keep only one input)
         var $empContainer = $newGroup.find('.employee-list-container');
         var $firstEmpInput = $empContainer.find('.employee-input').first();
         
-        // Remove all employee inputs except the first one logic
         $empContainer.empty();
-        $firstEmpInput.find('input').val(''); // Clear value
-        $firstEmpInput.find('.remove-employee-btn').prop('disabled', true).addClass('opacity-50'); // Disable remove for first item
+        $firstEmpInput.find('input').val(''); 
+        $firstEmpInput.find('.remove-employee-btn').prop('disabled', true).addClass('opacity-50'); 
         $empContainer.append($firstEmpInput);
 
-        // Append to Container
         $('#reason-group-container').append($newGroup);
-        
-        // Update Titles & Indices
         updateGroupTitles();
     });
 
-    // --- 2. REMOVE REASON GROUP ---
     $(document).on('click', '.remove-group-btn', function () {
         if ($('.reason-group').length > 1) {
             $(this).closest('.reason-group').remove();
             updateGroupTitles(); 
-        } else {
-            alert("At least one reason group is required.");
         }
     });
 
-    // --- 3. ADD EMPLOYEE INPUT (Within a Group) ---
     $(document).on('click', '.add-employee-btn-group', function () {
         var $container = $(this).closest('.reason-group').find('.employee-list-container');
         var $templateInput = $container.find('.employee-input').first().clone();
-
-        // Clear Value
         $templateInput.find('input').val('');
-        
-        // Enable Remove Button
         $templateInput.find('.remove-employee-btn').prop('disabled', false).removeClass('opacity-50');
-
         $container.append($templateInput);
-        
-        // Re-check remove buttons state
         updateEmployeeRemoveState($container);
     });
 
-    // --- 4. REMOVE EMPLOYEE INPUT ---
     $(document).on('click', '.remove-employee-btn', function () {
         var $container = $(this).closest('.employee-list-container');
-        
         if ($container.find('.employee-input').length > 1) {
             $(this).closest('.employee-input').remove();
             updateEmployeeRemoveState($container);
         } else {
-            // If it's the last one, just clear it
             $(this).closest('.employee-input').find('input').val('');
         }
     });
 
-    // --- HELPER: Update Group Titles & Indices ---
     function updateGroupTitles() {
         $('.reason-group').each(function (index) {
-            // Update Title
             $(this).find('h4').text('Group ' + (index + 1));
-            
-            // Update PHP Array Index: emp_id_group[0][], emp_id_group[1][]...
             $(this).find('input[name^="emp_id_group"]').attr('name', 'emp_id_group[' + index + '][]');
-
-            // Disable Remove Button for First Group
             if (index === 0) {
                 $(this).find('.remove-group-btn').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
             } else {
@@ -169,7 +169,6 @@ $(document).ready(function() {
         });
     }
 
-    // --- HELPER: Update Employee Remove Buttons State ---
     function updateEmployeeRemoveState($container) {
         var inputs = $container.find('.employee-input');
         if (inputs.length === 1) {
@@ -179,15 +178,19 @@ $(document).ready(function() {
         }
     }
 
-    // Initialize on load
     updateGroupTitles();
 });
 
-// Route / Op Code Toggle Logic
+// PHP inline onchange එක සඳහා පවතින function එක
 function toggleCodeSelection(type) {
     if (type === 'route') {
         $('#op_code').val(""); 
+        $('#sub_route_code').val(""); 
+    } else if (type === 'sub_route') {
+        $('#op_code').val(""); 
+        $('#route_code').val(""); 
     } else {
         $('#route_code').val("");
+        $('#sub_route_code').val("");
     }
 }

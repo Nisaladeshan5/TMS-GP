@@ -93,7 +93,7 @@ if ($supplier_result) {
 
 
 // Initialize form variables
-$selected_op_code = $selected_vehicle_no = $selected_supplier_code = $slab_limit = $day_rate = $extra_rate = $extra_rate_ac = '';
+$selected_op_code = $selected_vehicle_no = $selected_supplier_code = $op_service = $slab_limit = $day_rate = $extra_rate = $extra_rate_ac = '';
 $message = '';
 $message_type = ''; 
 $is_edit_mode = false; 
@@ -101,6 +101,7 @@ $is_edit_mode = false;
 // Variables to store ORIGINAL values for auditing in POST logic
 $original_rates = [
     'supplier_code' => '',
+    'op_service' => '',
     'slab_limit_distance' => 0,
     'day_rate' => 0,
     'extra_rate' => 0,
@@ -114,7 +115,7 @@ if (isset($_GET['op_code']) && isset($_GET['vehicle_no'])) {
     $edit_op_code = $_GET['op_code'];
     $edit_vehicle_no = $_GET['vehicle_no']; 
 
-    $sql = "SELECT op_code, vehicle_no, supplier_code, slab_limit_distance, day_rate, extra_rate, extra_rate_ac
+    $sql = "SELECT op_code, vehicle_no, supplier_code, op_service, slab_limit_distance, day_rate, extra_rate, extra_rate_ac
             FROM op_services 
             WHERE op_code = ? AND vehicle_no = ?";
     
@@ -129,6 +130,7 @@ if (isset($_GET['op_code']) && isset($_GET['vehicle_no'])) {
         $selected_op_code = $data['op_code'];
         $selected_vehicle_no = $data['vehicle_no'];
         $selected_supplier_code = $data['supplier_code'] ?? ''; 
+        $op_service = $data['op_service'] ?? ''; 
         
         $slab_limit = $data['slab_limit_distance'] ?? 0;
         $day_rate = $data['day_rate'] ?? 0;
@@ -136,14 +138,11 @@ if (isset($_GET['op_code']) && isset($_GET['vehicle_no'])) {
         $extra_rate_ac = $data['extra_rate_ac'] ?? 0;
         
         $original_rates['supplier_code'] = (string)($selected_supplier_code ?? ''); 
+        $original_rates['op_service'] = (string)($op_service ?? ''); 
         $original_rates['slab_limit_distance'] = (float)$slab_limit;
         $original_rates['day_rate'] = (float)$day_rate;
         $original_rates['extra_rate'] = (float)$extra_rate;
         $original_rates['extra_rate_ac'] = (float)$extra_rate_ac;
-        
-        // --- REMOVED THE BLUE NOTIFICATION CODE HERE ---
-        // $message = "Editing existing service rate..."; (Deleted)
-        // $message_type = 'info'; (Deleted)
 
     } else {
         $message = "Error: Service Rate not found for editing.";
@@ -166,12 +165,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $original_rates_post = [
         'supplier_code' => (string)($_POST['original_supplier_code'] ?? ''), 
+        'op_service' => (string)($_POST['original_op_service'] ?? ''), 
         'slab_limit_distance' => (float)($_POST['original_slab_limit'] ?? 0),
         'day_rate' => (float)($_POST['original_day_rate'] ?? 0),
         'extra_rate' => (float)($_POST['original_extra_rate'] ?? 0),
         'extra_rate_ac' => (float)($_POST['original_extra_rate_ac'] ?? 0)
     ];
 
+    // UPDATED: Convert to lowercase first, then capitalize the first letter of each word
+    $op_service = ucwords(strtolower(trim($_POST['op_service'] ?? '')));
+    
     $slab_limit = $_POST['slab_limit_distance'] ?? 0;
     $day_rate = $_POST['day_rate'] ?? 0;
     $extra_rate = $_POST['extra_rate'] ?? 0;
@@ -181,8 +184,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_ev_code = (substr($selected_op_code, 0, 2) === 'EV');
 
     // 4b. Validation
-    if (empty($selected_op_code) || empty($new_vehicle_no) || empty($selected_supplier_code)) { 
-        $message = "Service Type (Full Rate Code), Vehicle Number, and Supplier Code are required.";
+    if (empty($selected_op_code) || empty($new_vehicle_no) || empty($selected_supplier_code) || empty($op_service)) { 
+        $message = "Service Type (Full Rate Code), Service Name, Vehicle Number, and Supplier Code are required.";
+        $message_type = 'error';
+    } elseif (strlen($op_service) > 20) { // NEW: PHP Validation for 20 characters
+        $message = "Service Name cannot exceed 20 characters.";
         $message_type = 'error';
     } elseif (strlen($selected_op_code) < 4 || substr($selected_op_code, 2, 1) !== '-') {
         $message = "Full Rate Code must include a valid 2-letter prefix followed by a dash (e.g., NE-001V).";
@@ -215,6 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // --- END CONDITIONAL VALIDATION ---
             try {
                 $selected_supplier_code = (string)$selected_supplier_code; 
+                $op_service = (string)$op_service;
                 $slab_limit = (float)$slab_limit;
                 $day_rate = (float)$day_rate;
                 $extra_rate = (float)$extra_rate;
@@ -238,10 +245,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 // --- SCENARIO 2: Standard UPSERT ---
-                $sql = "INSERT INTO op_services (op_code, vehicle_no, supplier_code, slab_limit_distance, day_rate, extra_rate, extra_rate_ac, is_active) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                $sql = "INSERT INTO op_services (op_code, vehicle_no, supplier_code, op_service, slab_limit_distance, day_rate, extra_rate, extra_rate_ac, is_active) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE 
                             supplier_code = VALUES(supplier_code),
+                            op_service = VALUES(op_service),
                             slab_limit_distance = VALUES(slab_limit_distance),
                             day_rate = VALUES(day_rate),
                             extra_rate = VALUES(extra_rate),
@@ -249,8 +257,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             is_active = VALUES(is_active)"; 
 
                 $stmt = $conn->prepare($sql);
-                $types = "sssddddi"; 
-                $params = [$selected_op_code, $new_vehicle_no, $selected_supplier_code, $slab_limit, $day_rate, $extra_rate, $extra_rate_ac, $is_active];
+                $types = "ssssddddi"; 
+                $params = [$selected_op_code, $new_vehicle_no, $selected_supplier_code, $op_service, $slab_limit, $day_rate, $extra_rate, $extra_rate_ac, $is_active];
 
                 if ($stmt->bind_param($types, ...$params) && $stmt->execute()) {
                     $status_message = '';
@@ -262,10 +270,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $action_type = 'UPDATE';
                         
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'supplier_code', $original_rates_post['supplier_code'], $selected_supplier_code);
+                        log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'op_service', $original_rates_post['op_service'], $op_service);
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'slab_limit_distance', $original_rates_post['slab_limit_distance'], $slab_limit);
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'day_rate', $original_rates_post['day_rate'], $day_rate);
                         log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'extra_rate', $original_rates_post['extra_rate'], $extra_rate);
-                        log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'extra_rate_ac', $original_rates_post['extra_rate_ac'], $extra_rate_ac);
+                        log_detailed_audit_entry($conn, 'op_services', $current_record_id, $action_type, $logged_in_user_id, 'extra_rate_ac', $original_rates_post['extra_rate_ac'], $original_rates_post['extra_rate_ac'], $extra_rate_ac);
                         
                     } else {
                         $status_message = "Service Rate for $new_vehicle_no ($selected_op_code) added successfully!";
@@ -363,26 +372,40 @@ include('../../includes/navbar.php');
                 <input type="hidden" name="original_vehicle_no" value="<?php echo htmlspecialchars($selected_vehicle_no); ?>">
                 <input type="hidden" name="original_op_code" value="<?php echo htmlspecialchars($selected_op_code); ?>">
                 
-                <input type="hidden" name="original_supplier_code" value="<?php echo htmlspecialchars($original_rates['supplier_code']); ?>"> <input type="hidden" name="original_slab_limit" value="<?php echo htmlspecialchars($original_rates['slab_limit_distance']); ?>">
+                <input type="hidden" name="original_supplier_code" value="<?php echo htmlspecialchars($original_rates['supplier_code']); ?>"> 
+                <input type="hidden" name="original_op_service" value="<?php echo htmlspecialchars($original_rates['op_service']); ?>"> 
+                <input type="hidden" name="original_slab_limit" value="<?php echo htmlspecialchars($original_rates['slab_limit_distance']); ?>">
                 <input type="hidden" name="original_day_rate" value="<?php echo htmlspecialchars($original_rates['day_rate']); ?>">
                 <input type="hidden" name="original_extra_rate" value="<?php echo htmlspecialchars($original_rates['extra_rate']); ?>">
                 <input type="hidden" name="original_extra_rate_ac" value="<?php echo htmlspecialchars($original_rates['extra_rate_ac']); ?>">
             <?php endif; ?>
 
-            <div> 
-                <label for="op_code_base" class="block text-sm font-medium text-gray-700">Service Type (Prefix) <span class="text-red-500">*</span></label> 
-                <select id="op_code_base" name="op_code_base" required onchange="filterVehicles(this.value); updateRequiredFields(this.value);" 
-                    class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm sm:text-sm p-2 
-                    <?php echo $is_edit_mode ? 'bg-gray-200 cursor-not-allowed' : 'focus:border-indigo-500 focus:ring-indigo-500'; ?>"
-                    <?php echo $is_edit_mode ? 'disabled' : ''; ?>> 
-                    <option value="">-- Select Code --</option> 
-                    <?php foreach ($opcodes as $op_data): ?> 
-                        <option value="<?php echo htmlspecialchars($op_data['code']); ?>" <?php echo (substr($selected_op_code, 0, 2) === $op_data['code']) ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($op_data['code']) . ' - ' . htmlspecialchars($op_data['description']); ?>
-                        </option> 
-                    <?php endforeach; ?> 
-                </select> 
-            </div> 
+            <div class="grid md:grid-cols-2 gap-6">
+                <div> 
+                    <label for="op_code_base" class="block text-sm font-medium text-gray-700">Service Type (Prefix) <span class="text-red-500">*</span></label> 
+                    <select id="op_code_base" name="op_code_base" required onchange="filterVehicles(this.value); updateRequiredFields(this.value);" 
+                        class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm sm:text-sm p-2 
+                        <?php echo $is_edit_mode ? 'bg-gray-200 cursor-not-allowed' : 'focus:border-indigo-500 focus:ring-indigo-500'; ?>"
+                        <?php echo $is_edit_mode ? 'disabled' : ''; ?>> 
+                        <option value="">-- Select Code --</option> 
+                        <?php foreach ($opcodes as $op_data): ?> 
+                            <option value="<?php echo htmlspecialchars($op_data['code']); ?>" <?php echo (substr($selected_op_code, 0, 2) === $op_data['code']) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($op_data['code']) . ' - ' . htmlspecialchars($op_data['description']); ?>
+                            </option> 
+                        <?php endforeach; ?> 
+                    </select> 
+                </div> 
+
+                <div> 
+                    <label for="op_service" class="block text-sm font-medium text-gray-700">Service Name <span class="text-red-500">*</span></label> 
+                    <input type="text" id="op_service" name="op_service" required 
+                        value="<?php echo htmlspecialchars($op_service); ?>"
+                        maxlength="20"
+                        class="mt-1 block w-full rounded-md border-1 border-gray-300 shadow-sm sm:text-sm p-2 focus:border-indigo-500 focus:ring-indigo-500"
+                        placeholder="e.g. Day Held Up" onblur="this.value = this.value.toLowerCase().replace(/\b\w/g, l => l.toUpperCase());"> 
+                    <p class="mt-1 text-xs text-gray-500">Max 20 characters. Each word will automatically be capitalized.</p>
+                </div>
+            </div>
             
             <div> 
                 <label for="supplier_code" class="block text-sm font-medium text-gray-700">Supplier <span class="text-red-500">*</span></label> 

@@ -101,7 +101,14 @@ if (isset($_SESSION['toast'])) {
     <title>Sub-Route Details</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
     <style>
+        /* Body overflow hidden to prevent double scrollbars */
+        body { overflow: hidden; }
+        
         #toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; display: flex; flex-direction: column; align-items: flex-end; }
         .toast { display: flex; align-items: center; padding: 1rem; margin-bottom: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); color: white; transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-20px); opacity: 0; min-width: 250px; }
         .toast.show { transform: translateY(0); opacity: 1; }
@@ -146,7 +153,7 @@ if (isset($_SESSION['toast'])) {
                 ?>
             </select>
         </div>
-
+        
         <div class="flex items-center bg-gray-700 rounded-lg p-1 border border-gray-600 shadow-inner">
             <select id="status-filter" onchange="filterData()" class="bg-transparent text-white text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer py-1 pl-2 pr-1 appearance-none hover:text-yellow-200 transition">
                 <option value="active" <?php echo ($status_filter === 'active') ? 'selected' : ''; ?> class="text-gray-900 bg-white">Active</option>
@@ -155,7 +162,14 @@ if (isset($_SESSION['toast'])) {
         </div>
 
         <span class="text-gray-600">|</span>
+        
+        <button onclick="exportToExcel()" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            <i class="fas fa-file-excel"></i> Export Excel
+        </button>
 
+        <button onclick="generateSubRouteQrPdf()" class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
+            <i class="fas fa-file-pdf"></i> Generate QR
+        </button>
         <a href="add_sub_route.php" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md shadow-md transition transform hover:scale-105 font-semibold text-xs tracking-wide">
             Add Sub-Route
         </a>
@@ -163,10 +177,13 @@ if (isset($_SESSION['toast'])) {
 </div>
 
 <div class="w-[85%] ml-[15%] p-2 mt-1">
-    <div id="table-container" class="overflow-auto bg-white shadow-lg rounded-lg border border-gray-200 w-full max-h-[85vh]">
-        <table class="w-full table-auto border-collapse">
+    <div id="table-container" class="overflow-auto bg-white shadow-lg rounded-lg border border-gray-200 w-full" style="height: calc(100vh - 5.5rem);">
+        <table id="sub-routes-table" class="w-full table-auto border-collapse">
             <thead class="bg-blue-600 text-white text-sm">
                 <tr>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-2 py-3 text-center w-10 shadow-sm">
+                        <input type="checkbox" id="select-all" onclick="toggleAllCheckboxes()" class="cursor-pointer">
+                    </th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Sub-Route Code</th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Supplier & Vehicle</th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Sub-Route</th>
@@ -192,28 +209,48 @@ if (isset($_SESSION['toast'])) {
                         $toggle_button_text = ($is_active == 1) ? 'Disable' : 'Enable';
                         $toggle_button_class = ($is_active == 1) ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600';
                         $toggle_icon = ($is_active == 1) ? 'fa-ban' : 'fa-check';
-
+                        
                         echo "<tr class='hover:bg-indigo-50 border-b border-gray-100 transition duration-150'>";
+                        
+                        // 1. Checkbox Column
+                        echo "<td class='px-2 py-3 text-center'><input type='checkbox' name='selected_sub_routes[]' value='" . htmlspecialchars($row["sub_route_code"]) . "' class='sub-route-checkbox cursor-pointer'></td>";
+                        
+                        // 2. Sub-Route Code
                         echo "<td class='px-4 py-3 font-mono text-blue-600 font-medium'>" . htmlspecialchars($row["sub_route_code"]) . "</td>";
+                        
+                        // 3. Supplier & Vehicle
                         echo "<td class='px-4 py-3'>
                                 <div class='font-bold uppercase'>" . htmlspecialchars($row["vehicle_no"]) . "</div>
                                 <div class='text-xs text-gray-500'>" . htmlspecialchars($row["supplier"]) . "</div>
-                              </td>";
+                            </td>";
+                        
+                        // 4. Sub-Route Name
                         echo "<td class='px-4 py-3 font-medium text-gray-800'>" . htmlspecialchars($row["sub_route"]) . "</td>";
+                        
+                        // 5. Fixed Rate
                         echo "<td class='px-4 py-3 text-right font-mono text-gray-600'>" . number_format($fixed, 2) . "</td>";
+                        
+                        // 6. Fuel Cost
                         echo "<td class='px-4 py-3 text-right font-mono text-gray-500'>" . number_format($fuel, 2) . "</td>";
+                        
+                        // 7. Total Cost
                         echo "<td class='px-4 py-3 text-right font-bold text-orange-600 font-mono'>" . number_format($total, 2) . "</td>";
+                        
+                        // 8. Distance
                         echo "<td class='px-4 py-3 text-right font-mono'>" . htmlspecialchars($row["distance"]) . "</td>";
+                        
+                        // 9. Actions
                         echo "<td class='px-4 py-3 text-center'>
                                 <div class='flex justify-center gap-2'>
                                     <a href='edit_sub_route.php?code=" . urlencode($row['sub_route_code']) . "' class='bg-yellow-500 hover:bg-yellow-600 text-white py-1 px-2 rounded-md shadow-sm transition' title='Edit'><i class='fas fa-edit text-xs'></i></a>
                                     <button onclick='toggleStatus(\"{$row['sub_route_code']}\", {$is_active})' class='" . $toggle_button_class . " text-white py-1 px-2 rounded-md shadow-sm transition' title='$toggle_button_text'><i class='fas $toggle_icon text-xs'></i></button>
                                 </div>
-                              </td>";
+                            </td>";
+                        
                         echo "</tr>";
                     }
                 } else {
-                    echo "<tr><td colspan='8' class='px-6 py-4 text-center text-gray-500 italic'>No records found matching criteria.</td></tr>";
+                    echo "<tr><td colspan='9' class='px-6 py-4 text-center text-gray-500 italic'>No records found matching criteria.</td></tr>";
                 }
                 ?>
             </tbody>
@@ -260,6 +297,151 @@ if (isset($_SESSION['toast'])) {
                     showToast("Error: " + data, 'error');
                 }
             });
+        }
+    }
+
+    function toggleAllCheckboxes() {
+        const selectAll = document.getElementById('select-all');
+        const checkboxes = document.querySelectorAll('.sub-route-checkbox');
+        checkboxes.forEach(checkbox => checkbox.checked = selectAll.checked);
+    }
+
+    function generateSubRouteQrPdf() {
+        const selectedSubRoutes = Array.from(document.querySelectorAll('.sub-route-checkbox:checked'))
+            .map(checkbox => checkbox.value);
+        
+        if (selectedSubRoutes.length === 0) {
+            showToast("Please select at least one sub-route to generate the PDF.", 'error');
+            return;
+        }
+        
+        const subRouteCodesString = selectedSubRoutes.join(',');
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = 'generate_qr_sub_route_pdf.php'; 
+        
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'selected_sub_route_codes';
+        input.value = subRouteCodesString;
+        
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
+    }
+
+    // --- Export to Excel (.xlsx) using ExcelJS for Advanced Styling ---
+    async function exportToExcel() {
+        try {
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Sub Routes');
+
+            // 1. Remove gridlines for a clean white background
+            worksheet.views = [{ showGridLines: false }];
+
+            // 2. Define Headers (Excluding Checkbox and Actions)
+            const headers = [
+                "Sub-Route Code",
+                "Supplier & Vehicle",
+                "Sub-Route",
+                "Fixed (1km)",
+                "Fuel (1km)",
+                "Total (1km)",
+                "Dist. (km)"
+            ];
+
+            // Add Header Row
+            const headerRow = worksheet.addRow(headers);
+
+            // Style Header Row
+            headerRow.eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }; // White Text
+                cell.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FF2563EB' } // Tailwind Blue-600
+                };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FF000000' } },
+                    left: { style: 'thin', color: { argb: 'FF000000' } },
+                    bottom: { style: 'thin', color: { argb: 'FF000000' } },
+                    right: { style: 'thin', color: { argb: 'FF000000' } }
+                };
+            });
+
+            // 3. Extract Data from HTML Table
+            const table = document.getElementById("sub-routes-table");
+            const tbody = table.querySelector("tbody");
+            const rows = tbody.querySelectorAll("tr");
+
+            rows.forEach(row => {
+                const cells = row.querySelectorAll("td");
+                // Skip if it's an empty "No records" row
+                if (cells.length <= 1) return;
+
+                const rowData = [];
+                // Start from index 1 (skip checkbox), end before last index (skip actions)
+                for (let i = 1; i < cells.length - 1; i++) {
+                    let text = cells[i].innerText.trim();
+                    
+                    // Format Supplier & Vehicle cell (Convert new line to hyphen)
+                    if (i === 2) {
+                        text = text.replace(/\n/g, ' - ');
+                    }
+
+                    // Convert amounts and distances to actual numbers for Excel
+                    if (i >= 4) {
+                        let num = parseFloat(text.replace(/,/g, ''));
+                        rowData.push(isNaN(num) ? text : num);
+                    } else {
+                        rowData.push(text);
+                    }
+                }
+                
+                const addedRow = worksheet.addRow(rowData);
+                
+                // Style Data Rows
+                addedRow.eachCell((cell, colNumber) => {
+                    // Add borders to data cells
+                    cell.border = {
+                        top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+                        left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+                        bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+                        right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+                    };
+
+                    // Align numbers to the right, text to the left
+                    if (colNumber >= 4) {
+                        cell.alignment = { vertical: 'middle', horizontal: 'right' };
+                        cell.numFmt = '#,##0.00'; // Decimal format
+                    } else {
+                        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+                    }
+                });
+            });
+
+            // 4. Set Column Widths for better neatness
+            worksheet.columns = [
+                { width: 20 }, // Sub-Route Code
+                { width: 35 }, // Supplier & Vehicle
+                { width: 30 }, // Sub-Route
+                { width: 15 }, // Fixed
+                { width: 15 }, // Fuel
+                { width: 15 }, // Total
+                { width: 12 }  // Dist
+            ];
+
+            // 5. Trigger File Download
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            saveAs(blob, "Sub_Routes_Export.xlsx");
+
+            showToast("Excel exported successfully!");
+        } catch (error) {
+            console.error("Export Error: ", error);
+            showToast("Error exporting Excel!", "error");
         }
     }
 </script>

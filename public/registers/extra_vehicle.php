@@ -13,8 +13,6 @@ include('../../includes/db.php');
 date_default_timezone_set('Asia/Colombo');
 
 $user_role = $_SESSION['user_role'] ?? 'guest';
-// $can_act logic can be used if you want to restrict general access, 
-// but here we rely on specific record ownership for editing/deleting.
 $can_act = in_array($user_role, ['super admin', 'admin', 'developer', 'manager']); 
 
 $filterDate = date('Y-m-d');
@@ -30,7 +28,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_trip_details'])
     header('Content-Type: application/json');
     $trip_id = (int)$_POST['trip_id'];
 
-    $stmt = $conn->prepare("SELECT op_code, route, distance, supplier_code, ac_status FROM extra_vehicle_register WHERE id = ?");
+    // ADDED sub_route TO FETCH
+    $stmt = $conn->prepare("SELECT op_code, route, sub_route, distance, supplier_code, ac_status FROM extra_vehicle_register WHERE id = ?");
     $stmt->bind_param("i", $trip_id);
     $stmt->execute();
     $result = $stmt->get_result()->fetch_assoc();
@@ -49,11 +48,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_view_details'])
     $trip_id = (int)$_POST['trip_id'];
 
     // 1. Get Trip Info
-    $stmt_loc = $conn->prepare("SELECT from_location, to_location FROM extra_vehicle_register WHERE id = ?");
+    $stmt_loc = $conn->prepare("SELECT from_location, to_location, remarks FROM extra_vehicle_register WHERE id = ?");
     $stmt_loc->bind_param("i", $trip_id);
     $stmt_loc->execute();
     $trip_info = $stmt_loc->get_result()->fetch_assoc();
     $stmt_loc->close();
+
+    $trip_info['remarks'] = !empty($trip_info['remarks']) ? ucwords(strtolower($trip_info['remarks'])) : '-';
 
     // 2. Get Passengers
     $passengers = [];
@@ -90,6 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_view_details'])
 // =========================================================
 $op_codes_list = [];
 $route_codes_list = [];
+$sub_route_codes_list = []; // NEW ARRAY FOR SUB ROUTES
 $supplier_list = [];
 
 $check_op = $conn->query("SHOW TABLES LIKE 'op_services'");
@@ -103,6 +105,10 @@ if($result_sup) { while ($row = $result_sup->fetch_assoc()) $supplier_list[] = $
 
 $result_rt = $conn->query("SELECT route_code FROM route ORDER BY route_code ASC");
 if($result_rt) { while ($row = $result_rt->fetch_assoc()) $route_codes_list[] = $row['route_code']; }
+
+// FETCH SUB ROUTES
+$result_sub_rt = $conn->query("SELECT sub_route_code FROM sub_route ORDER BY sub_route_code ASC");
+if($result_sub_rt) { while ($row = $result_sub_rt->fetch_assoc()) $sub_route_codes_list[] = $row['sub_route_code']; }
 
 // =========================================================
 // 4. HANDLE FORM SUBMISSION
@@ -133,19 +139,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $trip_id = (int)$_POST['trip_id'];
         $supplier_code = $_POST['supplier_code'];
         $code_type = $_POST['code_type'];
+        
         $op_code = ($code_type === 'op') ? $_POST['op_code'] : NULL;
         $route = ($code_type === 'route') ? $_POST['route_code'] : NULL;
+        $sub_route = ($code_type === 'sub_route') ? $_POST['sub_route_code'] : NULL; // ADDED SUB ROUTE
+        
         $distance = (float)$_POST['distance'];
         $ac_status = (int)$_POST['ac_status']; 
         
-        // Note: checking user_id in UPDATE ensures only owner can edit (if you want strict security here too)
-        // For now, based on previous logic, we update user_id or keep it. Here I'll update it to current user or keep ownership logic consistent.
-        // Assuming strict ownership:
-        $sql_update = "UPDATE extra_vehicle_register SET supplier_code = ?, op_code = ?, route = ?, distance = ?, ac_status = ? WHERE id = ? AND user_id = ?";
+        // ADDED sub_route TO UPDATE QUERY
+        $sql_update = "UPDATE extra_vehicle_register SET supplier_code = ?, op_code = ?, route = ?, sub_route = ?, distance = ?, ac_status = ? WHERE id = ? AND user_id = ?";
         $stmt = $conn->prepare($sql_update);
         
         if ($stmt) {
-            $stmt->bind_param('sssdiii', $supplier_code, $op_code, $route, $distance, $ac_status, $trip_id, $current_session_user_id);
+            // 'ssssdiii' = 4 strings, 1 double, 3 integers
+            $stmt->bind_param('ssssdiii', $supplier_code, $op_code, $route, $sub_route, $distance, $ac_status, $trip_id, $current_session_user_id);
             if ($stmt->execute()) {
                 if ($stmt->affected_rows > 0) {
                     echo "<script>window.location.href='?date=$filterDate&status=success&message=" . urlencode("Record Edited Successfully") . "';</script>";
@@ -159,11 +167,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 
-    // --- CASE C: DELETE TRIP (NEW) ---
+    // --- CASE C: DELETE TRIP ---
     if (isset($_POST['delete_trip'])) {
         $trip_id = (int)$_POST['trip_id'];
 
-        // Strict Check: Delete only if ID matches AND user_id matches logged-in user
         $sql_delete = "DELETE FROM extra_vehicle_register WHERE id = ? AND user_id = ?";
         $stmt = $conn->prepare($sql_delete);
 
@@ -173,7 +180,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if ($stmt->affected_rows > 0) {
                     echo "<script>window.location.href='?date=$filterDate&status=success&message=" . urlencode("Trip Deleted Successfully") . "';</script>";
                 } else {
-                    // Affected rows 0 means either ID didn't exist OR user_id didn't match
                     echo "<script>alert('Error: You can only delete trips completed by yourself.'); window.location.href='?date=$filterDate';</script>";
                 }
             } else {
@@ -296,8 +302,7 @@ include('../../includes/navbar.php');
                     <th class="px-4 py-3 text-left">Time</th>
                     <th class="px-4 py-3 text-left">Vehicle No</th>
                     <th class="px-4 py-3 text-left">Supplier</th>
-                    <th class="px-4 py-3 text-left">Op/Route</th>
-                    <th class="px-4 py-3 text-center">A/C</th>
+                    <th class="px-4 py-3 text-left">Op/Route/Sub</th> <th class="px-4 py-3 text-center">A/C</th>
                     <th class="px-4 py-3 text-center">Distance</th>
                     <th class="px-4 py-3 text-left">Done By</th>
                     <th class="px-4 py-3 text-center" style="min-width: 180px;">Action</th>
@@ -316,14 +321,17 @@ include('../../includes/navbar.php');
                         $row_class = $is_completed ? 'bg-green-50 hover:bg-green-100' : 'bg-red-50 hover:bg-red-100';
                         
                         $record_user_id = (int)$row['user_id'];
-                        // Check if the current user is the one who did the record
                         $can_edit = ($is_completed && ($record_user_id === $current_session_user_id) && $current_session_user_id !== 0);
                         
                         $display_code = '';
                         $code_class = '';
+                        // ADDED LOGIC FOR SUB ROUTE
                         if (!empty($row['route'])) {
                             $display_code = "RT: " . htmlspecialchars($row['route']);
                             $code_class = "bg-blue-100 text-blue-800";
+                        } elseif (!empty($row['sub_route'])) {
+                            $display_code = "SUB: " . htmlspecialchars($row['sub_route']);
+                            $code_class = "bg-pink-100 text-pink-800";
                         } elseif (!empty($row['op_code'])) {
                             $display_code = "OP: " . htmlspecialchars($row['op_code']);
                             $code_class = "bg-purple-100 text-purple-800";
@@ -362,10 +370,10 @@ include('../../includes/navbar.php');
                                             <i class="fas fa-check"></i>
                                         </button>
                                     <?php elseif ($can_edit): ?>
-                                        <a href="edit_extra_vehicle.php?id=<?php echo $row['id']; ?>&date=<?php echo $filterDate; ?>" 
-                                        class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1.5 rounded shadow transition" title="Edit Trip">
+                                        <button onclick="openEditModal(<?php echo $row['id']; ?>)" 
+                                           class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1.5 rounded shadow transition" title="Edit Trip">
                                             <i class="fas fa-edit"></i>
-                                        </a>
+                                        </button>
                                         
                                         <button onclick="confirmDelete(<?php echo $row['id']; ?>)" 
                                                 class="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1.5 rounded shadow transition" title="Delete Trip">
@@ -456,14 +464,18 @@ include('../../includes/navbar.php');
 
                 <div class="bg-gray-50 p-3 rounded border border-gray-200">
                     <label class="block text-sm font-bold text-gray-700 mb-2">Identify By:</label>
-                    <div class="flex gap-6">
+                    <div class="flex gap-4">
                         <label class="flex items-center space-x-2 cursor-pointer">
                             <input type="radio" name="code_type" value="op" onclick="toggleEditCode('op')" class="form-radio text-indigo-600">
                             <span class="font-medium text-sm">Op Code</span>
                         </label>
                         <label class="flex items-center space-x-2 cursor-pointer">
                             <input type="radio" name="code_type" value="route" onclick="toggleEditCode('route')" class="form-radio text-indigo-600">
-                            <span class="font-medium text-sm">Route Code</span>
+                            <span class="font-medium text-sm">Route</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="code_type" value="sub_route" onclick="toggleEditCode('sub_route')" class="form-radio text-pink-600">
+                            <span class="font-medium text-sm">Sub Route</span>
                         </label>
                     </div>
                 </div>
@@ -481,6 +493,13 @@ include('../../includes/navbar.php');
                         <select name="route_code" id="editRouteCodeSelect" class="block w-full border border-gray-300 rounded-md p-2 shadow-sm">
                             <option value="">-- Select --</option>
                             <?php foreach ($route_codes_list as $rt) echo "<option value='$rt'>$rt</option>"; ?>
+                        </select>
+                    </div>
+                    <div id="editSubRouteDiv" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Sub Route</label>
+                        <select name="sub_route_code" id="editSubRouteCodeSelect" class="block w-full border border-gray-300 rounded-md p-2 shadow-sm">
+                            <option value="">-- Select --</option>
+                            <?php foreach ($sub_route_codes_list as $srt) echo "<option value='$srt'>$srt</option>"; ?>
                         </select>
                     </div>
                     
@@ -519,31 +538,35 @@ include('../../includes/navbar.php');
 <script>
     // --- View Details ---
     function viewDetails(id) {
-        const modal = document.getElementById('detailsModal');
-        const loader = document.getElementById('detailsLoading');
-        const content = document.getElementById('detailsContent');
-        
-        modal.style.display = 'flex';
-        loader.style.display = 'flex';
-        content.innerHTML = '';
+    const modal = document.getElementById('detailsModal');
+    const loader = document.getElementById('detailsLoading');
+    const content = document.getElementById('detailsContent');
+    
+    modal.style.display = 'flex';
+    loader.style.display = 'flex';
+    content.innerHTML = '';
 
-        const formData = new FormData();
-        formData.append('fetch_view_details', '1');
-        formData.append('trip_id', id);
+    const formData = new FormData();
+    formData.append('fetch_view_details', '1');
+    formData.append('trip_id', id);
 
-        fetch('', { method: 'POST', body: formData })
-        .then(res => res.json())
-        .then(data => {
-            loader.style.display = 'none';
-            if(data.success) {
-                let html = `
-                    <div class="bg-blue-50 p-4 rounded-lg mb-4 border border-blue-200">
-                        <div class="flex items-center justify-between text-sm">
-                            <div class="text-left"><span class="text-xs uppercase text-gray-500 font-bold">From</span><div class="text-lg font-bold text-gray-800">${data.trip.from_location}</div></div>
-                            <div class="text-blue-400 px-4"><i class="fas fa-arrow-right text-xl"></i></div>
-                            <div class="text-right"><span class="text-xs uppercase text-gray-500 font-bold">To</span><div class="text-lg font-bold text-gray-800">${data.trip.to_location}</div></div>
-                        </div>
-                    </div>`;
+    fetch('', { method: 'POST', body: formData })
+    .then(res => res.json())
+    .then(data => {
+        loader.style.display = 'none';
+        if(data.success) {
+            let html = `
+                <div class="bg-blue-50 p-4 rounded-lg mb-4 border border-blue-200">
+                    <div class="flex items-center justify-between text-sm mb-3">
+                        <div class="text-left"><span class="text-xs uppercase text-gray-500 font-bold">From</span><div class="text-lg font-bold text-gray-800">${data.trip.from_location}</div></div>
+                        <div class="text-blue-400 px-4"><i class="fas fa-arrow-right text-xl"></i></div>
+                        <div class="text-right"><span class="text-xs uppercase text-gray-500 font-bold">To</span><div class="text-lg font-bold text-gray-800">${data.trip.to_location}</div></div>
+                    </div>
+                    <div class="border-t border-blue-100 pt-2">
+                        <span class="text-[10px] uppercase text-gray-500 font-bold">Remarks:</span>
+                        <div class="text-sm text-blue-900 italic font-medium">${data.trip.remarks}</div>
+                    </div>
+                </div>`;
                 
                 if(data.passengers.length > 0) {
                     html += `<table class="w-full text-sm text-left text-gray-500 border rounded"><thead class="text-xs text-gray-700 uppercase bg-gray-100"><tr><th class="px-4 py-2 border-b">ID</th><th class="px-4 py-2 border-b">Name</th><th class="px-4 py-2 border-b">Reason</th></tr></thead><tbody>`;
@@ -590,11 +613,15 @@ include('../../includes/navbar.php');
                 document.getElementById('editSupplierSelect').value = data.trip.supplier_code;
                 document.getElementById('editDistanceInput').value = data.trip.distance;
 
-                // Set Op/Route
+                // UPDATED: Set Op/Route/Sub Route
                 if(data.trip.route) {
                     document.querySelector('input[name="code_type"][value="route"]').checked = true;
                     toggleEditCode('route');
                     document.getElementById('editRouteCodeSelect').value = data.trip.route;
+                } else if(data.trip.sub_route) {
+                    document.querySelector('input[name="code_type"][value="sub_route"]').checked = true;
+                    toggleEditCode('sub_route');
+                    document.getElementById('editSubRouteCodeSelect').value = data.trip.sub_route;
                 } else {
                     document.querySelector('input[name="code_type"][value="op"]').checked = true;
                     toggleEditCode('op');
@@ -613,31 +640,41 @@ include('../../includes/navbar.php');
         });
     }
 
+    // UPDATED TOGGLE LOGIC FOR 3 OPTIONS
     function toggleEditCode(type) {
         const opDiv = document.getElementById('editOpDiv');
         const rtDiv = document.getElementById('editRouteDiv');
+        const subRtDiv = document.getElementById('editSubRouteDiv');
+        
         const opSel = document.getElementById('editOpCodeSelect');
         const rtSel = document.getElementById('editRouteCodeSelect');
+        const subRtSel = document.getElementById('editSubRouteCodeSelect');
+
+        // Hide all first
+        opDiv.classList.add('hidden');
+        rtDiv.classList.add('hidden');
+        subRtDiv.classList.add('hidden');
+        
+        // Remove required and clear values
+        opSel.removeAttribute('required'); opSel.value = "";
+        rtSel.removeAttribute('required'); rtSel.value = "";
+        subRtSel.removeAttribute('required'); subRtSel.value = "";
 
         if(type === 'op') {
             opDiv.classList.remove('hidden');
-            rtDiv.classList.add('hidden');
             opSel.setAttribute('required', 'required');
-            rtSel.removeAttribute('required');
-            rtSel.value = "";
-        } else {
-            opDiv.classList.add('hidden');
+        } else if(type === 'route') {
             rtDiv.classList.remove('hidden');
             rtSel.setAttribute('required', 'required');
-            opSel.removeAttribute('required');
-            opSel.value = "";
+        } else if(type === 'sub_route') {
+            subRtDiv.classList.remove('hidden');
+            subRtSel.setAttribute('required', 'required');
         }
     }
 
-    // --- Delete Confirmation (NEW) ---
+    // --- Delete Confirmation ---
     function confirmDelete(id) {
         if (confirm("Are you sure you want to delete this trip permanently?")) {
-            // Create a temporary form to submit the delete request
             const form = document.createElement('form');
             form.method = 'POST';
             form.action = '?date=<?php echo $filterDate; ?>';

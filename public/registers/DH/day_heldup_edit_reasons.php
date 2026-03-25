@@ -75,7 +75,7 @@ $stmt->close();
 
 if (!$trip) die("Error: Record not found.");
 
-$op_codes = $conn->query("SELECT op_code FROM op_services WHERE op_code LIKE 'DH-%' ORDER BY op_code ASC")->fetch_all(MYSQLI_ASSOC);
+$op_codes = $conn->query("SELECT op_code FROM op_services WHERE op_code LIKE 'DH-%' AND is_active = 1 ORDER BY op_code ASC")->fetch_all(MYSQLI_ASSOC);
 $existing_reasons_sql = "SELECT dher.*, r.reason, g.gl_name, e.calling_name, e.department FROM dh_emp_reason dher JOIN reason r ON dher.reason_code = r.reason_code JOIN gl g ON r.gl_code = g.gl_code LEFT JOIN employee e ON dher.emp_id = e.emp_id WHERE dher.trip_id = $target_trip_id ORDER BY dher.id ASC";
 $existing_reasons = $conn->query($existing_reasons_sql)->fetch_all(MYSQLI_ASSOC);
 $all_reasons = $conn->query("SELECT r.*, g.gl_name FROM reason r JOIN gl g ON r.gl_code = g.gl_code ORDER BY g.gl_name, r.reason")->fetch_all(MYSQLI_ASSOC);

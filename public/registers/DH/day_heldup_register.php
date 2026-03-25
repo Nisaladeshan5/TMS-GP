@@ -54,10 +54,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_reasons']) && i
 }
 
 // 2. Fetch relevant Day Heldup Trip records
-$sql = "SELECT dhr.trip_id, dhr.op_code, dhr.vehicle_no, dhr.date, dhr.out_time, dhr.in_time, dhr.distance, dhr.done AS heldup_done_status, dhr.user_id, 
+$sql = "SELECT dhr.trip_id, os.op_service, dhr.op_code, dhr.vehicle_no, dhr.date, dhr.out_time, dhr.in_time, dhr.distance, dhr.done AS heldup_done_status, dhr.user_id, 
         COUNT(dher.emp_id) AS employee_count, GROUP_CONCAT(DISTINCT r.reason SEPARATOR ' / ') AS reasons_summary, 
         CASE WHEN dhr.user_id IS NOT NULL THEN user_employee.calling_name ELSE NULL END AS done_by_user_display 
         FROM day_heldup_register dhr 
+        LEFT JOIN op_services os ON dhr.op_code = os.op_code 
         LEFT JOIN dh_emp_reason dher ON dhr.trip_id = dher.trip_id 
         LEFT JOIN reason r ON dher.reason_code = r.reason_code 
         LEFT JOIN admin a ON dhr.user_id = a.user_id 
@@ -143,7 +144,7 @@ include('../../../includes/navbar.php');
                 <tr>
                     <th class="px-4 py-3">Trip ID</th>
                     <th class="px-4 py-3">Vehicle No</th>
-                    <th class="px-4 py-3">Op Code</th>
+                    <th class="px-4 py-3">Service Name</th>
                     <th class="px-4 py-3">Out Time</th>
                     <th class="px-4 py-3">In Time</th>
                      <?php if ($is_logged_in): ?>
@@ -177,7 +178,7 @@ include('../../../includes/navbar.php');
                         <tr class="<?php echo $row_class; ?> border-b border-gray-100 transition duration-150">
                             <td class="px-4 py-3 font-medium"><?php echo $trip_id; ?></td>
                             <td class="px-4 py-3"><?php echo $entry['vehicle_no']; ?></td>
-                            <td class="px-4 py-3"><?php echo $entry['op_code']; ?></td>
+                            <td class="px-4 py-3"><?php echo $entry['op_service'].'('.$entry['op_code'].')'; ?></td>
                             <td class="px-4 py-3"><?php echo htmlspecialchars($entry['out_time'] ?? '---'); ?></td>
                             <td class="px-4 py-3"><?php echo htmlspecialchars($entry['in_time'] ?? '---'); ?></td>
                              <?php if ($is_logged_in): ?>

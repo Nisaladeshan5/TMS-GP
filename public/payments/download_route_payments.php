@@ -159,6 +159,11 @@ if ($payments_result && $payments_result->num_rows > 0) {
 
         // 3. Adjustment
         $other_amount = get_total_adjustment_amount($conn, $route_code, $supplier_code, $selected_month, $selected_year) * -1;
+        
+        // Calculate Working Days Payment (Base + Adjustment)
+        $working_days_payment = $total_calculated_payment + $other_amount;
+        
+        $final_total = $working_days_payment + $extra_payment;
 
         $payment_data[] = [
             'route_code' => $route_code, 
@@ -169,13 +174,13 @@ if ($payments_result && $payments_result->num_rows > 0) {
             'total_working_days' => $total_trip_count,
             'total_distance' => ($route_distance / 2) * $total_trip_count,
             'calculated_base_payment' => $total_calculated_payment,
-            'extra_amount' => $extra_payment,
-            'other_amount' => $other_amount, 
-            'payments' => $total_calculated_payment + $extra_payment + $other_amount 
+            'other_amount' => $other_amount,
+            'working_days_payment' => $working_days_payment,
+            'extra_amount' => $extra_payment, 
+            'payments' => $final_total 
         ];
     }
 }
-$conn->close();
 
 // --- EXCEL GENERATION START ---
 $month_name = date('F', mktime(0, 0, 0, $selected_month, 10));
@@ -190,75 +195,191 @@ header("Expires: 0");
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <style>
+        table { font-family: Arial, sans-serif; border-collapse: collapse; }
         .text-format { mso-number-format:"\@"; } 
-        .currency-format { mso-number-format:"\#\,\#\#0\.00"; }
+        .currency-format { mso-number-format:"\#\,\#\#0\.00"; text-align: right; }
         .summary-row { background-color: #f2f2f2; font-weight: bold; }
+        td, th { padding: 5px; vertical-align: middle; }
     </style>
 </head>
 <body>
     <table border="1">
         <thead>
             <tr>
-                <th colspan="10" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #FFFF00;">
+                <th colspan="11" style="font-size: 18px; font-weight: bold; text-align: center; background-color: #FFFF00; padding: 15px;">
                     Staff Route Monthly Payment Report - <?php echo "$month_name $selected_year"; ?>
                 </th>
             </tr>
+            
             <tr>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Route Code</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Route</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Vehicle No</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Trip Rate (LKR)</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Total Trip Count</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Total Distance (km)</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Base Payment (LKR)</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Extra Payment (LKR)</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Adjustment (LKR)</th>
-                <th style="background-color: #ADD8E6; font-weight: bold;">Total Payments (LKR)</th>
+                <td colspan="11" style="font-size: 15px; font-weight: bold; text-align: center; background-color: #EBF1DE; color: #005c29; border: 2px solid #00B050; padding: 10px;">
+                    FOR ACCOUNTS DEPARTMENT: Only use the Green Column (Working Days Payment)
+                </td>
+            </tr>
+
+            <tr>
+                <td colspan="11" style="font-size: 15px; font-weight: bold; text-align: center; background-color: #F2DCDB; color: #C00000; border: 2px solid #C00000; padding: 10px;">
+                    WARNING - FOR TRANSPORT DEPARTMENT ONLY: The Red Columns (Extra Payment, Total Payments) are STRICTLY for internal records. DO NOT send these values to Accounts!
+                </td>
+            </tr>
+
+            <tr style="color:white; font-weight:bold; text-align:center;">
+                <th style="background-color: #4F81BD;">Route Code</th>
+                <th style="background-color: #4F81BD;">Route</th>
+                <th style="background-color: #4F81BD;">Vehicle No</th>
+                <th style="background-color: #4F81BD;">Trip Rate (LKR)</th>
+                <th style="background-color: #4F81BD;">Total Trip Count</th>
+                <th style="background-color: #4F81BD;">Total Distance (km)</th>
+                <th style="background-color: #4F81BD;">Base Payment (LKR)</th>
+                <th style="background-color: #4F81BD;">Adjustment (LKR)</th>
+                
+                <th style="background-color: #00B050; font-size: 13px;">Working Days Payment (LKR)<br>(Accounts Valid)</th>
+                
+                <th style="background-color: #C0504D;">Extra Payment (LKR)</th>
+                <th style="background-color: #C00000; font-size: 13px;">Total Payments (LKR)<br>(Transport Only)</th>
             </tr>
         </thead>
         <tbody>
             <?php 
             $sum_trips = 0; $sum_dist = 0; $sum_base = 0; 
-            $sum_extra = 0; $sum_adj = 0; $sum_total = 0;
+            $sum_adj = 0; $sum_working = 0; $sum_extra = 0; $sum_final = 0;
 
             if (!empty($payment_data)): 
                 foreach ($payment_data as $row): 
                     $sum_trips += $row['total_working_days'];
                     $sum_dist += $row['total_distance'];
                     $sum_base += $row['calculated_base_payment'];
-                    $sum_extra += $row['extra_amount'];
                     $sum_adj += $row['other_amount'];
-                    $sum_total += $row['payments'];
+                    $sum_working += $row['working_days_payment'];
+                    $sum_extra += $row['extra_amount'];
+                    $sum_final += $row['payments'];
             ?>
                     <tr>
                         <td class="text-format"><?php echo htmlspecialchars($row['route_code']); ?></td>
                         <td><?php echo htmlspecialchars($row['route']); ?></td>
                         <td><?php echo htmlspecialchars($row['vehicle_no']); ?></td>
-                        <td class="currency-format"><?php echo $row['day_rate']; ?></td>
+                        <td class="currency-format"><?php echo number_format($row['day_rate'], 2); ?></td>
                         <td style="text-align:center;"><?php echo $row['total_working_days']; ?></td>
                         <td style="text-align:center;"><?php echo number_format($row['total_distance'], 2); ?></td>
-                        <td class="currency-format"><?php echo $row['calculated_base_payment']; ?></td>
-                        <td class="currency-format"><?php echo $row['extra_amount']; ?></td>
+                        <td class="currency-format"><?php echo number_format($row['calculated_base_payment'], 2); ?></td>
                         <td class="currency-format" style="color: <?php echo ($row['other_amount'] < 0) ? 'red' : 'black'; ?>;">
-                            <?php echo $row['other_amount']; ?>
+                            <?php echo number_format($row['other_amount'], 2); ?>
                         </td>
-                        <td class="currency-format" style="font-weight:bold;"><?php echo $row['payments']; ?></td>
+                        
+                        <td class="currency-format" style="font-weight:bold; background-color:#EBF1DE; border: 2px solid #00B050; color:#005c29;">
+                            <?php echo number_format($row['working_days_payment'], 2); ?>
+                        </td>
+                        
+                        <td class="currency-format" style="color:#C00000; border-left: 2px solid #C00000;">
+                            <?php echo number_format($row['extra_amount'], 2); ?>
+                        </td>
+                        <td class="currency-format" style="font-weight:bold; background-color:#F2DCDB; border: 2px solid #C00000; color:#C00000;">
+                            <?php echo number_format($row['payments'], 2); ?>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
                 
                 <tr class="summary-row">
-                    <td colspan="5" style="text-align: right;">GRAND TOTAL:</td>
+                    <td colspan="4" style="text-align: right; padding-right: 10px;">GRAND TOTAL:</td>
                     <td style="text-align:center;"><?php echo $sum_trips; ?></td>
                     <td style="text-align:center;"><?php echo number_format($sum_dist, 2); ?></td>
-                    <td class="currency-format"><?php echo $sum_base; ?></td>
-                    <td class="currency-format"><?php echo $sum_extra; ?></td>
-                    <td class="currency-format"><?php echo $sum_adj; ?></td>
-                    <td class="currency-format" style="background-color: #FFFF00;"><?php echo $sum_total; ?></td>
+                    <td class="currency-format"><?php echo number_format($sum_base, 2); ?></td>
+                    <td class="currency-format"><?php echo number_format($sum_adj, 2); ?></td>
+                    
+                    <td class="currency-format" style="background-color:#EBF1DE; border: 2px solid #00B050; color:#005c29; font-weight:bold;">
+                        <?php echo number_format($sum_working, 2); ?>
+                    </td>
+                    
+                    <td class="currency-format" style="color:#C00000; border-left: 2px solid #C00000;">
+                        <?php echo number_format($sum_extra, 2); ?>
+                    </td>
+                    <td class="currency-format" style="background-color:#F2DCDB; border: 2px solid #C00000; color:#C00000; font-weight:bold;">
+                        <?php echo number_format($sum_final, 2); ?>
+                    </td>
                 </tr>
             <?php else: ?>
-                <tr><td colspan="11" style="text-align:center;">No records found for this period.</td></tr>
+                <tr><td colspan="11" style="text-align:center; padding: 20px;">No records found for this period.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
+
+    <?php
+    // =======================================================================
+    // 3. FETCH AND DISPLAY EXTRA TRIPS BREAKDOWN TABLE (STAFF)
+    // =======================================================================
+
+    // Add spacing between tables
+    echo '<br><br>';
+
+    echo '<table border="1">';
+
+    // Title for breakdown table
+    echo '<tr>';
+    echo '<td colspan="7" style="font-size: 16px; font-weight: bold; text-align: center; background-color: #F2DCDB; color: #C00000; padding: 10px; border: 2px solid #C00000;">';
+    echo 'Extra Trips Breakdown (Transport Department Reference) - ' . $month_name . ' ' . $selected_year;
+    echo '</td>';
+    echo '</tr>';
+
+    // Headers
+    echo '<tr style="color:white; font-weight:bold; text-align:center; background-color:#C0504D;">';
+    echo '<th style="padding: 8px; width: 100px;">Date</th>';
+    echo '<th style="padding: 8px; width: 200px;">Route</th>';
+    echo '<th style="padding: 8px; width: 200px;">Supplier</th>';
+    echo '<th style="padding: 8px; width: 150px;">From</th>';
+    echo '<th style="padding: 8px; width: 150px;">To</th>';
+    echo '<th style="padding: 8px; width: 100px;">Distance (km)</th>';
+    echo '<th style="padding: 8px; width: 250px;">Remarks</th>';
+    echo '</tr>';
+
+    // Query for Extra Vehicle Register (Staff Specific)
+    $extra_sql = "
+        SELECT 
+            evr.date, 
+            evr.route AS route_code, 
+            r.route AS route_name,
+            evr.supplier_code, 
+            s.supplier AS supplier_name,
+            evr.from_location, 
+            evr.to_location, 
+            evr.distance, 
+            evr.remarks
+        FROM extra_vehicle_register evr
+        LEFT JOIN route r ON evr.route = r.route_code
+        LEFT JOIN supplier s ON evr.supplier_code = s.supplier_code
+        WHERE MONTH(evr.date) = ? 
+        AND YEAR(evr.date) = ? 
+        AND evr.done = 1 
+        AND SUBSTRING(evr.route, 5, 1) = 'S' /* Staff Routes Only */
+        ORDER BY evr.date ASC, evr.route ASC
+    ";
+
+    $extra_stmt = $conn->prepare($extra_sql);
+    $extra_stmt->bind_param("ii", $selected_month, $selected_year);
+    $extra_stmt->execute();
+    $extra_result = $extra_stmt->get_result();
+
+    if ($extra_result && $extra_result->num_rows > 0) {
+        while ($extra = $extra_result->fetch_assoc()) {
+            $ex_supplier = !empty($extra['supplier_name']) ? htmlspecialchars($extra['supplier_name']) : htmlspecialchars($extra['supplier_code'] ?? '');
+            $ex_route = !empty($extra['route_name']) ? htmlspecialchars($extra['route_name']) : htmlspecialchars($extra['route_code'] ?? '');
+
+            echo '<tr>';
+            echo '<td style="text-align:center; padding: 5px;">' . date('Y-m-d', strtotime($extra['date'])) . '</td>';
+            echo '<td style="padding: 5px;">' . $ex_route . '</td>';
+            echo '<td style="padding: 5px;">' . $ex_supplier . '</td>';
+            echo '<td style="padding: 5px;">' . htmlspecialchars($extra['from_location'] ?? '') . '</td>'; // Null safe
+            echo '<td style="padding: 5px;">' . htmlspecialchars($extra['to_location'] ?? '') . '</td>';   // Null safe
+            echo '<td style="text-align:right; padding: 5px;">' . number_format($extra['distance'], 2) . '</td>';
+            echo '<td style="padding: 5px;">' . htmlspecialchars($extra['remarks'] ?? '') . '</td>';       // Null safe
+            echo '</tr>';
+        }
+    } else {
+        echo '<tr><td colspan="7" style="text-align:center; padding: 20px;">No extra trips recorded for this period.</td></tr>';
+    }
+
+    echo '</table>';
+    $extra_stmt->close();
+    $conn->close();
+    ?>
 </body>
 </html>

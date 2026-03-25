@@ -1,5 +1,5 @@
 <?php
-// ev_payments.php - Extra Vehicle Payments (Sticky Header Updated)
+// ev_payments.php - Extra Vehicle Payments (Sticky Header Updated with Sub Route)
 
 require_once '../../../includes/session_check.php';
 if (session_status() == PHP_SESSION_NONE) {
@@ -19,7 +19,6 @@ include('../../../includes/db.php');
 $current_month_sys = (int)date('n');
 $current_year_sys = (int)date('Y');
 
-// A. Get the Last Finalized Payment Month/Year from monthly_payments_ev
 $max_payments_sql = "SELECT MAX(month) AS max_month, MAX(year) AS max_year FROM monthly_payments_ev";
 $max_payments_result = $conn->query($max_payments_sql);
 
@@ -32,11 +31,9 @@ if ($max_payments_result && $max_payments_result->num_rows > 0) {
     $db_max_year = (int)($max_data['max_year'] ?? 0);
 }
 
-// B. Calculate the STARTING point (Next Due Month)
 $start_month = 0;
 $start_year = 0;
 
-// Limit එක තීරණය කිරීම (අවසාන මාසය + 1)
 if ($db_max_month == 0) {
     $limit_month = 1;
     $limit_year = $current_year_sys - 1;
@@ -47,12 +44,11 @@ if ($db_max_month == 0) {
     $limit_month = $db_max_month + 1;
     $limit_year = $db_max_year;
 }
-// Limit එක වත්මන් මාසයට වඩා වැඩි විය නොහැක
+
 if (($limit_year > $current_year_sys) || ($limit_year == $current_year_sys && $limit_month > $current_month_sys)) {
     $limit_month = $current_month_sys;
     $limit_year = $current_year_sys;
 }
-
 
 // =======================================================================
 // 2. HELPER FUNCTIONS & SELECTION LOGIC
@@ -61,7 +57,6 @@ if (($limit_year > $current_year_sys) || ($limit_year == $current_year_sys && $l
 $selected_month = str_pad($current_month_sys, 2, '0', STR_PAD_LEFT);
 $selected_year = $current_year_sys;
 
-// Check if 'month_year' is passed
 if (isset($_GET['month_year']) && !empty($_GET['month_year'])) {
     $parts = explode('-', $_GET['month_year']);
     if (count($parts) == 2) {
@@ -69,11 +64,9 @@ if (isset($_GET['month_year']) && !empty($_GET['month_year'])) {
         $selected_month = str_pad($parts[1], 2, '0', STR_PAD_LEFT);
     }
 } elseif (isset($_GET['month_num']) && isset($_GET['year'])) {
-    // Fallback for old links
     $selected_month = str_pad($_GET['month_num'], 2, '0', STR_PAD_LEFT);
     $selected_year = (int)$_GET['year'];
 }
-
 
 // =======================================================================
 // 3. PRE-FETCH DATA & CALCULATIONS
@@ -118,6 +111,19 @@ while ($row = $rt_res->fetch_assoc()) {
     $route_data[$row['route_code']] = ['fixed_amount' => (float)$row['fixed_amount'], 'assigned_vehicle' => $row['vehicle_no'], 'with_fuel' => (int)$row['with_fuel']];
 }
 
+// E. Sub Route Data (NEW)
+$sub_route_data = [];
+$sub_rt_res = $conn->query("SELECT sub_route_code, fixed_rate, vehicle_no, with_fuel FROM sub_route WHERE is_active = 1");
+if ($sub_rt_res) {
+    while ($row = $sub_rt_res->fetch_assoc()) {
+        $sub_route_data[$row['sub_route_code']] = [
+            'fixed_rate' => (float)$row['fixed_rate'], 
+            'assigned_vehicle' => $row['vehicle_no'], 
+            'with_fuel' => (int)$row['with_fuel']
+        ];
+    }
+}
+
 // --- 4. MAIN QUERY ---
 $payment_data = [];
 $page_title = "Extra Vehicle Payments";
@@ -158,12 +164,31 @@ while ($row = $result->fetch_assoc()) {
             $pay_amount = $distance * $rate;
         }
     } 
-    // LOGIC 2: ROUTE CODE
+    // LOGIC 2: SUB ROUTE CODE (NEW)
+    elseif (!empty($row['sub_route'])) {
+        $identifier = $row['sub_route'];
+        $type = 'Sub Route';
+        if (isset($sub_route_data[$identifier])) {
+            $fixed = $sub_route_data[$identifier]['fixed_rate']; // Sub route uses 'fixed_rate'
+            $assigned_veh = $sub_route_data[$identifier]['assigned_vehicle'];
+            $with_fuel = $sub_route_data[$identifier]['with_fuel'];
+            $fuel_cost = 0;
+            
+            if ($with_fuel == 1 && !empty($assigned_veh) && isset($vehicle_specs[$assigned_veh])) {
+                $v = $vehicle_specs[$assigned_veh];
+                $km_l = $v['km_per_liter'];
+                $f_rate = get_rate_for_date($v['rate_id'], $trip_date, $fuel_history);
+                if ($km_l > 0) $fuel_cost = $f_rate / $km_l;
+            }
+            $pay_amount = $distance * ($fixed + $fuel_cost);
+        }
+    }
+    // LOGIC 3: ROUTE CODE
     elseif (!empty($row['route'])) {
         $identifier = $row['route'];
         $type = 'Route';
         if (isset($route_data[$identifier])) {
-            $fixed = $route_data[$identifier]['fixed_amount'];
+            $fixed = $route_data[$identifier]['fixed_amount']; // Route uses 'fixed_amount'
             $assigned_veh = $route_data[$identifier]['assigned_vehicle'];
             $with_fuel = $route_data[$identifier]['with_fuel'];
             $fuel_cost = 0;
@@ -218,7 +243,6 @@ include('../../../includes/navbar.php');
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
-        /* Dropdown Menu Styles */
         .dropdown-menu { display: none; position: absolute; right: 0; top: 120%; z-index: 50; min-width: 220px; background-color: white; border: 1px solid #e5e7eb; border-radius: 0.75rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15); overflow: hidden; animation: slideDown 0.2s ease-out; }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .dropdown-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: #374151; font-size: 0.875rem; transition: background-color 0.15s; }
@@ -351,6 +375,8 @@ include('../../../includes/navbar.php');
                                     <td class="py-3 px-6 whitespace-nowrap text-left">
                                         <?php if($data['type'] == 'Route'): ?>
                                             <span class="bg-indigo-100 text-indigo-700 py-1 px-3 rounded-full text-xs font-semibold">Route</span>
+                                        <?php elseif($data['type'] == 'Sub Route'): ?>
+                                            <span class="bg-pink-100 text-pink-700 py-1 px-3 rounded-full text-xs font-semibold">Sub Route</span>
                                         <?php else: ?>
                                             <span class="bg-purple-100 text-purple-700 py-1 px-3 rounded-full text-xs font-semibold">Operation</span>
                                         <?php endif; ?>
@@ -392,12 +418,10 @@ include('../../../includes/navbar.php');
 </div>
 
 <script>
-    // --- JS for Click-to-Toggle Menu ---
     document.addEventListener('DOMContentLoaded', function() {
         const menuBtn = document.getElementById('menuBtn');
         const dropdownMenu = document.getElementById('dropdownMenu');
 
-        // Toggle on click
         menuBtn.addEventListener('click', function(e) {
             e.stopPropagation();
             if (dropdownMenu.style.display === 'block') {
@@ -407,7 +431,6 @@ include('../../../includes/navbar.php');
             }
         });
 
-        // Close on click outside
         document.addEventListener('click', function(e) {
             if (!menuBtn.contains(e.target) && !dropdownMenu.contains(e.target)) {
                 dropdownMenu.style.display = 'none';
@@ -423,7 +446,6 @@ include('../../../includes/navbar.php');
         loader.classList.add("flex");
     }
 
-    // 🔹 All normal links
     document.querySelectorAll("a").forEach(link => {
         link.addEventListener("click", function () {
             if (link.target !== "_blank" && !link.classList.contains("no-loader")) {
@@ -432,14 +454,12 @@ include('../../../includes/navbar.php');
         });
     });
 
-    // 🔹 All forms (including month filter form)
     document.querySelectorAll("form").forEach(form => {
         form.addEventListener("submit", function () {
             showLoader("Applying filter…");
         });
     });
 
-    // 🔹 Month-Year dropdown (important for onchange submit)
     const monthSelect = document.querySelector("select[name='month_year']");
     if (monthSelect) {
         monthSelect.addEventListener("change", function () {

@@ -75,6 +75,7 @@ if ($incoming_status === '0') {
 $sql = "SELECT
             os.op_code,
             os.vehicle_no,
+            os.op_service,
             s.supplier,
             os.slab_limit_distance,
             os.day_rate,
@@ -184,6 +185,7 @@ $op_services_result = $conn->query($sql);
                         <input type="checkbox" id="select-all-rates" onclick="toggleAllCheckboxes()" class="cursor-pointer">
                     </th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Code</th>
+                    <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Name</th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Vehicle No.</th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-left shadow-sm">Supplier</th>
                     <th class="sticky top-0 z-10 bg-blue-600 px-4 py-3 text-center shadow-sm">Slab Limit</th>
@@ -197,6 +199,7 @@ $op_services_result = $conn->query($sql);
                 <?php if ($op_services_result && $op_services_result->num_rows > 0): ?>
                     <?php while ($rate = $op_services_result->fetch_assoc()): 
                         $op_code = htmlspecialchars($rate['op_code']);
+                        $op_name = htmlspecialchars($rate['op_service'] ?? 'N/A');
                         $raw_vehicle_no = $rate['vehicle_no'];
                         $vehicle_no = htmlspecialchars($raw_vehicle_no);
                         $supplier = htmlspecialchars($rate['supplier'] ?? 'N/A');
@@ -224,6 +227,7 @@ $op_services_result = $conn->query($sql);
                                 <input type='checkbox' name='selected_rates[]' value='<?php echo $op_code . "|" . $raw_vehicle_no; ?>' class='rate-checkbox cursor-pointer'>
                             </td>
                             <td class="px-4 py-3 font-mono text-blue-600 font-bold text-xs"><?php echo $op_code; ?></td>
+                            <td class="px-4 py-3 text-gray-800"><?php echo $op_name; ?></td>
                             <td class="px-4 py-3 font-medium text-gray-800"><?php echo $vehicle_no; ?></td>
                             <td class="px-4 py-3 text-gray-600"><?php echo $supplier; ?></td>
                             <td class="px-4 py-3 text-center"><?php echo $limit_distance; ?></td>

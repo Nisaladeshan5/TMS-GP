@@ -33,7 +33,7 @@ while ($row = $all_reasons_result->fetch_assoc()) {
 }
 
 // --- 2. Fetch Filtered OP Codes for Dropdown ---
-$op_code_sql = "SELECT op_code, vehicle_no FROM op_services WHERE op_code LIKE 'DH-%' ORDER BY op_code ASC";
+$op_code_sql = "SELECT op_code, vehicle_no FROM op_services WHERE op_code LIKE 'DH-%' AND is_active = 1 ORDER BY op_code ASC";
 $op_code_result = $conn->query($op_code_sql);
 $available_op_codes = [];
 if ($op_code_result) {

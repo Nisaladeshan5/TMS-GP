@@ -13,7 +13,6 @@ include('../../includes/db.php');
 
 // --- 0. PRE-FETCH ALL SUB ROUTES FOR DROPDOWN (ONLY ACTIVE ONES) ---
 $all_sub_routes = [];
-// UPDATE: Added WHERE is_active = 1
 $sub_route_sql = "SELECT sub_route_code, sub_route FROM sub_route WHERE is_active = 1 ORDER BY sub_route";
 $sr_result = $conn->query($sub_route_sql);
 if ($sr_result) {
@@ -47,27 +46,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // UPDATE SUB ROUTE
+    // UPDATE SUB ROUTE (UPDATED FOR MULTIPLE ROUTES)
     if ($_POST['action'] === 'update_sub_route') {
-        $new_sub_route_code = trim($_POST['sub_route_code']);
+        $new_sub_route_codes = trim($_POST['sub_route_code']); // Example: "SR001,SR002"
         
-        if ($new_sub_route_code === "") {
+        if ($new_sub_route_codes === "") {
              $stmt = $conn->prepare("UPDATE employee SET sub_route_code = NULL WHERE emp_id = ?");
              $stmt->bind_param("s", $emp_id);
         } else {
              $stmt = $conn->prepare("UPDATE employee SET sub_route_code = ? WHERE emp_id = ?");
-             $stmt->bind_param("ss", $new_sub_route_code, $emp_id);
+             $stmt->bind_param("ss", $new_sub_route_codes, $emp_id);
         }
 
         if ($stmt->execute()) {
-            $name_stmt = $conn->prepare("SELECT sub_route FROM sub_route WHERE sub_route_code = ?");
-            $name_stmt->bind_param("s", $new_sub_route_code);
-            $name_stmt->execute();
-            $res = $name_stmt->get_result();
-            $new_name = ($res->num_rows > 0) ? $res->fetch_assoc()['sub_route'] : '-';
+            if ($new_sub_route_codes === "") {
+                $new_name = '-';
+            } else {
+                // Fetch all names for the assigned comma-separated codes
+                $codes_array = explode(',', $new_sub_route_codes);
+                $placeholders = implode(',', array_fill(0, count($codes_array), '?'));
+                $name_stmt = $conn->prepare("SELECT GROUP_CONCAT(sub_route SEPARATOR ', ') as names FROM sub_route WHERE sub_route_code IN ($placeholders)");
+                $name_stmt->bind_param(str_repeat('s', count($codes_array)), ...$codes_array);
+                $name_stmt->execute();
+                $res = $name_stmt->get_result();
+                $new_name = ($res->num_rows > 0) ? $res->fetch_assoc()['names'] : '-';
+                $name_stmt->close();
+            }
             
             echo json_encode(['status' => 'success', 'message' => 'Sub route updated.', 'new_name' => $new_name]);
-            $name_stmt->close();
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Update failed.']);
         }
@@ -76,9 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// --- HELPER FUNCTION: GET DATA ---
+// --- HELPER FUNCTION: GET DATA (UPDATED FOR MULTIPLE ROUTES) ---
 function getEmployeeData($conn, $filters) {
-    // Note: SUBSTRING(..., 12, LENGTH(...) - 12) removes the last character if string format includes trailing ')'
+    // Note: GROUP_CONCAT and FIND_IN_SET added to support multiple comma-separated route codes
     $sql = "SELECT 
                 e.emp_id, 
                 e.calling_name, 
@@ -90,9 +96,10 @@ function getEmployeeData($conn, $filters) {
                 e.sub_route_code, 
                 SUBSTRING(e.route, 1, 10) AS route_code, 
                 SUBSTRING(e.route, 12, LENGTH(e.route) - 12) AS route_name,
-                sr.sub_route AS sub_route_name 
+                (SELECT GROUP_CONCAT(sub_route SEPARATOR ', ') 
+                 FROM sub_route 
+                 WHERE FIND_IN_SET(sub_route_code, e.sub_route_code) > 0) AS sub_route_name 
             FROM employee e
-            LEFT JOIN sub_route sr ON e.sub_route_code = sr.sub_route_code
             WHERE e.is_active = 1"; 
 
     $params = [];
@@ -116,14 +123,12 @@ function getEmployeeData($conn, $filters) {
         $param_types .= 's';
     }
     
-    // --- UPDATE: Sub Route Filter Logic with NONE handling ---
+    // --- Sub Route Filter Logic with FIND_IN_SET handling ---
     if (!empty($filters['sub_route_code'])) {
         if ($filters['sub_route_code'] === 'NONE') {
-            // Show employees with NO sub route assigned
             $sql .= " AND (e.sub_route_code IS NULL OR e.sub_route_code = '')";
         } else {
-            // Show employees with specific sub route
-            $sql .= " AND e.sub_route_code = ?";
+            $sql .= " AND FIND_IN_SET(?, e.sub_route_code) > 0";
             $params[] = $filters['sub_route_code'];
             $param_types .= 's';
         }
@@ -258,7 +263,6 @@ if (isset($_GET['ajax_filter'])) {
 
 // --- 3. EXCEL EXPORT ---
 if (isset($_GET['export']) && $_GET['export'] === 'excel') {
-    // Note: Add sub_route_code to export filters too
     $filters = [ 
         'emp_id' => $_GET['emp_id'] ?? '', 
         'department' => $_GET['department'] ?? '', 
@@ -285,7 +289,6 @@ include('../../includes/navbar.php');
 
 $department_options = $conn->query("SELECT DISTINCT department FROM employee ORDER BY department")->fetch_all(MYSQLI_ASSOC);
 
-// --- UPDATE: Fetch Code AND Name (Logic: 12 to Length-12 to remove last char) ---
 $route_code_options = $conn->query("
     SELECT DISTINCT 
         SUBSTRING(route, 1, 10) AS route_code, 
@@ -327,6 +330,15 @@ $initial_result = getEmployeeData($conn, $filters);
         .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { background-color: #10B981; } 
         .toast.error { background-color: #EF4444; } 
+        .custom-select-list {
+            scrollbar-width: thin;
+            scrollbar-color: #A78BFA #F3F4F6;
+        }
+        .custom-select-list option:checked {
+            background: #DDD6FE linear-gradient(0deg, #DDD6FE 0%, #DDD6FE 100%);
+            color: #5B21B6;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -338,10 +350,12 @@ $initial_result = getEmployeeData($conn, $filters);
     </div>
     <div class="flex items-center gap-3 text-xs font-medium">
         
-        <button onclick="triggerUpdate()" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded shadow-md transition border border-emerald-500 hover:border-emerald-400 font-semibold ml-4">
+        <button onclick="triggerUpdate()" class="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded shadow-md transition border border-gray-500 hover:border-gray-400 font-semibold ml-4">
             <i class="fas fa-sync-alt"></i> Update DB
         </button>
-
+        <button onclick="exportFilteredExcel()" class="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded shadow-md transition border border-green-500 hover:border-green-400 font-semibold">
+             Export Excel
+        </button>
         <button onclick="toggleFilters()" id="filterToggleBtn" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-gray-100 px-3 py-1.5 rounded shadow-md transition border border-slate-600 hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-yellow-400">
             <i class="fas fa-filter text-yellow-400"></i> <span id="filterBtnText">Show Filters</span> <i id="filterArrow" class="fas fa-chevron-down text-[10px] transition-transform duration-300"></i>
         </button>
@@ -484,51 +498,82 @@ $initial_result = getEmployeeData($conn, $filters);
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
     }
 
-    function makeSubRouteEditable(div, empId, currentCode) {
-        if (div.querySelector('select')) return;
+    // UPDATED FOR MULTIPLE SELECTION
+    function makeSubRouteEditable(div, empId, currentCodeStr) {
+    if (div.querySelector('select')) return;
 
-        let optionsHtml = `<option value="">-- None --</option>`;
-        subRouteOptions.forEach(route => {
-            const isSelected = (route.sub_route_code === currentCode) ? 'selected' : '';
-            optionsHtml += `<option value="${route.sub_route_code}" ${isSelected}>${route.sub_route}</option>`;
-        });
+    const currentCodes = currentCodeStr ? currentCodeStr.split(',') : [];
+    let optionsHtml = `<option value="" class="font-bold text-red-600">-- Clear All Selection --</option>`;
+    
+    subRouteOptions.forEach(route => {
+        const isSelected = currentCodes.includes(route.sub_route_code) ? 'selected' : '';
+        optionsHtml += `<option value="${route.sub_route_code}" ${isSelected} class="py-1 px-2 border-b border-gray-100 last:border-0">${route.sub_route}</option>`;
+    });
 
-        const originalContent = div.innerHTML; 
-        div.innerHTML = `<select class="w-full p-1 border border-purple-400 rounded text-xs bg-white focus:ring-2 focus:ring-purple-200 outline-none shadow-sm">${optionsHtml}</select>`;
+    const originalContent = div.innerHTML; 
+    
+    // Size eka 8 wage dunnama options 8k digata penawa. 
+    // Max-height ekak dala scrollable kala lassanata penna.
+    div.innerHTML = `
+        <div class="relative bg-white border border-purple-400 rounded shadow-xl p-1 z-50 min-w-[200px]">
+            <select multiple id="temp_select" class="w-full text-xs bg-white outline-none custom-select-list" size="8">
+                ${optionsHtml}
+            </select>
+            <div class="bg-purple-100 text-[10px] text-purple-800 p-1.5 mt-1 rounded font-medium flex justify-between items-center">
+                <span>Hold <b>Ctrl</b> to select many</span>
+                <button id="save_btn" class="bg-purple-600 text-white px-2 py-0.5 rounded hover:bg-purple-700">Save</button>
+            </div>
+        </div>
+    `;
+    
+    const select = div.querySelector('select');
+    const saveBtn = div.querySelector('#save_btn');
+    select.focus();
+
+    // User "Save" button eka click kalama hari select box eken eliyata giyama hari save wenawa
+    const performSave = () => {
+        const selectedOptions = Array.from(select.selectedOptions)
+                                     .map(opt => opt.value)
+                                     .filter(val => val !== "");
         
-        const select = div.querySelector('select');
-        select.focus();
+        const newCodeStr = selectedOptions.join(',');
 
-        const saveSubRoute = () => {
-            const newCode = select.value;
-            if (newCode === currentCode) { div.innerHTML = originalContent; return; }
+        if (newCodeStr === currentCodeStr) { div.innerHTML = originalContent; return; }
 
-            const formData = new FormData();
-            formData.append('action', 'update_sub_route');
-            formData.append('emp_id', empId);
-            formData.append('sub_route_code', newCode);
+        const formData = new FormData();
+        formData.append('action', 'update_sub_route');
+        formData.append('emp_id', empId);
+        formData.append('sub_route_code', newCodeStr);
 
-            fetch(window.location.href, { method: 'POST', body: formData })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'success') { 
-                    showToast(data.message, 'success'); 
-                    const newName = data.new_name;
-                    if(newCode && newName !== '-') {
-                        div.innerHTML = `<div class='mt-1'><span class='text-xs font-semibold text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-100 whitespace-normal leading-tight block text-left' title='${newName}'>${newName}</span></div>`;
-                        div.setAttribute('onclick', `makeSubRouteEditable(this, '${empId}', '${newCode}')`);
-                    } else {
-                        div.innerHTML = `<div class='mt-1'><span class='text-gray-400 text-[10px] font-medium border border-dashed border-gray-300 px-2 py-1 rounded hover:border-gray-500 hover:text-gray-600 transition block text-center bg-gray-50'>+ Assign</span></div>`;
-                    }
-                } else { 
-                    showToast(data.message, 'error'); 
-                    div.innerHTML = originalContent; 
+        fetch(window.location.href, { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') { 
+                showToast(data.message, 'success'); 
+                const newName = data.new_name;
+                if(newCodeStr && newName !== '-') {
+                    div.innerHTML = `<div class='mt-1'><span class='text-xs font-semibold text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-100 whitespace-normal leading-tight block text-left' title='${newName}'>${newName}</span></div>`;
+                    div.setAttribute('ondblclick', `makeSubRouteEditable(this, '${empId}', '${newCodeStr}')`);
+                } else {
+                    div.innerHTML = `<div class='mt-1'><span class='text-gray-400 text-[10px] font-medium border border-dashed border-gray-300 px-2 py-1 rounded hover:border-gray-500 hover:text-gray-600 transition block text-center bg-gray-50'>+ Assign</span></div>`;
+                    div.setAttribute('ondblclick', `makeSubRouteEditable(this, '${empId}', '')`);
                 }
-            }).catch(() => { showToast('Connection error', 'error'); div.innerHTML = originalContent; });
-        };
-        select.addEventListener('blur', saveSubRoute);
-        select.addEventListener('change', saveSubRoute); 
-    }
+            } else { 
+                showToast(data.message, 'error'); 
+                div.innerHTML = originalContent; 
+            }
+        }).catch(() => { showToast('Connection error', 'error'); div.innerHTML = originalContent; });
+    };
+
+    // Events
+    saveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        performSave();
+    });
+
+    // Option ekak double click kalath save wenna puluwan
+    select.addEventListener('dblclick', performSave);
+}
 
     const filterDrawer = document.getElementById('filterDrawer');
     const filterBtnText = document.getElementById('filterBtnText');
@@ -557,14 +602,14 @@ $initial_result = getEmployeeData($conn, $filters);
         const empId = document.getElementById('filter_emp_id').value;
         const staffType = document.getElementById('filter_staff_type').value;
         const routeCode = document.getElementById('filter_route_code').value;
-        const subRouteCode = document.getElementById('filter_sub_route').value; // Added
+        const subRouteCode = document.getElementById('filter_sub_route').value;
         const department = document.getElementById('filter_department').value;
 
         const params = new URLSearchParams();
         if (empId) params.append('emp_id', empId);
         if (staffType) params.append('staff_type', staffType);
         if (routeCode) params.append('route_code', routeCode);
-        if (subRouteCode) params.append('sub_route_code', subRouteCode); // Added
+        if (subRouteCode) params.append('sub_route_code', subRouteCode);
         if (department) params.append('department', department);
 
         const newUrl = window.location.pathname + '?' + params.toString();
@@ -636,6 +681,13 @@ $initial_result = getEmployeeData($conn, $filters);
         } else if (password !== null) {
             alert("Incorrect Password! Access Denied.");
         }
+    }
+    function exportFilteredExcel() {
+        // Dan browser eke thiyena URL parameters gannawa (emp_id, department, etc.)
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        // export_employee.php ekata e parameters okkoma pass karanawa
+        window.location.href = 'export_employee.php?' + urlParams.toString();
     }
 </script>
 

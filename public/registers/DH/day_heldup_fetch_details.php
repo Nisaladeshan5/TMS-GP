@@ -37,7 +37,7 @@ if (empty($op_code)) {
 }
 
 // Fetch the vehicle_no associated with the op_code from the static services table
-$sql = "SELECT vehicle_no FROM op_services WHERE op_code = ? LIMIT 1";
+$sql = "SELECT vehicle_no FROM op_services WHERE op_code = ? AND is_active = 1 LIMIT 1";
 $stmt = $conn->prepare($sql);
 
 if ($stmt) {

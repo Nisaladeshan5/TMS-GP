@@ -57,13 +57,13 @@ if ($count_stmt) {
 $sql = "
     SELECT 
         dha.op_code, 
+        os.op_service,
         dha.vehicle_no, 
         dha.date, 
         dha.time,
         dha.user_id,
         dha.ac_user_id, 
         dha.ac, 
-        
         CASE
             WHEN dha.user_id IS NOT NULL 
             THEN user_employee.calling_name 
@@ -76,6 +76,8 @@ $sql = "
         admin a ON dha.user_id = a.user_id
     LEFT JOIN
         employee AS user_employee ON a.emp_id = user_employee.emp_id 
+    LEFT JOIN
+        op_services os ON dha.op_code = os.op_code
 
     WHERE 
         DATE_FORMAT(dha.date, '%Y-%m') = ? /* FILTER BY COMBINED YYYY-MM */
@@ -211,7 +213,7 @@ include('../../../includes/navbar.php');
                 <tr>
                     <th class="px-4 py-3 text-left">Date</th>
                     <th class="px-4 py-3 text-left">Time</th>
-                    <th class="px-4 py-3 text-left">Op Code</th>
+                    <th class="px-4 py-3 text-left">Service Name</th>
                     <th class="px-4 py-3 text-left">Vehicle No</th>
                     <th class="px-4 py-3 text-left">Recorded By</th>
                     <th class="px-4 py-3 text-center">AC Status</th>
@@ -232,6 +234,7 @@ include('../../../includes/navbar.php');
                         $record_user_id = $entry['user_id'];
                         $record_ac_user_id = $entry['ac_user_id']; 
                         $ac_status_db = $entry['ac']; 
+                        $service_name = htmlspecialchars($entry['op_service'] ?? '---');
 
                         // Highlight row if AC Status is NULL (Pending)
                         $row_class = 'hover:bg-gray-50 border-b border-gray-100 transition duration-150';
@@ -272,7 +275,7 @@ include('../../../includes/navbar.php');
                         echo "<tr class='{$row_class}'>
                             <td class='px-4 py-3 font-medium text-gray-700'>{$record_date}</td>
                             <td class='px-4 py-3'>{$entry['time']}</td>
-                            <td class='px-4 py-3'>{$record_op_code}</td>
+                            <td class='px-4 py-3'>{$service_name}({$record_op_code})</td>
                             <td class='px-4 py-3'>{$entry['vehicle_no']}</td>
                             <td class='px-4 py-3 text-xs text-gray-600'>{$recorded_by}</td>
                             

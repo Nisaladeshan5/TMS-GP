@@ -23,7 +23,24 @@ $dateObj = DateTime::createFromFormat('!m', $month);
 $monthName = $dateObj->format('F');
 $reportTitle = "Extra Vehicle Monthly Payments History - " . $monthName . " " . $year;
 
-// Fetch Data
+// --- FETCH CODES FOR CATEGORIZATION (NEW) ---
+$op_codes_list = [];
+$route_codes_list = [];
+$sub_route_codes_list = [];
+
+$check_op = $conn->query("SHOW TABLES LIKE 'op_services'");
+if ($check_op && $check_op->num_rows > 0) {
+    $res_op = $conn->query("SELECT op_code FROM op_services");
+    if($res_op) while($r = $res_op->fetch_assoc()) $op_codes_list[] = $r['op_code'];
+}
+
+$res_rt = $conn->query("SELECT route_code FROM route");
+if($res_rt) while($r = $res_rt->fetch_assoc()) $route_codes_list[] = $r['route_code'];
+
+$res_sub = $conn->query("SELECT sub_route_code FROM sub_route");
+if($res_sub) while($r = $res_sub->fetch_assoc()) $sub_route_codes_list[] = $r['sub_route_code'];
+
+// --- Fetch History Data ---
 $sql = "
     SELECT 
         mph.code,
@@ -69,7 +86,7 @@ echo '</tr>';
 
 // 2. COLUMN HEADERS ROW (BLUE)
 echo '<tr style="color:white; font-weight:bold; text-align:center;">';
-echo '<th style="background-color:#4F81BD; width: 200px;">Identifier (Op/Route)</th>';
+echo '<th style="background-color:#4F81BD; width: 200px;">Identifier (Op/Route/Sub)</th>'; // UPDATED HEADER
 echo '<th style="background-color:#4F81BD; width: 250px;">Supplier</th>';
 echo '<th style="background-color:#4F81BD; width: 150px;">Rate (LKR)</th>';
 echo '<th style="background-color:#4F81BD; width: 150px;">Total Distance (km)</th>';
@@ -81,8 +98,19 @@ if ($result && $result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
         echo '<tr>';
         
-        // Identifier
-        echo '<td style="vertical-align: middle;">' . htmlspecialchars($row['code']) . '</td>';
+        // --- Identifier Logic ---
+        $code_val = $row['code'];
+        $display_code = $code_val;
+
+        if (in_array($code_val, $route_codes_list)) {
+            $display_code = "RT: " . $code_val;
+        } elseif (in_array($code_val, $sub_route_codes_list)) {
+            $display_code = "SUB: " . $code_val;
+        } elseif (in_array($code_val, $op_codes_list)) {
+            $display_code = "OP: " . $code_val;
+        }
+
+        echo '<td style="vertical-align: middle; font-weight: bold;">' . htmlspecialchars($display_code) . '</td>';
         
         // Supplier + Code
         $supDisplay = htmlspecialchars($row['supplier'] ?? 'N/A') . ' (' . htmlspecialchars($row['supplier_code']) . ')';
